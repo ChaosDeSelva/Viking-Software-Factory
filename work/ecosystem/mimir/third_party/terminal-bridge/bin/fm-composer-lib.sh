@@ -78,7 +78,7 @@
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
 #
-# THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
+# THE COMPOSER FOOTER ZONE (task mimir-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
 # permission-mode hint - and the cursorless "bottom-most shape wins" rule
 # looks exactly there. `→` (U+2192) is Cursor's prompt glyph but ordinary text
@@ -243,7 +243,7 @@ fm_composer_normalize_trim_var() {  # <varname>
 #     FM_COMPOSER_GHOST_LUMA_MAX (default 128): how grok renders its placeholder
 #     and hint text. A reset (SGR 0), a default-foreground (SGR 39), any base
 #     foreground colour (30-37 / 90-97), or a lighter 38;2 foreground ends the
-#     dark-foreground run. This assumes a DARK terminal theme, the firstmate
+#     dark-foreground run. This assumes a DARK terminal theme, the mimir
 #     fleet reality, where real typed input is bright and only de-emphasised UI
 #     is dark; the SGR-2 signal above stays theme-independent. A 256-colour
 #     foreground (38;5;n) is NOT luminance-tested - it is palette-dependent and
@@ -353,7 +353,7 @@ fm_composer_strip_ghost() {
 # problem.
 #
 # This is a DELIVERY guard, deliberately NOT a worker-state source. The semantic
-# busy contract - what firstmate records and supervises on - is owned by
+# busy contract - what mimir records and supervises on - is owned by
 # bin/fm-busy-lib.sh, which forbids classifying a harness from rendered text.
 # Matching a footer to confirm a keystroke landed is a different question from
 # asking what a worker is doing, and the two must not be conflated.

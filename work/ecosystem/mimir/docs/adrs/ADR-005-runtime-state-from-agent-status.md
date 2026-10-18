@@ -3,7 +3,7 @@
 Status: Accepted (2026-10-14). Source: D-005.
 
 ## Context
-Terminal text is easy to scrape and easy to fake: an agent, a repository file or a malicious page can print any string. Firstmate's hard won rule is that status ordering is best effort and screen text is not a state source.
+Terminal text is easy to scrape and easy to fake: an agent, a repository file or a malicious page can print any string. Status ordering is best effort and screen text is not a state source.
 
 ## Decision
 Runtime state comes only from HerdR `agent_status` (`idle`, `working`, `blocked`, `done`, `unknown`), tagged `provenance: observed`. Terminal text is observed output and never a state source. Missing or ambiguous state is `unknown`, and `unknown` never promotes to running.

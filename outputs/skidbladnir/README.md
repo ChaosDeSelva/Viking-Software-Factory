@@ -43,7 +43,7 @@ Simulation is always labeled. Templates are metadata in simulation; no language 
 npm run preview:site
 ```
 
-Open **http://127.0.0.1:4381**. See [GitHub Pages setup](docs/GITHUB-PAGES.md) for publication. No repository or public deployment URL has been assigned yet.
+Open **http://127.0.0.1:4381**. See [GitHub Pages setup](docs/GITHUB-PAGES.md) for publication. The project site is https://chaosdeselva.github.io/Skidbladnir/.
 
 The supplied moonlit Skidbladnir illustration is used in this README and on the site. Its original [art direction prompt](docs/BANNER-PROMPT.md) is retained for reference.
 
@@ -79,4 +79,4 @@ Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE), [CONTRIBUTING.md](CONTRIBU
 
 ## Experimental release status
 
-The planned public source tag is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.

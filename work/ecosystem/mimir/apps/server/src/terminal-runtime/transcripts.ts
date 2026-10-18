@@ -1,5 +1,5 @@
-// Session-log contracts informed by Firstmate (MIT, Kun Chen).
-// See third_party/firstmate/LICENSE. No transcript content is emitted or persisted.
+// Session-log contracts informed by upstream terminal helpers (MIT, Kun Chen).
+// See third_party/terminal-bridge/LICENSE. No transcript content is emitted or persisted.
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";

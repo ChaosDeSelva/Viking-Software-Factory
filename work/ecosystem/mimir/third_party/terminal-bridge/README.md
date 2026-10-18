@@ -18,7 +18,7 @@ does not imply endorsement, affiliation, or equivalent compatibility coverage.
 ## Native terminal backends
 
 `bin/backends/{zellij,cmux,orca}.sh`, `bin/fm-backend-hometag-lib.sh`, and
-`bin/fm-composer-lib.sh` are copied unmodified from the pinned revision above.
+`bin/fm-composer-lib.sh` are adapted from the pinned revision above. Local changes use the Mimir session namespace and project wording.
 They retain upstream copyright and the MIT license in this directory.
 `bridge.sh` is an original Mimir wrapper using their fixed operation contracts.
 The factory does not claim authorship of these backend implementations.

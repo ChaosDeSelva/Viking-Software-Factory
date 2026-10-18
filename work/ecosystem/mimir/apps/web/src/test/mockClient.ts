@@ -111,8 +111,10 @@ export function mockClient(over: Partial<MimirClient> = {}): MockClient {
       start: vi.fn(async () => accepted()),
       cancel: vi.fn(async () => accepted()),
     },
-    crews: { list: vi.fn(async () => ({ crews: [] })), create: vi.fn() },
+    crews: { list: vi.fn(async () => ({ crews: [] })), create: vi.fn(), pause: vi.fn(), resume: vi.fn() },
     tasks: {
+      get: vi.fn(),
+      verify: vi.fn(),
       list: vi.fn(async () => ({ tasks: [] })),
       create: vi.fn(),
       retry: vi.fn(async () => accepted()),
@@ -123,6 +125,7 @@ export function mockClient(over: Partial<MimirClient> = {}): MockClient {
       decide: vi.fn(async () => accepted()),
     },
     sessions: {
+      get: vi.fn(),
       input: vi.fn(async () => accepted()),
       stop: vi.fn(async () => accepted()),
       terminal: vi.fn(async () => ({ text: "$ echo hi\nhi\n", provenance: "observed" as const })),

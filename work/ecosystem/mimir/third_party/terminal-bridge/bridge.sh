@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mimir bridge to unmodified MIT Firstmate backend functions. Fixed verbs; no eval.
+# Mimir bridge to MIT licensed terminal backend adaptations. Fixed verbs; no eval.
 set -euo pipefail
 backend=$1 operation=$2 home=$3
 shift 3

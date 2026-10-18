@@ -12,7 +12,7 @@ availability on the controller. Installed is not authenticated or certified.
 | Herdr | `MIMIR_RUNTIME=herdr` | Existing upstream Herdr adapter | Adapter contract suite |
 | SSH | `MIMIR_RUNTIME=ssh` | Durable headless or interactive tmux remote jobs with source and patch transfer | Real exe.dev Codex execution, restart recovery, packet loss and blackhole acceptance |
 | Fleet | `MIMIR_RUNTIME=fleet` | Capacity aware scheduling across explicit workers | Concurrent launch, restart, drain and ambiguous dispatch tests |
-| Zellij / cmux / Orca | Matching runtime name | Native terminal adapters using attributed Firstmate backend functions | Experimental; Zellij tested with attached PTY, cmux access restricted, Orca unverified |
+| Zellij / cmux / Orca | Matching runtime name | Native terminal adapters using attributed terminal backend helpers | Experimental; Zellij tested with attached PTY, cmux access restricted, Orca unverified |
 
 Direct CLI, managed tmux and SSH support Codex, Claude, OpenCode, Gemini and Pi.
 The last three are experimental. The interactive runtime has launch profiles for

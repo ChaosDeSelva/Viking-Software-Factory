@@ -57,8 +57,8 @@ describe("release:local", () => {
       "app/web/dist/index.html",
       "scripts/install-local.sh",
       "VERSION",
-      "third_party/firstmate/LICENSE",
-      "third_party/firstmate/README.md",
+      "third_party/terminal-bridge/LICENSE",
+      "third_party/terminal-bridge/README.md",
     ]) {
       expect(existsSync(join(top(), p)), p).toBe(true);
     }

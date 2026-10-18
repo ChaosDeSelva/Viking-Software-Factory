@@ -19,7 +19,7 @@ Firstmate combines agent instructions with executable helpers. Its supervisor de
 
 ## What we adopted now
 
-Mimir's new `apps/server/src/ssh-runtime/transport.ts` adapts the SSH policy from `fm-on.sh`, with the upstream MIT license and attribution retained under `third_party/firstmate`. The release packager now includes that directory. Mimir uses a bounded JSON request on stdin and expects a protocol envelope. It does not accept a remote shell command from task text, forward the SSH agent, retry a mutation automatically, or substitute local execution for an unreachable host.
+Mimir's new `apps/server/src/ssh-runtime/transport.ts` adapts the SSH policy from `fm-on.sh`, with the upstream MIT license and attribution retained under `third_party/terminal-bridge`. The release packager now includes that directory. Mimir uses a bounded JSON request on stdin and expects a protocol envelope. It does not accept a remote shell command from task text, forward the SSH agent, retry a mutation automatically, or substitute local execution for an unreachable host.
 
 Five transport tests cover argument policy, hostile text remaining data, unknown completion, output/deadline bounds, and unavailable local SSH. These use executable fixtures, not a real SSH host. The transport is now wired into the selectable SSH runtime. Its remote entrypoint, durable jobs, tracked source transfer, patch retrieval and restart reconciliation have local integration tests. A real external SSH host remains an uncompleted acceptance check.
 

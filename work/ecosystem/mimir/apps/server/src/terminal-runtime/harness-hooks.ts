@@ -3,8 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { claudeHookSettings } from "./hooks.js";
-/** Lifecycle contracts adapted from Firstmate fm-spawn.sh at a24f4cb.
- * MIT, Copyright (c) 2026 Kun Chen; see third_party/firstmate/LICENSE.
+/** Lifecycle contracts adapted from upstream terminal helpers fm-spawn.sh at a24f4cb.
+ * MIT, Copyright (c) 2026 Kun Chen; see third_party/terminal-bridge/LICENSE.
  * Generated files belong to the session, never overwrite project or global settings.
  */
 export function wireHarnessHooks(

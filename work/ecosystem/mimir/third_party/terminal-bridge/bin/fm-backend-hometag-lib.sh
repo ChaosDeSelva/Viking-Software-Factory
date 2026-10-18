@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # bin/fm-backend-hometag-lib.sh - shared per-installation home-tag derivation
 # for session-provider backends whose container has ONE namespace shared by
-# every firstmate home on the machine, with no native per-home split (cmux's
-# one app-global workspace list, zellij's one shared "firstmate" session's
+# every mimir home on the machine, with no native per-home split (cmux's
+# one app-global workspace list, zellij's one shared "mimir" session's
 # tab bar). Without a per-home discriminator embedded in the actual
-# title/name, two firstmate homes (two secondmates, a primary plus a
+# title/name, two mimir homes (two secondmates, a primary plus a
 # secondmate, or two independent primary installations) whose task ids
 # happen to collide can send/peek/close each other's tabs - the gap a
 # captain-directed no-mistakes review gate caught for cmux
@@ -13,7 +13,7 @@
 # tab titles").
 #
 # fm_backend_hometag() derives a short, stable tag: a readable prefix
-# ("firstmate" for the primary home, "2ndmate-<id>" for a secondmate home
+# ("mimir" for the primary home, "2ndmate-<id>" for a secondmate home
 # carrying .fm-secondmate-home) plus a short hash of the resolved FM_ROOT
 # path, so distinct installations - including multiple primaries on one
 # machine - never collide even though they share one backend-global
@@ -21,7 +21,7 @@
 # FM_HOME/FM_ROOT fallbacks (both adapters already do this for their own
 # purposes before any other function runs).
 #
-# Moving/relocating a firstmate installation changes its FM_ROOT path and
+# Moving/relocating a mimir installation changes its FM_ROOT path and
 # therefore its tag; titles created under the old tag simply stop matching -
 # an accepted limitation, no worse than the existing fact that a task's
 # recorded absolute worktree path does not survive a move either.
@@ -35,10 +35,10 @@ fm_backend_hometag() {
     if [ -n "$id" ]; then
       prefix="2ndmate-$id"
     else
-      prefix="firstmate"
+      prefix="mimir"
     fi
   else
-    prefix="firstmate"
+    prefix="mimir"
   fi
   root=$(cd "$FM_ROOT" 2>/dev/null && pwd -P) || root=$FM_ROOT
   if command -v shasum >/dev/null 2>&1; then

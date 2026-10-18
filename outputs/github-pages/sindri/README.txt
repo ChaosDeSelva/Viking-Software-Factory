@@ -5,7 +5,7 @@
 Turns an idea into a reviewed specification, executable plan, and evidence backed local delivery. GitHub is optional.
 
 License: Apache-2.0
-Status: pre release (0.1.0 is not cut)
+Status: experimental v0.1.0 source prerelease
 Node >= 25. Local first, no telemetry.
 
 ## What it is
@@ -192,4 +192,4 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 ## Experimental release status
 
-The planned public source tag is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.

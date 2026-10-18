@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 
-/** SSH policy adapted from Firstmate bin/fm-on.sh at a24f4cb873d87295dddbc521599c21ea86d6dc00.
- * Copyright (c) 2026 Kun Chen. MIT; see third_party/firstmate/LICENSE.
+/** SSH policy adapted from upstream terminal helpers bin/fm-on.sh at a24f4cb873d87295dddbc521599c21ea86d6dc00.
+ * Copyright (c) 2026 Kun Chen. MIT; see third_party/terminal-bridge/LICENSE.
  * Structured stdin and response framing below are Mimir-specific.
  */
 export type SshRoute = { host: string; root: string; backend?: "tmux-interactive" };

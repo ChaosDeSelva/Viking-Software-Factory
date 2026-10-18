@@ -10,7 +10,7 @@
 # source it directly.
 #
 # Session shape (report "Zellij implementation choices" #1, unchanged by
-# empirical verification): ONE zellij session (default name "firstmate",
+# empirical verification): ONE zellij session (default name "mimir",
 # overridable via FM_ZELLIJ_SESSION for test isolation - mirrors herdr's
 # HERDR_SESSION), ONE tab per task, with caller-facing label "fm-<id>" and a
 # home-scoped actual title. No per-home workspace split (unlike herdr's later
@@ -21,9 +21,9 @@
 # mirrors herdr's target-string convention).
 #
 # Home-scoped tab titles (closes a cross-home collision gap): because every
-# task in every firstmate home - primary or secondmate - shares this ONE
+# task in every mimir home - primary or secondmate - shares this ONE
 # session's tab bar with no per-home split, and zellij enforces no tab-name
-# uniqueness at all, two firstmate homes whose task ids happen to collide
+# uniqueness at all, two mimir homes whose task ids happen to collide
 # could send/peek/close each other's tabs. This is the exact gap a
 # captain-directed no-mistakes review gate caught for the cmux backend
 # (docs/cmux-backend.md) and this same tag mechanism (bin/backends/cmux.sh's
@@ -36,7 +36,7 @@
 # match it, but ONLY when that bare title is unambiguous (exactly one live tab
 # in the session carries it) - see fm_backend_zellij_tab_matches_label and
 # docs/zellij-backend.md "Home-scoped tab titles" for the full migration
-# posture. Moving/relocating a firstmate installation changes its tag
+# posture. Moving/relocating a mimir installation changes its tag
 # (acceptable - recorded worktree paths do not survive a move either).
 #
 # Empirical verification (real zellij 0.44.0, macOS aarch64, 2026-07-02;
@@ -132,17 +132,17 @@ FM_BACKEND_ZELLIJ_MIN_MINOR=44
 
 # fm_backend_zellij_session: the session name this spawn/op uses.
 # FM_ZELLIJ_SESSION mirrors herdr's HERDR_SESSION ambient-selection knob: an
-# operator (or firstmate's own isolated test harness) sets it explicitly;
-# absent means the shared "firstmate" session. Do not use this alone for
+# operator (or mimir's own isolated test harness) sets it explicitly;
+# absent means the shared "mimir" session. Do not use this alone for
 # destructive test cleanup; tests/zellij-test-safety.sh documents and guards
 # that path (mirrors tests/herdr-test-safety.sh).
 fm_backend_zellij_session() {
-  printf '%s' "${FM_ZELLIJ_SESSION:-firstmate}"
+  printf '%s' "${FM_ZELLIJ_SESSION:-mimir}"
 }
 
 # fm_backend_zellij_home_label: readable home prefix plus a short hash of the
 # resolved FM_ROOT path (bin/fm-backend-hometag-lib.sh). Zellij has one
-# session-global tab namespace shared by every firstmate home, so the path
+# session-global tab namespace shared by every mimir home, so the path
 # hash distinguishes every installation, including multiple primary homes.
 # Moving an installation changes this tag and old zellij tab titles stop
 # matching; task meta already records absolute worktree paths, so repo
@@ -287,14 +287,14 @@ fm_backend_zellij_pane_exists() {  # <session> <pane_id>
 }
 
 # fm_backend_zellij_tab_matches_label: does <tab_id> in <session> carry the
-# tab name firstmate expects for the caller-facing task label <label>?
+# tab name mimir expects for the caller-facing task label <label>?
 # Checks the home-scoped, tagged title first (fm_backend_zellij_scoped_title
 # - what every NEW tab is created with), then falls back to the legacy
 # untagged bare title (the plain <label>, e.g. "fm-<id>") for a tab created
 # before this home-scoping change shipped - but ONLY when that bare name is
 # not ambiguous: exactly one live tab in the whole session carries it. A bare
 # name shared by 2+ live tabs (this home's own pre-migration tab plus, say, a
-# same-named tab from a different firstmate home sharing this one zellij
+# same-named tab from a different mimir home sharing this one zellij
 # session) refuses rather than silently trusting whichever one happened to
 # match - the migration posture documented in docs/zellij-backend.md
 # "Home-scoped tab titles". One list-tabs call serves every check here (the
@@ -326,7 +326,7 @@ fm_backend_zellij_tab_matches_label() {  # <session> <tab_id> <label>
 # attached client. Capture the previously-active tab id (if any) before
 # creating, and restore it with `go-to-tab-by-id` afterward - verified to
 # correctly move an attached client's view back and to be a safe, silent
-# no-op when no client is attached (the common case: an unattended firstmate
+# no-op when no client is attached (the common case: an unattended mimir
 # spawn). Best-effort: a failure to restore never fails the spawn.
 #
 # Echoes "<tab_id> <pane_id>" on success.
@@ -371,7 +371,7 @@ fm_backend_zellij_parse_target() {  # <target>
 }
 
 # fm_backend_zellij_target_ready: parse the target and verify its session and
-# pane are alive. When the caller knows the owning firstmate task label, verify
+# pane are alive. When the caller knows the owning mimir task label, verify
 # the pane belongs to that named tab before trusting the numeric pane id.
 fm_backend_zellij_target_ready() {  # <target> [expected-label]
   local expected_label=${2:-} tab_id
@@ -439,7 +439,7 @@ fm_backend_zellij_send_literal() {  # <target> <text> [expected-label]
   fm_backend_zellij_cli "$FM_BACKEND_ZELLIJ_SESSION" action paste --pane-id "$FM_BACKEND_ZELLIJ_PANE" -- "$2" >/dev/null 2>&1
 }
 
-# fm_backend_zellij_normalize_key: map firstmate's key vocabulary (Enter,
+# fm_backend_zellij_normalize_key: map mimir's key vocabulary (Enter,
 # Escape, C-c, as used by fm-send.sh --key and stuck-crewmate-recovery) onto
 # zellij's verified `action send-keys` names. Verified empirically: "Enter"
 # and "Esc" work; "Escape" and "escape" are REJECTED ("Invalid key"); Ctrl-C
@@ -622,7 +622,7 @@ fm_backend_zellij_kill() {  # <target> [tab_id] [expected_label]
 }
 
 # fm_backend_zellij_list_live: recovery/orphan discovery. Lists every tab in
-# <session> whose title carries THIS firstmate home's own tag
+# <session> whose title carries THIS mimir home's own tag
 # (fm-<hometag>-, fm_backend_zellij_home_label) - never any other home's
 # tagged tabs, and never a bare untagged "fm-<id>" tab either (this sweep
 # deliberately does NOT attempt the legacy-bare-title fallback

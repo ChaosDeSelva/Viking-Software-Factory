@@ -31,7 +31,7 @@ export class NativeTerminalBackend implements TerminalBackend {
         )
       ).stdout;
     const bridge = fileURLToPath(
-      new URL("../../../../third_party/firstmate/bridge.sh", import.meta.url),
+      new URL("../../../../third_party/terminal-bridge/bridge.sh", import.meta.url),
     );
     return (
       await run("bash", [bridge, this.name, operation, this.home, ...args], {

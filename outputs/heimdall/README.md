@@ -42,7 +42,7 @@ Token environment variables `MIMIR_TOKEN` and `SINDRI_TOKEN` are alternatives to
 
 React and Vite power the UI. Tailwind provides design tokens and utilities; reusable accessible components live in `apps/web/src/components`. Open `/?view=components` for the interactive catalog. Cmd/Ctrl-K searches navigation and records. A dedicated Web Worker computes dependency layouts; live source updates use SSE, and commands use authenticated HTTP.
 
-See the [release plan](docs/factory-release-plan.md) and [Firstmate source audit](docs/firstmate-source-audit.md) for scope and provenance. Remote execution belongs to Mimir; Heimdall stays on loopback.
+See the [release plan](docs/factory-release-plan.md) and [third party source notice](third_party/terminal-source-notice.md) for scope and provenance. Remote execution belongs to Mimir; Heimdall stays on loopback.
 
 ## Included capabilities
 
@@ -85,8 +85,8 @@ node examples/demo.mjs
 
 `pnpm test:integration` additionally exercises the real source APIs and browser plan editing when the built sibling sources exist under `../../work/ecosystem/` (the layout of this installation).
 
-The demo uses explicitly synthetic data on port 4322. The runtime uses Node HTTP/SQLite; the UI uses React/TypeScript/Vite and a custom accessible graph. There is no mandatory hosted service. See [architecture and security](docs/architecture.md). This project has not been published to GitHub or a registry.
+The demo uses explicitly synthetic data on port 4322. The runtime uses Node HTTP/SQLite; the UI uses React/TypeScript/Vite and a custom accessible graph. There is no mandatory hosted service. See [architecture and security](docs/architecture.md). Source is published on GitHub; no registry package is required for the local build.
 
 ## Experimental release status
 
-The planned public source tag is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.

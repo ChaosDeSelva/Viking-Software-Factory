@@ -3,7 +3,7 @@
 Status: Accepted (2026-10-14). Source: D-006. License file: `LICENSE`.
 
 ## Context
-The user decided all products are open source and free. HerdR is Apache-2.0. Firstmate is AGPL plus commercial, so nothing is copied from it and no dependency is taken.
+The user decided all products are open source and free. HerdR is Apache-2.0. Vendored terminal helpers retain their MIT license and provenance in third_party/terminal-bridge/README.md.
 
 ## Decision
 Mimir (and Sindri and Brokkr) are Apache-2.0. No paid tier, license keys, gated features, hosted service or telemetry unless the user opts in. The only cost to a user is their own LLM provider. Every dependency must be Apache-2.0 compatible; avoid copyleft and source available dependencies.
