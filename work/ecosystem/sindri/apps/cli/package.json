@@ -1,0 +1,28 @@
+{
+  "name": "@sindri/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "sindri": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "tsc -p tsconfig.build.json && vitest run"
+  },
+  "dependencies": {
+    "@sindri/knowledge": "workspace:*",
+    "@sindri/server": "workspace:*",
+    "commander": "^14.0.0",
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@sindri/web": "workspace:*",
+    "execa": "^9.6.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

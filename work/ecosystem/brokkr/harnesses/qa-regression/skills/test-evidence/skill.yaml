@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: test-evidence
+  version: 1.0.0
+  description: "Record what was tested, how, and with what result so a reviewer can audit it without re-running"
+  tags:
+    - qa
+    - evidence
+selectors:
+  taskTypes:
+    - "qa"
+    - "test"
+    - "regression"
+  keywords:
+    - "evidence"
+    - "test report"
+    - "screenshot"
+    - "qa"
+body: instructions.md
+estimatedTokens: 210

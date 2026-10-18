@@ -1,0 +1,61 @@
+{
+  "name": "@brokkr/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json",
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "schemas": "node scripts/gen-schemas.mjs",
+    "docs:api": "typedoc"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.7.1",
+    "ajv": "^8.20.0",
+    "typedoc": "^0.28.20",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  },
+  "description": "Public integration SDK for Brokkr: resolve harnesses, prepare agent context, verify a workspace.",
+  "files": [
+    "dist",
+    "harnesses",
+    "schemas",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=25"
+  },
+  "dependencies": {
+    "@brokkr/adapter-claude-code": "workspace:*",
+    "@brokkr/adapter-codex": "workspace:*",
+    "@brokkr/adapter-generic": "workspace:*",
+    "@brokkr/core": "workspace:*",
+    "@brokkr/evidence": "workspace:*",
+    "@brokkr/policy": "workspace:*",
+    "@brokkr/registry": "workspace:*",
+    "@brokkr/reporters": "workspace:*",
+    "@brokkr/resolver": "workspace:*",
+    "@brokkr/runner": "workspace:*",
+    "semver": "^7.8.5",
+    "zod": "^4.6.7"
+  }
+}

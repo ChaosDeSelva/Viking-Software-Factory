@@ -1,0 +1,95 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: documentation
+  version: 1.0.0
+  description: "Documentation accuracy, runnable examples, link integrity and release notes"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - docs
+    - documentation
+
+skills:
+  required:
+    - docs-accuracy
+    - runnable-examples
+    - release-notes
+    - link-integrity
+  optional: []
+
+workflow:
+  stages:
+    - inspect
+    - write
+    - verify-examples
+    - link-check
+    - review
+
+checks:
+  - id: docs-links
+    command:
+      - pnpm
+      - run
+      - "docs:links"
+    required: true
+    timeoutSeconds: 180
+    when:
+      scriptExists:
+        - "docs:links"
+
+  - id: docs-examples
+    command:
+      - pnpm
+      - run
+      - "docs:examples"
+    required: true
+    timeoutSeconds: 300
+    when:
+      scriptExists:
+        - "docs:examples"
+
+  - id: docs-lint
+    command:
+      - pnpm
+      - run
+      - "docs:lint"
+    required: false
+    timeoutSeconds: 180
+    when:
+      scriptExists:
+        - "docs:lint"
+
+  - id: docs-build
+    command:
+      - pnpm
+      - run
+      - "docs:build"
+    required: false
+    timeoutSeconds: 300
+    when:
+      scriptExists:
+        - "docs:build"
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+
+evidence:
+  captureLogs: true
+  captureTestResults: false
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "Every documented command, option and default matches the code"
+    - "Every new or changed example was executed and its output matches"
+    - "Release notes list breaking changes first with migration steps"

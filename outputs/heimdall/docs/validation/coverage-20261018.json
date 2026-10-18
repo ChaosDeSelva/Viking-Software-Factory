@@ -1,0 +1,18 @@
+{
+  "date": "2026-10-18",
+  "mimirServer": {
+    "filesPassed": 54,
+    "testsPassed": 427,
+    "build": "passed",
+    "changedFileLint": "passed",
+    "environment": "local sockets and tmux permitted"
+  },
+  "fixes": [
+    "Reject malformed lifecycle envelopes",
+    "Apply 64 KiB limit to argv hook payloads",
+    "Reject malformed vendor payloads before ownership updates",
+    "Refuse redirected Rovo config destinations and replace with private permissions"
+  ],
+  "manualScreenReader": "awaiting operator observations",
+  "unauthenticatedVendors": "not live accepted"
+}

@@ -1,0 +1,25 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: testing
+  version: 1.0.0
+  description: "Unit and integration tests for services, endpoints and data access"
+  tags:
+    - testing
+    - integration
+dependsOn:
+  - api-contracts
+selectors:
+  keywords:
+    - "test"
+    - "testing"
+    - "integration"
+    - "endpoint"
+    - "database"
+    - "e2e"
+  pathGlobs:
+    - "test/**"
+    - "**/*.test.ts"
+    - "**/*.integration.test.ts"
+body: instructions.md
+estimatedTokens: 210

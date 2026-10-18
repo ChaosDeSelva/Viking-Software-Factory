@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: dependency-audit
+  version: 1.0.0
+  description: "Audit locked dependencies for known vulnerabilities with the package manager's audit command"
+  tags:
+    - security
+    - dependencies
+selectors:
+  keywords:
+    - "dependency"
+    - "vulnerability"
+    - "audit"
+    - "cve"
+    - "package"
+    - "lockfile"
+body: instructions.md
+estimatedTokens: 190

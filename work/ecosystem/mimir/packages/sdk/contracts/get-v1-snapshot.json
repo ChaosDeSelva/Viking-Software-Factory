@@ -1,0 +1,881 @@
+{
+  "operation": "GET /v1/snapshot",
+  "method": "GET",
+  "path": "/v1/snapshot",
+  "status": 200,
+  "request": {
+    "url": "/v1/snapshot",
+    "headers": [
+      "authorization"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "projects": [
+        {
+          "id": "prj_00000000000000000000000001",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "name": "demo",
+          "repoPath": "/repo",
+          "settings": {}
+        }
+      ],
+      "missions": [
+        {
+          "id": "msn_00000000000000000000000002",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "projectId": "prj_00000000000000000000000001",
+          "objective": "ship",
+          "status": "draft"
+        },
+        {
+          "id": "msn_00000000000000000000000003",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "projectId": "prj_00000000000000000000000001",
+          "objective": "stays open",
+          "status": "draft"
+        }
+      ],
+      "crews": [
+        {
+          "id": "crw_00000000000000000000000004",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "missionId": "msn_00000000000000000000000002",
+          "template": "solo",
+          "status": "configured",
+          "limits": {}
+        },
+        {
+          "id": "crw_00000000000000000000000005",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "missionId": "msn_00000000000000000000000003",
+          "template": "solo",
+          "status": "configured",
+          "limits": {}
+        }
+      ],
+      "tasks": [
+        {
+          "id": "tsk_00000000000000000000000006",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "missionId": "msn_00000000000000000000000002",
+          "crewId": "crw_00000000000000000000000004",
+          "title": "task",
+          "acceptance": "",
+          "status": "failed",
+          "attempt": 0,
+          "maxAttempts": 3,
+          "agentId": null,
+          "leaseExpiresAt": null
+        },
+        {
+          "id": "tsk_00000000000000000000000007",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "missionId": "msn_00000000000000000000000002",
+          "crewId": "crw_00000000000000000000000004",
+          "title": "task",
+          "acceptance": "",
+          "status": "completed",
+          "attempt": 0,
+          "maxAttempts": 3,
+          "agentId": null,
+          "leaseExpiresAt": null
+        }
+      ],
+      "taskDependencies": [],
+      "agents": [
+        {
+          "id": "agt_00000000000000000000000008",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "crewId": "crw_00000000000000000000000004",
+          "role": "implementer",
+          "agentKind": "fake",
+          "runtimeSessionId": "ses_00000000000000000000000009",
+          "status": "running",
+          "taskId": "tsk_00000000000000000000000006"
+        }
+      ],
+      "approvals": [
+        {
+          "id": "apr_00000000000000000000000010",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z",
+          "version": 1,
+          "action": "shell.destructive",
+          "status": "pending",
+          "actor": null,
+          "expiry": null,
+          "missionId": "msn_00000000000000000000000002",
+          "taskId": null,
+          "reason": null
+        }
+      ],
+      "worktrees": [],
+      "usage": {
+        "tokens": 10,
+        "estimatedCost": 0.5,
+        "samples": 1,
+        "bySource": {
+          "measured": 1,
+          "estimated": 0,
+          "unavailable": 0
+        }
+      },
+      "cursor": "Mg=="
+    }
+  },
+  "schemas": {
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "projects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Project"
+          }
+        },
+        "missions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Mission"
+          }
+        },
+        "crews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Crew"
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Task"
+          }
+        },
+        "taskDependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskDependency"
+          }
+        },
+        "agents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Agent"
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Approval"
+          }
+        },
+        "worktrees": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Worktree"
+          }
+        },
+        "usage": {
+          "type": "object",
+          "properties": {
+            "tokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "estimatedCost": {
+              "type": "number",
+              "minimum": 0
+            },
+            "samples": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bySource": {
+              "type": "object",
+              "properties": {
+                "measured": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "estimated": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "unavailable": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "measured",
+                "estimated",
+                "unavailable"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "tokens",
+            "estimatedCost",
+            "samples",
+            "bySource"
+          ],
+          "additionalProperties": false
+        },
+        "cursor": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "projects",
+        "missions",
+        "crews",
+        "tasks",
+        "taskDependencies",
+        "agents",
+        "approvals",
+        "worktrees",
+        "usage",
+        "cursor"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "Project": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "repoPath": {
+              "type": "string",
+              "minLength": 1
+            },
+            "settings": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "name",
+            "repoPath",
+            "settings"
+          ],
+          "additionalProperties": false
+        },
+        "Mission": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "projectId": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "objective": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "paused",
+                "completed",
+                "cancelled",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "projectId",
+            "objective",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "Crew": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "schedulingPaused": {
+              "type": "boolean"
+            },
+            "missionId": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "template": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "configured",
+                "running",
+                "stopped",
+                "archived"
+              ]
+            },
+            "limits": {
+              "type": "object",
+              "properties": {
+                "maxAgents": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "maxConcurrentTasks": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "maxAttemptsPerTask": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "leaseSeconds": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "missionId",
+            "template",
+            "status",
+            "limits"
+          ],
+          "additionalProperties": false
+        },
+        "Task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "resultCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,64}$"
+            },
+            "verification": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 86400000
+            },
+            "missionId": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "crewId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "acceptance": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "ready",
+                "leased",
+                "running",
+                "verifying",
+                "completed",
+                "blocked",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "attempt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "agentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "leaseExpiresAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "blockedReason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "missionId",
+            "crewId",
+            "title",
+            "acceptance",
+            "status",
+            "attempt",
+            "maxAttempts",
+            "agentId",
+            "leaseExpiresAt"
+          ],
+          "additionalProperties": false
+        },
+        "TaskDependency": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^tdp_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "dependsOnId": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "taskId",
+            "dependsOnId"
+          ],
+          "additionalProperties": false
+        },
+        "Agent": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "crewId": {
+              "type": "string",
+              "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "lead",
+                "implementer",
+                "reviewer",
+                "qa",
+                "investigator"
+              ]
+            },
+            "agentKind": {
+              "type": "string",
+              "minLength": 1
+            },
+            "runtimeSessionId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "starting",
+                "idle",
+                "running",
+                "waiting",
+                "blocked",
+                "stopping",
+                "stopped",
+                "completed",
+                "failed",
+                "unknown"
+              ]
+            },
+            "taskId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "crewId",
+            "role",
+            "agentKind",
+            "runtimeSessionId",
+            "status",
+            "taskId"
+          ],
+          "additionalProperties": false
+        },
+        "Approval": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^apr_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "action": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "expired",
+                "cancelled"
+              ]
+            },
+            "actor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "expiry": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "missionId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "taskId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "action",
+            "status",
+            "actor",
+            "expiry",
+            "missionId",
+            "taskId",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "Worktree": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^wtr_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "branch": {
+              "type": "string",
+              "minLength": 1
+            },
+            "baseSha": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,64}$"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "active",
+                "conflicted",
+                "removed"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "taskId",
+            "path",
+            "branch",
+            "baseSha",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

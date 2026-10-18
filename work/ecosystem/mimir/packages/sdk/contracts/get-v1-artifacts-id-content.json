@@ -1,0 +1,21 @@
+{
+  "operation": "GET /v1/artifacts/{id}/content",
+  "method": "GET",
+  "path": "/v1/artifacts/{id}/content",
+  "status": 200,
+  "request": {
+    "url": "/v1/artifacts/art_00000000000000000000000034/content",
+    "headers": [
+      "authorization"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "text/plain; charset=utf-8",
+    "bodyBase64": "MSBwYXNzZWQK",
+    "headers": {
+      "x-artifact-hash": "sha256:00"
+    }
+  },
+  "schemas": {}
+}

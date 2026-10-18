@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: independent-verification
+  version: 1.0.0
+  description: "Verify the change independently of the implementer: re-run, reproduce and explore instead of trusting reports"
+  tags:
+    - qa
+    - verification
+selectors:
+  taskTypes:
+    - "qa"
+    - "regression"
+  keywords:
+    - "verify"
+    - "reproduce"
+    - "independent"
+    - "qa"
+body: instructions.md
+estimatedTokens: 220

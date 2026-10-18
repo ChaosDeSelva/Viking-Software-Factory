@@ -1,0 +1,44 @@
+[
+  {
+    "project": "factory",
+    "sourceImage": "Viking Software Factory at Night (1).png",
+    "site": "factory",
+    "repoIntegrated": false
+  },
+  {
+    "project": "heimdall",
+    "sourceImage": "Heimdall_ Enchanted Mountain Stronghold.png",
+    "site": "heimdall",
+    "repoIntegrated": true
+  },
+  {
+    "project": "mimir",
+    "sourceImage": "Mimir_ The Raven\u2019s Knowledge Network.png",
+    "site": "mimir",
+    "repoIntegrated": true
+  },
+  {
+    "project": "sindri",
+    "sourceImage": "Sindri\u2019s Mythic Workshop.png",
+    "site": "sindri",
+    "repoIntegrated": true
+  },
+  {
+    "project": "brokkr",
+    "sourceImage": "Brokk\u0440_ Moonlit Norse Forge.png",
+    "site": "brokkr",
+    "repoIntegrated": true
+  },
+  {
+    "project": "hulder",
+    "sourceImage": "Hulder.png",
+    "site": "hulder",
+    "repoIntegrated": false
+  },
+  {
+    "project": "skidbladnir",
+    "sourceImage": "Moonlit Skidbladnir_ A Norse Magical Voyage.png",
+    "site": "skidbladnir",
+    "repoIntegrated": true
+  }
+]

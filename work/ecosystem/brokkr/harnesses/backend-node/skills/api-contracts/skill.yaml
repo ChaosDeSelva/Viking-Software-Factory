@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: api-contracts
+  version: 1.0.0
+  description: "HTTP API contract design: resources, status codes, versioning and schema-first compatibility"
+  tags:
+    - api
+    - http
+    - contract
+selectors:
+  keywords:
+    - "api"
+    - "endpoint"
+    - "route"
+    - "openapi"
+    - "contract"
+body: instructions.md
+estimatedTokens: 240

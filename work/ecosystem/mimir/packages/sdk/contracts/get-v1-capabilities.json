@@ -1,0 +1,130 @@
+{
+  "operation": "GET /v1/capabilities",
+  "method": "GET",
+  "path": "/v1/capabilities",
+  "status": 200,
+  "request": {
+    "url": "/v1/capabilities",
+    "headers": [
+      "authorization"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "serverVersion": "0.0.0-fake",
+      "protocolVersion": 1,
+      "runtime": null
+    }
+  },
+  "schemas": {
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "serverVersion": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeCapabilities"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "serverVersion",
+        "protocolVersion",
+        "runtime"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "RuntimeCapabilities": {
+          "type": "object",
+          "properties": {
+            "runtime": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "features": {
+              "type": "object",
+              "properties": {
+                "createSession": {
+                  "type": "boolean"
+                },
+                "sendInput": {
+                  "type": "boolean"
+                },
+                "sendKeys": {
+                  "type": "boolean"
+                },
+                "softStop": {
+                  "type": "boolean"
+                },
+                "forceStop": {
+                  "type": "boolean"
+                },
+                "pause": {
+                  "type": "boolean"
+                },
+                "subscribe": {
+                  "type": "boolean"
+                },
+                "terminalRead": {
+                  "type": "boolean"
+                },
+                "processInfo": {
+                  "type": "boolean"
+                },
+                "multiHost": {
+                  "type": "boolean"
+                },
+                "notify": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "createSession",
+                "sendInput",
+                "sendKeys",
+                "softStop",
+                "forceStop",
+                "pause",
+                "subscribe",
+                "terminalRead",
+                "processInfo",
+                "multiHost",
+                "notify"
+              ],
+              "additionalProperties": false
+            },
+            "agentKinds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "runtime",
+            "version",
+            "features",
+            "agentKinds"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

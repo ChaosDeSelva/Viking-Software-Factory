@@ -1,0 +1,16 @@
+{
+  "tarballs": {
+    "@brokkr/adapter-claude-code": "brokkr-adapter-claude-code-0.1.0.tgz",
+    "@brokkr/adapter-codex": "brokkr-adapter-codex-0.1.0.tgz",
+    "@brokkr/adapter-generic": "brokkr-adapter-generic-0.1.0.tgz",
+    "@brokkr/cli": "brokkr-cli-0.1.0.tgz",
+    "@brokkr/core": "brokkr-core-0.1.0.tgz",
+    "@brokkr/evidence": "brokkr-evidence-0.1.0.tgz",
+    "@brokkr/policy": "brokkr-policy-0.1.0.tgz",
+    "@brokkr/registry": "brokkr-registry-0.1.0.tgz",
+    "@brokkr/reporters": "brokkr-reporters-0.1.0.tgz",
+    "@brokkr/resolver": "brokkr-resolver-0.1.0.tgz",
+    "@brokkr/runner": "brokkr-runner-0.1.0.tgz",
+    "@brokkr/sdk": "brokkr-sdk-0.1.0.tgz"
+  }
+}

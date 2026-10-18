@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: insecure-config
+  version: 1.0.0
+  description: "Detect insecure configuration such as disabled TLS verification, open CORS and debug in production"
+  tags:
+    - security
+    - configuration
+selectors:
+  keywords:
+    - "cors"
+    - "tls"
+    - "ssl"
+    - "config"
+    - "debug"
+    - "docker"
+    - "terraform"
+body: instructions.md
+estimatedTokens: 170

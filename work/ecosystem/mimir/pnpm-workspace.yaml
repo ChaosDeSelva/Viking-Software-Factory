@@ -1,0 +1,19 @@
+packages:
+  - apps/*
+  - packages/*
+allowBuilds:
+  esbuild: true
+  better-sqlite3: true
+overrides:
+  "@brokkr/adapter-claude-code": "file:vendor/brokkr/brokkr-adapter-claude-code-0.1.0.tgz"
+  "@brokkr/adapter-codex": "file:vendor/brokkr/brokkr-adapter-codex-0.1.0.tgz"
+  "@brokkr/adapter-generic": "file:vendor/brokkr/brokkr-adapter-generic-0.1.0.tgz"
+  "@brokkr/cli": "file:vendor/brokkr/brokkr-cli-0.1.0.tgz"
+  "@brokkr/core": "file:vendor/brokkr/brokkr-core-0.1.0.tgz"
+  "@brokkr/evidence": "file:vendor/brokkr/brokkr-evidence-0.1.0.tgz"
+  "@brokkr/policy": "file:vendor/brokkr/brokkr-policy-0.1.0.tgz"
+  "@brokkr/registry": "file:vendor/brokkr/brokkr-registry-0.1.0.tgz"
+  "@brokkr/reporters": "file:vendor/brokkr/brokkr-reporters-0.1.0.tgz"
+  "@brokkr/resolver": "file:vendor/brokkr/brokkr-resolver-0.1.0.tgz"
+  "@brokkr/runner": "file:vendor/brokkr/brokkr-runner-0.1.0.tgz"
+  "@brokkr/sdk": "file:vendor/brokkr/brokkr-sdk-0.1.0.tgz"

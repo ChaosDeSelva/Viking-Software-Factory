@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: input-validation
+  version: 1.0.0
+  description: "Schema-validate every input crossing a trust boundary"
+  tags:
+    - validation
+    - security
+selectors:
+  keywords:
+    - "validate"
+    - "validation"
+    - "input"
+    - "schema"
+    - "zod"
+    - "sanitize"
+body: instructions.md
+estimatedTokens: 220

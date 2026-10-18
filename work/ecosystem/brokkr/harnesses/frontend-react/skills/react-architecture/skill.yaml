@@ -1,0 +1,12 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: react-architecture
+  version: 1.0.0
+  description: "Component boundaries, state ownership and data flow for React applications"
+  tags:
+    - react
+    - architecture
+selectors: {}
+body: instructions.md
+estimatedTokens: 280

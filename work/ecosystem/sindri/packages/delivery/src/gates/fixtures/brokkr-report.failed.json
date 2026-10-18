@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "run_01M4XPFYEYJ5PWK0X0KVMXDR4F",
+  "harness": {
+    "name": "e2e-react",
+    "version": "1.0.0",
+    "lockDigest": "sha256:1c345adf325f2c55a23ca91ec139428ef064015b601bcfc8d5e793bd938009d4"
+  },
+  "harnesses": [
+    {
+      "name": "e2e-react",
+      "version": "1.0.0",
+      "digest": "sha256:e1b9214b9c2af5009038b119b42716f7febc73a2f38549a649021c726b08da29"
+    }
+  ],
+  "repository": {
+    "commitSha": "8bb23794f51536fc37e350a5a0b841a90282453d",
+    "dirtyTreeDigest": "sha256:198ffaec9b36bcfedcdd3d84933fe53efe8f72bed61da945a04362b458f52aa7"
+  },
+  "startedAt": "2026-10-14T17:13:52.323Z",
+  "completedAt": "2026-10-14T17:13:53.912Z",
+  "verdict": "failed",
+  "reasons": ["required check 'typecheck' failed"],
+  "checks": [
+    {
+      "id": "typecheck",
+      "required": true,
+      "command": ["tsc", "--noEmit", "-p", "tsconfig.json"],
+      "cwd": ".",
+      "from": ["e2e-react@1.0.0"],
+      "durationMs": 1119,
+      "state": "failed",
+      "exitCode": 2,
+      "signal": null,
+      "startedAt": "2026-10-14T17:13:52.351Z",
+      "completedAt": "2026-10-14T17:13:53.470Z",
+      "outputBytes": 85,
+      "truncated": false,
+      "secretFindings": 0,
+      "maxRssBytes": 99991552,
+      "log": "logs/typecheck.log"
+    },
+    {
+      "id": "unit",
+      "required": true,
+      "command": ["node", "--test"],
+      "cwd": ".",
+      "from": ["e2e-react@1.0.0"],
+      "durationMs": 440,
+      "state": "passed",
+      "exitCode": 0,
+      "signal": null,
+      "startedAt": "2026-10-14T17:13:53.471Z",
+      "completedAt": "2026-10-14T17:13:53.911Z",
+      "outputBytes": 153,
+      "truncated": false,
+      "secretFindings": 0,
+      "maxRssBytes": 65355776,
+      "log": "logs/unit.log"
+    }
+  ],
+  "policyDecisions": [
+    {
+      "policy": "command",
+      "stage": "before",
+      "outcome": "allow",
+      "layer": "system",
+      "checkId": "typecheck",
+      "message": "check 'typecheck' permitted: tsc --noEmit -p tsconfig.json"
+    },
+    {
+      "policy": "command",
+      "stage": "before",
+      "outcome": "allow",
+      "layer": "system",
+      "checkId": "unit",
+      "message": "check 'unit' permitted: node --test"
+    },
+    {
+      "policy": "network",
+      "stage": "runtime",
+      "outcome": "deny",
+      "layer": "harness",
+      "message": "network denied: proxy variables point at an unreachable loopback (best effort, not an OS sandbox)"
+    }
+  ],
+  "exceptions": [],
+  "evidence": [
+    {
+      "path": "logs/typecheck.log",
+      "sha256": "sha256:8c9ec5262548d881d4c56d293ea86848091870cfe9f39c22f7dc25c2aa37a67f",
+      "bytes": 85,
+      "producedBy": "typecheck",
+      "kind": "log"
+    },
+    {
+      "path": "logs/unit.log",
+      "sha256": "sha256:ec703c9a636f82db8779e58a37d5d4ca8ede60b09aad296ec2d7c387f877feda",
+      "bytes": 153,
+      "producedBy": "unit",
+      "kind": "log"
+    }
+  ],
+  "summary": {
+    "passed": 1,
+    "failed": 1,
+    "skipped": 0,
+    "errored": 0
+  },
+  "environment": {
+    "brokkrVersion": "0.1.0",
+    "node": "v25.9.0",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "warnings": [
+    "no .brokkr/harness.lock.json: harness versions are not pinned (run `brokkr harness lock`)"
+  ]
+}

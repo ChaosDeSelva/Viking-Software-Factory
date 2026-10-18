@@ -1,0 +1,97 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: qa-regression
+  version: 1.0.0
+  description: "Independent regression test plan, re-run of the project's tests and evidence capture"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - qa
+    - test
+    - regression
+
+skills:
+  required:
+    - regression-test-plan
+    - independent-verification
+    - test-evidence
+    - flaky-test-triage
+  optional:
+    - playwright-e2e
+
+workflow:
+  stages:
+    - read-acceptance-criteria
+    - plan
+    - re-run
+    - explore
+    - record-evidence
+
+checks:
+  - id: test
+    command:
+      - pnpm
+      - test
+    required: true
+    timeoutSeconds: 600
+    when:
+      scriptExists:
+        - test
+
+  - id: integration
+    command:
+      - pnpm
+      - run
+      - "test:integration"
+    required: false
+    timeoutSeconds: 900
+    when:
+      scriptExists:
+        - "test:integration"
+
+  - id: e2e
+    command:
+      - pnpm
+      - run
+      - "test:e2e"
+    required: false
+    timeoutSeconds: 1200
+    when:
+      scriptExists:
+        - "test:e2e"
+
+  - id: coverage
+    command:
+      - pnpm
+      - run
+      - coverage
+    required: false
+    timeoutSeconds: 900
+    when:
+      scriptExists:
+        - coverage
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+    - update-snapshots
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: true
+
+aiReview:
+  criteria:
+    - "Every acceptance criterion maps to at least one regression test or a recorded manual step"
+    - "Tests were written or re-run by QA, not taken from the implementer's report"
+    - "Failures are reproduced with exact commands; flaky tests are quarantined with an owner, not deleted"

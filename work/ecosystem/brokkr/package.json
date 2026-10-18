@@ -1,0 +1,43 @@
+{
+  "name": "brokkr",
+  "private": true,
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=25"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "pack:local": "node scripts/pack-local.mjs",
+    "smoke:pack": "node scripts/smoke-pack.mjs",
+    "release:local": "node scripts/release-local.mjs",
+    "docs:api": "pnpm --filter @brokkr/sdk docs:api",
+    "licenses:check": "node scripts/licenses.mjs",
+    "sbom": "node scripts/sbom.mjs",
+    "test:supply-chain": "vitest run --config scripts/vitest.config.mjs scripts/supply-chain.test.mjs",
+    "test:coverage": "node scripts/coverage.mjs",
+    "test:qa": "vitest run --config scripts/vitest.config.mjs scripts/lib",
+    "qa:smoke": "node scripts/qa-smoke.mjs",
+    "release:repro": "node scripts/release-repro.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "@vitest/coverage-v8": "5.0.4",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.7",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.4"
+  }
+}

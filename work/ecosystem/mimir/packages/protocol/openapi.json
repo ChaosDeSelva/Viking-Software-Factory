@@ -1,0 +1,3671 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Mimir API",
+    "version": "0.2.0",
+    "description": "Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:7700"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "ApiErrorBody": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "validation_failed",
+                  "invalid_transition",
+                  "policy_denied",
+                  "unauthorized",
+                  "not_found",
+                  "conflict",
+                  "idempotency_replay_mismatch",
+                  "runtime_unavailable",
+                  "capability_unavailable",
+                  "cursor_expired",
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "RuntimeCapabilities": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "runtime": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "features": {
+            "type": "object",
+            "properties": {
+              "createSession": {
+                "type": "boolean"
+              },
+              "sendInput": {
+                "type": "boolean"
+              },
+              "sendKeys": {
+                "type": "boolean"
+              },
+              "softStop": {
+                "type": "boolean"
+              },
+              "forceStop": {
+                "type": "boolean"
+              },
+              "pause": {
+                "type": "boolean"
+              },
+              "subscribe": {
+                "type": "boolean"
+              },
+              "terminalRead": {
+                "type": "boolean"
+              },
+              "processInfo": {
+                "type": "boolean"
+              },
+              "multiHost": {
+                "type": "boolean"
+              },
+              "notify": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "createSession",
+              "sendInput",
+              "sendKeys",
+              "softStop",
+              "forceStop",
+              "pause",
+              "subscribe",
+              "terminalRead",
+              "processInfo",
+              "multiHost",
+              "notify"
+            ]
+          },
+          "agentKinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "runtime",
+          "version",
+          "features",
+          "agentKinds"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "repoPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "name",
+          "repoPath",
+          "settings"
+        ]
+      },
+      "Mission": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "objective": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "completed",
+              "cancelled",
+              "failed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "projectId",
+          "objective",
+          "status"
+        ]
+      },
+      "Crew": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "schedulingPaused": {
+            "type": "boolean"
+          },
+          "missionId": {
+            "type": "string",
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "template": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "configured",
+              "running",
+              "stopped",
+              "archived"
+            ]
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maxAgents": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "maxConcurrentTasks": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "maxAttemptsPerTask": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "leaseSeconds": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "missionId",
+          "template",
+          "status",
+          "limits"
+        ]
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "resultCommit": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,64}$"
+          },
+          "verification": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 86400000
+          },
+          "missionId": {
+            "type": "string",
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acceptance": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "leased",
+              "running",
+              "verifying",
+              "completed",
+              "blocked",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "agentId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "leaseExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "blockedReason": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "missionId",
+          "crewId",
+          "title",
+          "acceptance",
+          "status",
+          "attempt",
+          "maxAttempts",
+          "agentId",
+          "leaseExpiresAt"
+        ]
+      },
+      "TaskDependency": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^tdp_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "dependsOnId": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "taskId",
+          "dependsOnId"
+        ]
+      },
+      "Agent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "crewId": {
+            "type": "string",
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "implementer",
+              "reviewer",
+              "qa",
+              "investigator"
+            ]
+          },
+          "agentKind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runtimeSessionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "starting",
+              "idle",
+              "running",
+              "waiting",
+              "blocked",
+              "stopping",
+              "stopped",
+              "completed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "crewId",
+          "role",
+          "agentKind",
+          "runtimeSessionId",
+          "status",
+          "taskId"
+        ]
+      },
+      "Approval": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^apr_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "expired",
+              "cancelled"
+            ]
+          },
+          "actor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiry": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "missionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "action",
+          "status",
+          "actor",
+          "expiry",
+          "missionId",
+          "taskId",
+          "reason"
+        ]
+      },
+      "Worktree": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^wtr_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{7,64}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "conflicted",
+              "removed"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "taskId",
+          "path",
+          "branch",
+          "baseSha",
+          "status"
+        ]
+      },
+      "OperationAccepted": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "commandId": {
+            "type": "string",
+            "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+          }
+        },
+        "required": [
+          "operationId",
+          "commandId"
+        ]
+      },
+      "CrewMember": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^cmb_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "crewId": {
+            "type": "string",
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "implementer",
+              "reviewer",
+              "qa",
+              "investigator"
+            ]
+          },
+          "agentKind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "crewId",
+          "role",
+          "agentKind",
+          "name"
+        ]
+      },
+      "Artifact": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uri": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hash": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "taskId",
+          "kind",
+          "uri",
+          "hash"
+        ]
+      },
+      "EventEnvelope": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "schemaVersion": {
+            "type": "number",
+            "enum": [
+              1
+            ]
+          },
+          "streamId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "mission.created",
+              "mission.started",
+              "mission.paused",
+              "mission.resumed",
+              "mission.cancelled",
+              "mission.completed",
+              "task.created",
+              "task.ready",
+              "task.leased",
+              "task.started",
+              "task.blocked",
+              "task.verifying",
+              "task.completed",
+              "task.failed",
+              "task.cancelled",
+              "task.retried",
+              "session.requested",
+              "session.started",
+              "session.state_changed",
+              "session.output",
+              "session.exited",
+              "session.lost",
+              "tool.invoked",
+              "tool.completed",
+              "git.worktree_created",
+              "git.worktree_removed",
+              "git.commit_observed",
+              "git.conflict_detected",
+              "test.run_completed",
+              "approval.requested",
+              "approval.decided",
+              "approval.expired",
+              "budget.warning",
+              "budget.exceeded",
+              "policy.denied",
+              "recovery.reconciled",
+              "recovery.unknown_marked",
+              "summary.created",
+              "artifact.recorded",
+              "mission.failed",
+              "session.input",
+              "project.created",
+              "crew.created",
+              "crew.scheduling_changed",
+              "usage.recorded",
+              "approval.consumed",
+              "artifact.collection_skipped",
+              "artifact.collection_truncated"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sourceEventId": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "derived",
+              "summarized"
+            ]
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "missionId": {
+            "type": "string",
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "crewId": {
+            "type": "string",
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "sessionId": {
+            "type": "string",
+            "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "payload": {}
+        },
+        "required": [
+          "id",
+          "schemaVersion",
+          "streamId",
+          "sequence",
+          "occurredAt",
+          "observedAt",
+          "type",
+          "source",
+          "provenance"
+        ]
+      },
+      "UsageSample": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^usg_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "agentId": {
+            "type": "string",
+            "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "estimatedCost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "measured",
+              "estimated",
+              "unavailable"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "agentId",
+          "tokens",
+          "estimatedCost",
+          "source"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "summary": "Liveness and runtime health",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok",
+                        "degraded"
+                      ]
+                    },
+                    "runtime": {
+                      "type": "object",
+                      "properties": {
+                        "ok": {
+                          "type": "boolean"
+                        },
+                        "detail": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "ok"
+                      ]
+                    },
+                    "integrity": {
+                      "type": "object",
+                      "properties": {
+                        "refusedRows": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "firstRefusedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "refusedRows",
+                        "firstRefusedAt"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "summary": "Server, protocol and runtime capabilities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "serverVersion": {
+                      "type": "string"
+                    },
+                    "protocolVersion": {
+                      "type": "number",
+                      "enum": [
+                        1
+                      ]
+                    },
+                    "runtime": {
+                      "$ref": "#/components/schemas/RuntimeCapabilities"
+                    }
+                  },
+                  "required": [
+                    "serverVersion",
+                    "protocolVersion",
+                    "runtime"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/snapshot": {
+      "get": {
+        "summary": "Full read model plus a replay cursor",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    },
+                    "missions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Mission"
+                      }
+                    },
+                    "crews": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Crew"
+                      }
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    },
+                    "taskDependencies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TaskDependency"
+                      }
+                    },
+                    "agents": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Agent"
+                      }
+                    },
+                    "approvals": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Approval"
+                      }
+                    },
+                    "worktrees": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Worktree"
+                      }
+                    },
+                    "usage": {
+                      "type": "object",
+                      "properties": {
+                        "tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "estimatedCost": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "samples": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "bySource": {
+                          "type": "object",
+                          "properties": {
+                            "measured": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "estimated": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "unavailable": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "measured",
+                            "estimated",
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "tokens",
+                        "estimatedCost",
+                        "samples",
+                        "bySource"
+                      ]
+                    },
+                    "cursor": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "projects",
+                    "missions",
+                    "crews",
+                    "tasks",
+                    "taskDependencies",
+                    "agents",
+                    "approvals",
+                    "worktrees",
+                    "usage",
+                    "cursor"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects": {
+      "post": {
+        "summary": "Create a project",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "repoPath": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "settings": {
+                    "type": "object",
+                    "properties": {
+                      "testCommand": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "minItems": 1
+                      },
+                      "allowedCommands": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "argv0": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "args": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "enum": [
+                                    "none"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "exact": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "exact"
+                                  ]
+                                },
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "shape": {
+                                      "type": "object",
+                                      "properties": {
+                                        "prefix": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "maxArgs": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "allowFlags": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "numericFlags": {
+                                          "type": "boolean"
+                                        },
+                                        "forbidFlags": {
+                                          "type": "array",
+                                          "items": {
+                                            "type": "string"
+                                          }
+                                        },
+                                        "forbidChars": {
+                                          "type": "string"
+                                        },
+                                        "pathArgsMustBeInsideWorktreeAndNonSensitive": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "maxArgs",
+                                        "pathArgsMustBeInsideWorktreeAndNonSensitive"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "shape"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "argv0",
+                            "args"
+                          ]
+                        }
+                      },
+                      "protectedBranches": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "harnessRef": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "verification": {
+                        "type": "object",
+                        "additionalProperties": {}
+                      },
+                      "timeoutMs": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 86400000
+                      }
+                    },
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "name",
+                  "repoPath"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project": {
+                      "$ref": "#/components/schemas/Project"
+                    }
+                  },
+                  "required": [
+                    "project"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List projects",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Project"
+                      }
+                    }
+                  },
+                  "required": [
+                    "projects"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions": {
+      "post": {
+        "summary": "Create a mission",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "projectId": {
+                    "type": "string",
+                    "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+                  },
+                  "objective": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "budget": {
+                    "type": "object",
+                    "properties": {
+                      "limitTokens": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "limitCost": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "warnAtFraction": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "enforce": {
+                        "type": "string",
+                        "enum": [
+                          "hard",
+                          "soft"
+                        ]
+                      },
+                      "onUnknown": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "block"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "tasks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "priority": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "verification": {
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "timeoutMs": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 86400000
+                        },
+                        "id": {
+                          "type": "string",
+                          "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "brief": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "acceptanceCriteria": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1
+                          }
+                        },
+                        "dependsOn": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                          }
+                        },
+                        "crewId": {
+                          "type": "string",
+                          "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "argv": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1
+                        }
+                      },
+                      "required": [
+                        "title",
+                        "brief"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "projectId",
+                  "objective"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    }
+                  },
+                  "required": [
+                    "mission"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List missions",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "projectId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "paused",
+                "completed",
+                "cancelled",
+                "failed"
+              ]
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "missions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Mission"
+                      }
+                    }
+                  },
+                  "required": [
+                    "missions"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}": {
+      "get": {
+        "summary": "Get a mission with its crews and tasks",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    },
+                    "crews": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Crew"
+                      }
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    }
+                  },
+                  "required": [
+                    "mission",
+                    "crews",
+                    "tasks"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}/start": {
+      "post": {
+        "summary": "Start a mission",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a mission",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/crews": {
+      "post": {
+        "summary": "Create a crew",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "missionId": {
+                    "type": "string",
+                    "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+                  },
+                  "template": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "limits": {
+                    "type": "object",
+                    "properties": {
+                      "maxAgents": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "maxConcurrentTasks": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "maxAttemptsPerTask": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "leaseSeconds": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  "members": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "role": {
+                          "type": "string",
+                          "enum": [
+                            "lead",
+                            "implementer",
+                            "reviewer",
+                            "qa",
+                            "investigator"
+                          ]
+                        },
+                        "agentKind": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "role",
+                        "agentKind"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 1
+                  },
+                  "budget": {
+                    "type": "object",
+                    "properties": {
+                      "limitTokens": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "limitCost": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "warnAtFraction": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "enforce": {
+                        "type": "string",
+                        "enum": [
+                          "hard",
+                          "soft"
+                        ]
+                      },
+                      "onUnknown": {
+                        "type": "string",
+                        "enum": [
+                          "allow",
+                          "block"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "missionId",
+                  "template",
+                  "members"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "crew": {
+                      "$ref": "#/components/schemas/Crew"
+                    },
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/CrewMember"
+                      }
+                    }
+                  },
+                  "required": [
+                    "crew",
+                    "members"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List crews",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "crews": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Crew"
+                      }
+                    }
+                  },
+                  "required": [
+                    "crews"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/crews/{id}/pause": {
+      "post": {
+        "summary": "pause crew scheduling (existing sessions continue)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "crew": {
+                      "$ref": "#/components/schemas/Crew"
+                    },
+                    "semantics": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "crew",
+                    "semantics"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/crews/{id}/resume": {
+      "post": {
+        "summary": "resume crew scheduling (existing sessions continue)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "crew": {
+                      "$ref": "#/components/schemas/Crew"
+                    },
+                    "semantics": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "crew",
+                    "semantics"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}": {
+      "get": {
+        "summary": "Observe a live runtime session",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session": {},
+                    "persisted": {},
+                    "observedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "available": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "observedAt",
+                    "available"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{id}": {
+      "get": {
+        "summary": "Inspect a task and its source-owned execution evidence",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    },
+                    "spec": {
+                      "type": "object",
+                      "properties": {
+                        "brief": {
+                          "type": "string"
+                        },
+                        "argv": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "mission": {
+                      "allOf": [
+                        {
+                          "$ref": "#/components/schemas/Mission"
+                        },
+                        {
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        }
+                      ]
+                    },
+                    "dependencies": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TaskDependency"
+                      }
+                    },
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "crewId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "taskId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "agentKind": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "runtime": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "runtimeRef": {
+                            "type": "object",
+                            "properties": {
+                              "paneId": {
+                                "type": "string"
+                              },
+                              "terminalId": {
+                                "type": "string"
+                              },
+                              "workspaceId": {
+                                "type": "string"
+                              },
+                              "agentSessionId": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "paneId",
+                              "terminalId",
+                              "workspaceId",
+                              "agentSessionId"
+                            ]
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "requested",
+                              "starting",
+                              "idle",
+                              "running",
+                              "waiting",
+                              "blocked",
+                              "stopping",
+                              "stopped",
+                              "completed",
+                              "failed",
+                              "unknown"
+                            ]
+                          },
+                          "runtimeStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "exitCode": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "lostReason": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "crewId",
+                          "taskId",
+                          "agentKind",
+                          "runtime",
+                          "runtimeRef",
+                          "state",
+                          "runtimeStatus",
+                          "exitCode",
+                          "lostReason",
+                          "createdAt",
+                          "updatedAt"
+                        ]
+                      }
+                    },
+                    "worktrees": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Worktree"
+                      }
+                    },
+                    "artifacts": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Artifact"
+                      }
+                    },
+                    "approvals": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Approval"
+                      }
+                    }
+                  },
+                  "required": [
+                    "task",
+                    "spec",
+                    "mission",
+                    "dependencies",
+                    "sessions",
+                    "worktrees",
+                    "artifacts",
+                    "approvals"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{id}/verify": {
+      "post": {
+        "summary": "Record fresh verification evidence without changing acceptance",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artifactId": {
+                      "type": "string"
+                    },
+                    "passed": {
+                      "type": "boolean"
+                    },
+                    "semantics": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "artifactId",
+                    "passed",
+                    "semantics"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks": {
+      "get": {
+        "summary": "List tasks",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "crewId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "ready",
+                "leased",
+                "running",
+                "verifying",
+                "completed",
+                "blocked",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    }
+                  },
+                  "required": [
+                    "tasks"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a task in a mission",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "priority": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "verification": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "timeoutMs": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 86400000
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "brief": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "acceptanceCriteria": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "dependsOn": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                    }
+                  },
+                  "crewId": {
+                    "type": "string",
+                    "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+                  },
+                  "argv": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "missionId": {
+                    "type": "string",
+                    "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+                  }
+                },
+                "required": [
+                  "title",
+                  "brief",
+                  "missionId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed or blocked task",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{id}/pr": {
+      "post": {
+        "summary": "Request delivery of a completed task (pull request, or a local patch when there is no remote); needs a pr.create approval; never pushes or merges",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "operationId": {
+                          "type": "string",
+                          "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "commandId": {
+                          "type": "string",
+                          "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "approval_required"
+                          ]
+                        },
+                        "approvalId": {
+                          "type": "string",
+                          "pattern": "^apr_[0-9A-HJKMNP-TV-Z]{26}$"
+                        }
+                      },
+                      "required": [
+                        "operationId",
+                        "commandId",
+                        "status",
+                        "approvalId"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "operationId": {
+                          "type": "string",
+                          "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "commandId": {
+                          "type": "string",
+                          "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "delivered"
+                          ]
+                        },
+                        "prUrl": {
+                          "type": "string",
+                          "format": "uri"
+                        }
+                      },
+                      "required": [
+                        "operationId",
+                        "commandId",
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "summary": "List approvals",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "expired",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "name": "status",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "approvals": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Approval"
+                      }
+                    }
+                  },
+                  "required": [
+                    "approvals"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/approvals/{id}/decision": {
+      "post": {
+        "summary": "Approve or reject",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^apr_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "decision"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/input": {
+      "post": {
+        "summary": "Send an instruction to a session",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "text"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/stop": {
+      "post": {
+        "summary": "Stop a session",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "soft",
+                      "force"
+                    ]
+                  }
+                },
+                "required": [
+                  "mode"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "summary": "Replay events from a cursor (ordered per stream)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "streamId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated event types (or repeat the parameter)."
+            },
+            "required": false,
+            "description": "Comma-separated event types (or repeat the parameter).",
+            "name": "types",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/EventEnvelope"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "lastCursor": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "events",
+                    "nextCursor"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/stream": {
+      "get": {
+        "summary": "Live events as Server-Sent Events; each `data:` line is one EventEnvelope",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 200
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "name": "streamId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "Comma-separated event types (or repeat the parameter)."
+            },
+            "required": false,
+            "description": "Comma-separated event types (or repeat the parameter).",
+            "name": "types",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{id}": {
+      "get": {
+        "summary": "Get an artifact",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "artifact": {
+                      "$ref": "#/components/schemas/Artifact"
+                    }
+                  },
+                  "required": [
+                    "artifact"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/artifacts/{id}/content": {
+      "get": {
+        "summary": "Artifact bytes (Content-Type from the artifact kind, size-capped, served only from Mimir's artifact store)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Raw content",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "summary": "Usage totals and samples",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "missionId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "agentId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "crewId",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": false,
+            "name": "projectId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totals": {
+                      "type": "object",
+                      "properties": {
+                        "tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "estimatedCost": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "samples": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "bySource": {
+                          "type": "object",
+                          "properties": {
+                            "measured": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "estimated": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "unavailable": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "measured",
+                            "estimated",
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "tokens",
+                        "estimatedCost",
+                        "samples",
+                        "bySource"
+                      ]
+                    },
+                    "samples": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/UsageSample"
+                      }
+                    },
+                    "uncertain": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "totals",
+                    "samples"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

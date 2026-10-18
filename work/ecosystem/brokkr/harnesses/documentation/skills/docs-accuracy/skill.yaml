@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: docs-accuracy
+  version: 1.0.0
+  description: "Keep documentation consistent with the code, commands and behavior it describes"
+  tags:
+    - docs
+    - accuracy
+selectors:
+  taskTypes:
+    - "docs"
+  keywords:
+    - "docs"
+    - "documentation"
+    - "readme"
+    - "guide"
+    - "reference"
+body: instructions.md
+estimatedTokens: 220

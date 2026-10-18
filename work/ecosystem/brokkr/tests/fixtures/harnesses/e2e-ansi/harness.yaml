@@ -1,0 +1,28 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+metadata:
+  name: e2e-ansi
+  version: 1.0.0
+  description: Brokkr e2e fixture harness e2e-ansi
+compatibility:
+  platforms: [darwin, linux]
+  taskTypes: [frontend]
+
+skills:
+  required: []
+  optional: []
+workflow:
+  stages: [implement, typecheck, test]
+checks:
+  - id: slow
+    command: [node, scripts/ansi.mjs]
+    required: true
+    timeoutSeconds: 30
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor: [install-dependencies]
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false

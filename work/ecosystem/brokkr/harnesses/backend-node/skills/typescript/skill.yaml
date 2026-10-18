@@ -1,0 +1,11 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: typescript
+  version: 1.0.0
+  description: "Strict TypeScript conventions shared by all TypeScript harnesses"
+  tags:
+    - typescript
+selectors: {}
+body: instructions.md
+estimatedTokens: 210

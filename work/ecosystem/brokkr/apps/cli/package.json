@@ -1,0 +1,54 @@
+{
+  "name": "@brokkr/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "brokkr": "./dist/bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@brokkr/adapter-claude-code": "workspace:*",
+    "@brokkr/adapter-codex": "workspace:*",
+    "@brokkr/adapter-generic": "workspace:*",
+    "@brokkr/core": "workspace:*",
+    "@brokkr/evidence": "workspace:*",
+    "@brokkr/policy": "workspace:*",
+    "@brokkr/registry": "workspace:*",
+    "@brokkr/reporters": "workspace:*",
+    "@brokkr/resolver": "workspace:*",
+    "@brokkr/runner": "workspace:*",
+    "commander": "^14.0.0",
+    "pino": "^10.4.0",
+    "semver": "^7.8.5",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.8.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  },
+  "files": [
+    "dist",
+    "harnesses",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=25"
+  }
+}

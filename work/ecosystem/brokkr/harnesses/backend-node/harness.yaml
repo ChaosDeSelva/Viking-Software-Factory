@@ -1,0 +1,106 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: backend-node
+  version: 1.0.0
+  description: "Node.js + TypeScript backend/API engineering harness with contract, validation, security and test gates"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - backend
+    - api
+    - node
+
+skills:
+  required:
+    - api-contracts
+    - typescript
+    - input-validation
+    - error-handling
+    - authn-authz-review
+  optional:
+    - structured-logging
+    - testing
+    - backend-performance
+
+workflow:
+  stages:
+    - inspect
+    - implement
+    - typecheck
+    - lint
+    - test
+    - migration-check
+    - review
+
+checks:
+  - id: typecheck
+    command:
+      - pnpm
+      - exec
+      - tsc
+      - --noEmit
+    required: true
+    timeoutSeconds: 180
+    when:
+      fileExists:
+        - tsconfig.json
+
+  - id: lint
+    command:
+      - pnpm
+      - run
+      - lint
+    required: true
+    timeoutSeconds: 180
+    when:
+      scriptExists:
+        - lint
+
+  - id: test
+    command:
+      - pnpm
+      - test
+    required: true
+    timeoutSeconds: 600
+    when:
+      scriptExists:
+        - test
+
+  - id: migration-dry-run
+    command:
+      - pnpm
+      - run
+      - "db:migrate:dry-run"
+    required: true
+    timeoutSeconds: 300
+    when:
+      fileExists:
+        - migrations
+      scriptExists:
+        - "db:migrate:dry-run"
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+    - database-migration
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "Every new endpoint validates input with a schema and returns typed errors"
+    - "Authorization is checked per resource on every state-changing route"
+    - "API contract changes are backward compatible or versioned"
+    - "Logs are structured and contain no secrets"

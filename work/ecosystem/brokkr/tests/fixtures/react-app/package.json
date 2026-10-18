@@ -1,0 +1,8 @@
+{
+  "name": "fixture-react-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

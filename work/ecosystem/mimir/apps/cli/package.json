@@ -1,0 +1,26 @@
+{
+  "name": "@mimir/cli",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "mimir": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "tsc -p tsconfig.build.json && vitest run"
+  },
+  "dependencies": {
+    "@mimir/core": "workspace:*",
+    "commander": "^14.0.0"
+  },
+  "devDependencies": {
+    "@mimir/server": "workspace:*",
+    "execa": "^9.6.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

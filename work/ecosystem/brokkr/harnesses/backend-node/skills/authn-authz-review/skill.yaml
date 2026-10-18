@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: authn-authz-review
+  version: 1.0.0
+  description: "Authentication and authorization review checklist for routes and data access"
+  tags:
+    - security
+    - auth
+selectors:
+  taskTypes:
+    - "security"
+  keywords:
+    - "auth"
+    - "login"
+    - "session"
+    - "token"
+    - "permission"
+    - "role"
+body: instructions.md
+estimatedTokens: 240

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "secret.aws-access-key", "kind": "secrets", "confidence": "finding", "pattern": "\\bAKIA[0-9A-Z]{16}\\b", "description": "AWS access key ID" },
+    { "id": "secret.private-key", "kind": "secrets", "confidence": "finding", "pattern": "-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY(?: BLOCK)?-----", "description": "Private key block" },
+    { "id": "secret.github-token", "kind": "secrets", "confidence": "finding", "pattern": "\\bgh[pousr]_[A-Za-z0-9]{36,}\\b", "description": "GitHub token" },
+    { "id": "secret.slack-token", "kind": "secrets", "confidence": "finding", "pattern": "\\bxox[baprs]-[A-Za-z0-9-]{10,}\\b", "description": "Slack token" },
+    { "id": "secret.stripe-live-key", "kind": "secrets", "confidence": "finding", "pattern": "\\bsk_live_[0-9a-zA-Z]{24,}\\b", "description": "Stripe live secret key" },
+    { "id": "secret.google-api-key", "kind": "secrets", "confidence": "finding", "pattern": "\\bAIza[0-9A-Za-z_-]{35}\\b", "description": "Google API key" },
+    { "id": "secret.jwt-like", "kind": "secrets", "confidence": "heuristic", "pattern": "\\beyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}", "description": "JWT-shaped string" },
+    { "id": "secret.generic-assignment", "kind": "secrets", "confidence": "heuristic", "flags": "i", "pattern": "\\b(?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)\\b[\"']?\\s*[:=]\\s*[\"'][^\"'\\s]{8,}[\"']", "description": "Hard-coded credential-like assignment" },
+    { "id": "config.tls-verify-disabled-env", "kind": "config", "confidence": "finding", "pattern": "NODE_TLS_REJECT_UNAUTHORIZED[\"']?\\s*[:=]\\s*[\"']?0", "description": "TLS certificate verification disabled via environment" },
+    { "id": "config.tls-verify-disabled", "kind": "config", "confidence": "heuristic", "pattern": "rejectUnauthorized\\s*:\\s*false", "description": "TLS certificate verification disabled" },
+    { "id": "config.cors-wildcard", "kind": "config", "confidence": "heuristic", "pattern": "(?:Access-Control-Allow-Origin[\"']?\\s*[:,]\\s*[\"']\\*|origin\\s*:\\s*[\"']\\*[\"'])", "description": "Wildcard CORS origin" },
+    { "id": "config.debug-enabled", "kind": "config", "confidence": "heuristic", "flags": "i", "pattern": "^\\s*(?:debug|DEBUG)\\s*[:=]\\s*(?:true|1)\\s*$", "description": "Debug mode enabled in configuration" },
+    { "id": "config.ssl-disabled", "kind": "config", "confidence": "heuristic", "flags": "i", "pattern": "sslmode=disable|\\bssl\\s*[:=]\\s*false\\b", "description": "Database or transport TLS disabled" },
+    { "id": "config.open-ingress", "kind": "config", "confidence": "heuristic", "pattern": "0\\.0\\.0\\.0/0", "description": "Ingress open to the whole internet" },
+    { "id": "config.container-root", "kind": "config", "confidence": "heuristic", "pattern": "^\\s*USER\\s+root\\s*$", "description": "Container runs as root" },
+    { "id": "code.eval", "kind": "code", "confidence": "heuristic", "pattern": "\\beval\\s*\\(", "description": "Dynamic code evaluation with eval" },
+    { "id": "code.new-function", "kind": "code", "confidence": "heuristic", "pattern": "\\bnew\\s+Function\\s*\\(", "description": "Dynamic code evaluation with Function constructor" },
+    { "id": "code.shell-exec-interpolated", "kind": "code", "confidence": "heuristic", "pattern": "\\bexec(?:Sync)?\\s*\\(\\s*`[^`]*\\$\\{", "description": "Shell command built from interpolated input" },
+    { "id": "code.shell-true", "kind": "code", "confidence": "heuristic", "pattern": "\\bshell\\s*:\\s*true\\b", "description": "Child process started through a shell" },
+    { "id": "code.inner-html", "kind": "code", "confidence": "heuristic", "pattern": "(?:\\.innerHTML\\s*=|dangerouslySetInnerHTML)", "description": "Unsanitized HTML sink" },
+    { "id": "code.weak-hash", "kind": "code", "confidence": "heuristic", "pattern": "createHash\\(\\s*[\"'](?:md5|sha1)[\"']\\s*\\)", "description": "Weak hash algorithm" },
+    { "id": "code.sql-interpolation", "kind": "code", "confidence": "heuristic", "flags": "i", "pattern": "(?:select|insert|update|delete)\\b[^;\\n]*\\$\\{", "description": "SQL built with string interpolation" },
+    { "id": "code.python-unsafe-deserialize", "kind": "code", "confidence": "heuristic", "pattern": "\\b(?:pickle\\.loads?|os\\.system)\\s*\\(", "description": "Unsafe deserialization or shell call" }
+  ]
+}

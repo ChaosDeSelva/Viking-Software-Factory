@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "streamId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "mission.created",
+        "mission.started",
+        "mission.paused",
+        "mission.resumed",
+        "mission.cancelled",
+        "mission.completed",
+        "task.created",
+        "task.ready",
+        "task.leased",
+        "task.started",
+        "task.blocked",
+        "task.verifying",
+        "task.completed",
+        "task.failed",
+        "task.cancelled",
+        "task.retried",
+        "session.requested",
+        "session.started",
+        "session.state_changed",
+        "session.output",
+        "session.exited",
+        "session.lost",
+        "tool.invoked",
+        "tool.completed",
+        "git.worktree_created",
+        "git.worktree_removed",
+        "git.commit_observed",
+        "git.conflict_detected",
+        "test.run_completed",
+        "approval.requested",
+        "approval.decided",
+        "approval.expired",
+        "budget.warning",
+        "budget.exceeded",
+        "policy.denied",
+        "recovery.reconciled",
+        "recovery.unknown_marked",
+        "summary.created",
+        "artifact.recorded",
+        "mission.failed",
+        "session.input",
+        "project.created",
+        "crew.created",
+        "crew.scheduling_changed",
+        "usage.recorded",
+        "approval.consumed",
+        "artifact.collection_skipped",
+        "artifact.collection_truncated"
+      ]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceEventId": {
+      "type": "string"
+    },
+    "provenance": {
+      "type": "string",
+      "enum": [
+        "observed",
+        "derived",
+        "summarized"
+      ]
+    },
+    "correlationId": {
+      "type": "string"
+    },
+    "missionId": {
+      "type": "string",
+      "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "crewId": {
+      "type": "string",
+      "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "sessionId": {
+      "type": "string",
+      "pattern": "^ses_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "payload": {}
+  },
+  "required": [
+    "id",
+    "schemaVersion",
+    "streamId",
+    "sequence",
+    "occurredAt",
+    "observedAt",
+    "type",
+    "source",
+    "provenance",
+    "payload"
+  ],
+  "additionalProperties": false
+}

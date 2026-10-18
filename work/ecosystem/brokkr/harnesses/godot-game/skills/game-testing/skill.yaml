@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: game-testing
+  version: 1.0.0
+  description: "Automated and manual verification for Godot gameplay code"
+  tags:
+    - godot
+    - testing
+selectors:
+  keywords:
+    - "gut"
+    - "gdunit"
+    - "test"
+    - "headless"
+    - "gameplay"
+body: instructions.md
+estimatedTokens: 160

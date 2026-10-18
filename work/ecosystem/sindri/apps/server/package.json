@@ -1,0 +1,43 @@
+{
+  "name": "@sindri/server",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:acceptance": "vitest run --config vitest.acceptance.config.ts"
+  },
+  "dependencies": {
+    "@sindri/delivery": "workspace:*",
+    "@sindri/director": "workspace:*",
+    "@sindri/harnesses": "workspace:*",
+    "@sindri/intake": "workspace:*",
+    "@sindri/knowledge": "workspace:*",
+    "@sindri/mimir-client": "workspace:*",
+    "@sindri/planner": "workspace:*",
+    "@sindri/specs": "workspace:*",
+    "fastify": "^5.12.7",
+    "fflate": "^0.8.3",
+    "pino": "^10.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@sindri/testing": "workspace:*",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

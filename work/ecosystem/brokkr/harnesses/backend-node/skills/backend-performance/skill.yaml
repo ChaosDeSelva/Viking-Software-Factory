@@ -1,0 +1,22 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: backend-performance
+  version: 1.0.0
+  description: "Latency, query and memory practices for Node.js services"
+  tags:
+    - performance
+    - node
+selectors:
+  taskTypes:
+    - "performance"
+  keywords:
+    - "performance"
+    - "latency"
+    - "slow"
+    - "n+1"
+    - "throughput"
+    - "memory"
+    - "cache"
+body: instructions.md
+estimatedTokens: 200

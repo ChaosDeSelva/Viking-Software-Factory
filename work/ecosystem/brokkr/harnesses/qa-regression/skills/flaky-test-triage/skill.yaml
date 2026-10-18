@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: flaky-test-triage
+  version: 1.0.0
+  description: "Separate real regressions from flaky tests and handle flakes without hiding failures"
+  tags:
+    - qa
+    - testing
+selectors:
+  taskTypes:
+    - "qa"
+    - "test"
+  keywords:
+    - "flaky"
+    - "intermittent"
+    - "retry"
+    - "quarantine"
+body: instructions.md
+estimatedTokens: 200

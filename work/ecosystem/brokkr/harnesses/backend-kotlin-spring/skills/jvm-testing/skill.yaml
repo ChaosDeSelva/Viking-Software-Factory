@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: jvm-testing
+  version: 1.0.0
+  description: "JUnit 5 and Spring Boot test practices for Kotlin services"
+  tags:
+    - kotlin
+    - testing
+selectors:
+  keywords:
+    - "junit"
+    - "mockk"
+    - "springboottest"
+    - "testcontainers"
+    - "webmvctest"
+body: instructions.md
+estimatedTokens: 160

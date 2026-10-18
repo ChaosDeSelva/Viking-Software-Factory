@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: regression-test-plan
+  version: 1.0.0
+  description: "Plan regression tests from acceptance criteria and the change's blast radius before running anything"
+  tags:
+    - qa
+    - testing
+selectors:
+  taskTypes:
+    - "qa"
+    - "test"
+    - "regression"
+  keywords:
+    - "regression"
+    - "test plan"
+    - "acceptance criteria"
+    - "qa"
+body: instructions.md
+estimatedTokens: 240

@@ -1,0 +1,28 @@
+VIKING FACTORY — README BANNER PROMPTS
+
+Shared art direction
+Create a 3:1 landscape README banner, 2172 × 724 pixels. Match the supplied Hulder reference: richly detailed Nordic woodcut and engraved storybook illustration, midnight pine forests, aged parchment highlights, moss, copper knotwork and subtle luminous runes. Make the image feel like a coherent world of craft and computation. Keep the focal narrative on the left two thirds and a dark, calm title area on the right. Large readable cream title, restrained rune-inspired lettering. Fine border at the bottom, generous crop-safe margins. No modern corporate logos, extra slogans, tiny UI text, stock neon cityscape or imitation of another project's banner. The title is the only readable text. Check exact spelling before finalizing.
+
+HEIMDALL
+A vigilant guardian at a monumental carved watchtower overlooking several illuminated workshops and bridges. Fine cyan and amber paths connect the workshops; small rune panels reveal tasks, dependencies and verification seals without readable microtext. A horn hangs beside the guardian. Moonlight, teal aurora, copper edging, dark forest. The scene communicates observability, live execution and human oversight. Exact title: HEIMDALL.
+
+MIMIR
+An ancient stone well beneath the roots of a vast ash tree. A wise guardian studies a luminous map of connected task stones; ravens carry small copper tokens between distinct crews at separate workbenches. Each path has a clear destination. Olive-black, deep blue, muted amber, ivory. The scene communicates orchestration, memory, identity and recovery. Exact title: MIMIR.
+
+SINDRI
+A master craftsperson drafts a precise glowing blueprint on a rune-carved drafting table inside a Nordic workshop. An idea represented by a small star becomes an ordered sequence of architectural plans and dependency tiles. A deliberate human hand places an approval seal. Moonlit pine forest visible outside. Brass, parchment, restrained violet and forest green. The scene communicates specification, planning and accountable delivery. Exact title: SINDRI.
+
+BROKKR
+A Nordic smith examines a freshly forged component on a black stone anvil using calipers, a square and a luminous verification seal. A row of distinct evidence tablets rests beside the anvil. Sparks form tiny geometric patterns, never random unreadable text. Copper, charcoal, moss and warm ivory. The scene communicates deterministic checks, quality standards and evidence. Exact title: BROKKR.
+
+UPSTREAM INTEGRATIONS
+Herdr is an upstream dependency, not an original factory project. Preserve its upstream name, artwork, copyright and license; do not create a replacement Herdr banner. Our original work is the Mimir adapter.
+
+HULDER
+Use the supplied Hulder.png as the canonical current banner. For future variants: a cloaked huldra beside an enormous moss-covered carved editor window in a moonlit forest, with raven, lake, mountains, olive-black tones and warm cream lettering. Preserve the contemplative native-editor identity. Exact title: HULDER.
+
+VIKING SOFTWARE FACTORY (optional ecosystem banner)
+A panoramic Nordic settlement at night: watchtower, ancient well, blueprint workshop, forge and forest editor sanctuary. Delicate illuminated bridges connect the five buildings into one comprehensible system. A small operator stands at the central map table. Use a coherent scale and restrained contrast; avoid competing logos. Exact title: VIKING SOFTWARE FACTORY.
+
+Asset review
+The prompts are original project art direction. The supplied Hulder banner was provided by the maintainer. Before publishing any generated asset, confirm its provenance, exact title spelling, readability at mobile width, and licensing alongside the repository's other artwork. Generated art does not establish trademark clearance.

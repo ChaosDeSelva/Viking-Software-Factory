@@ -1,0 +1,58 @@
+import type { EventType } from "@mimir/protocol";
+
+/**
+ * Event types for filter menus. Kept as a type-checked local list so the browser bundle does not
+ * pull the protocol's runtime (zod, OpenAPI generator) just for this array.
+ */
+const ALL: Record<EventType, true> = {
+  "mission.created": true,
+  "mission.started": true,
+  "mission.paused": true,
+  "mission.resumed": true,
+  "mission.cancelled": true,
+  "mission.completed": true,
+  "mission.failed": true,
+  "task.created": true,
+  "task.ready": true,
+  "task.leased": true,
+  "task.started": true,
+  "task.blocked": true,
+  "task.verifying": true,
+  "task.completed": true,
+  "task.failed": true,
+  "task.cancelled": true,
+  "task.retried": true,
+  "session.requested": true,
+  "session.started": true,
+  "session.state_changed": true,
+  "session.output": true,
+  "session.exited": true,
+  "session.lost": true,
+  "session.input": true,
+  "tool.invoked": true,
+  "tool.completed": true,
+  "git.worktree_created": true,
+  "git.worktree_removed": true,
+  "git.commit_observed": true,
+  "git.conflict_detected": true,
+  "test.run_completed": true,
+  "approval.requested": true,
+  "approval.decided": true,
+  "approval.expired": true,
+  "budget.warning": true,
+  "budget.exceeded": true,
+  "policy.denied": true,
+  "recovery.reconciled": true,
+  "recovery.unknown_marked": true,
+  "summary.created": true,
+  "artifact.recorded": true,
+  "artifact.collection_skipped": true,
+  "artifact.collection_truncated": true,
+  "project.created": true,
+  "crew.created": true,
+  "crew.scheduling_changed": true,
+  "usage.recorded": true,
+  "approval.consumed": true,
+};
+
+export const EVENT_TYPE_LIST = Object.keys(ALL) as EventType[];

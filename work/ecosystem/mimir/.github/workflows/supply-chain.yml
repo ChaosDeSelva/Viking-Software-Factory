@@ -1,0 +1,31 @@
+# Local-only workflow definition (no remote exists). Runs the supply-chain checks:
+# license policy, CycloneDX SBOM, script tests, and a dependency audit report.
+name: supply-chain
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:supply-chain
+      - run: pnpm licenses:check
+      - run: pnpm sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: dist/sbom.cdx.json
+      # Report only: advisories are recorded in docs/security/dependency-audit.md, never auto-fixed.
+      - run: pnpm audit --json > dist/audit.json || true

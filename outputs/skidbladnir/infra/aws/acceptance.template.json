@@ -1,0 +1,384 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Disposable Skidbladnir acceptance network and expiration. No existing resource inputs.",
+  "Parameters": {
+    "FleetId": {
+      "Type": "String",
+      "AllowedPattern": "[a-zA-Z0-9-]{8,40}",
+      "Description": "Unique fleet identity, shared with the local provider configuration"
+    }
+  },
+  "Resources": {
+    "WorkerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+          }
+        ]
+      }
+    },
+    "WorkerProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "WorkerRole"
+          }
+        ]
+      }
+    },
+    "ExpiryRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "ExpireOwnedInstances",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "ec2:DescribeInstances",
+                  "Resource": "*"
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": "ec2:TerminateInstances",
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/*"
+                  },
+                  "Condition": {
+                    "StringEquals": {
+                      "ec2:ResourceTag/skidbladnir:fleet": {
+                        "Ref": "FleetId"
+                      }
+                    }
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/skidbladnir-${FleetId}:*"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ExpiryFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": {
+          "Fn::Sub": "skidbladnir-${FleetId}"
+        },
+        "Runtime": "python3.13",
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "ExpiryRole",
+            "Arn"
+          ]
+        },
+        "Timeout": 60,
+        "MemorySize": 128,
+        "Environment": {
+          "Variables": {
+            "FLEET_ID": {
+              "Ref": "FleetId"
+            }
+          }
+        },
+        "Code": {
+          "ZipFile": "import os\nfrom datetime import datetime, timezone\n\ndef expired_ids(reservations, fleet_id, now):\n    result=[]\n    for reservation in reservations:\n        for instance in reservation.get('Instances', []):\n            tags={tag['Key']:tag['Value'] for tag in instance.get('Tags', [])}\n            if tags.get('skidbladnir:fleet')!=fleet_id or instance.get('State',{}).get('Name') not in ('pending','running','stopping','stopped'):\n                continue\n            try:\n                expiry=datetime.fromisoformat(tags['skidbladnir:expires'].replace('Z','+00:00'))\n                if expiry.tzinfo is None:continue\n            except (KeyError,ValueError,TypeError):continue\n            if expiry<=now:result.append(instance['InstanceId'])\n    return result\n\ndef handler(event, context):\n    import boto3\n    fleet=os.environ['FLEET_ID']\n    client=boto3.client('ec2')\n    pages=client.get_paginator('describe_instances').paginate(Filters=[{'Name':'tag:skidbladnir:fleet','Values':[fleet]}])\n    terminated=[]\n    for page in pages:\n        ids=expired_ids(page.get('Reservations',[]),fleet,datetime.now(timezone.utc))\n        for start in range(0,len(ids),100):\n            batch=ids[start:start+100]\n            client.terminate_instances(InstanceIds=batch)\n            terminated.extend(batch)\n    print({'fleet':fleet,'terminationRequested':terminated})\n    return {'terminationRequested':terminated}\n"
+        }
+      }
+    },
+    "ExpiryLog": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "/aws/lambda/skidbladnir-${FleetId}"
+        },
+        "RetentionInDays": 14
+      }
+    },
+    "ExpiryRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "ScheduleExpression": "rate(1 minute)",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "ExpiryFunction",
+                "Arn"
+              ]
+            },
+            "Id": "ExpireWorkers",
+            "RetryPolicy": {
+              "MaximumRetryAttempts": 2,
+              "MaximumEventAgeInSeconds": 300
+            }
+          }
+        ]
+      }
+    },
+    "ExpiryPermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": {
+          "Ref": "ExpiryFunction"
+        },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "ExpiryRule",
+            "Arn"
+          ]
+        },
+        "SourceAccount": {
+          "Ref": "AWS::AccountId"
+        }
+      }
+    },
+    "ExpiryErrors": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Skidbladnir expiration failed. Inspect the cleanup function and owned instances.",
+        "Namespace": "AWS/Lambda",
+        "MetricName": "Errors",
+        "Dimensions": [
+          {
+            "Name": "FunctionName",
+            "Value": {
+              "Ref": "ExpiryFunction"
+            }
+          }
+        ],
+        "Statistic": "Sum",
+        "Period": 60,
+        "EvaluationPeriods": 1,
+        "Threshold": 1,
+        "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+        "TreatMissingData": "notBreaching"
+      }
+    },
+    "TestVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": "10.231.0.0/24",
+        "EnableDnsSupport": true,
+        "EnableDnsHostnames": true,
+        "Tags": [
+          {
+            "Key": "skidbladnir:fleet",
+            "Value": {
+              "Ref": "FleetId"
+            }
+          }
+        ]
+      }
+    },
+    "TestSubnet": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "TestVpc"
+        },
+        "CidrBlock": "10.231.0.0/26",
+        "MapPublicIpOnLaunch": false,
+        "Tags": [
+          {
+            "Key": "skidbladnir:fleet",
+            "Value": {
+              "Ref": "FleetId"
+            }
+          }
+        ]
+      }
+    },
+    "WorkerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Disposable acceptance worker with no inbound access",
+        "VpcId": {
+          "Ref": "TestVpc"
+        },
+        "Tags": [
+          {
+            "Key": "skidbladnir:fleet",
+            "Value": {
+              "Ref": "FleetId"
+            }
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "10.231.0.0/26"
+          }
+        ]
+      }
+    },
+    "EndpointSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "SSM endpoints for disposable workers only",
+        "VpcId": {
+          "Ref": "TestVpc"
+        },
+        "Tags": [
+          {
+            "Key": "skidbladnir:fleet",
+            "Value": {
+              "Ref": "FleetId"
+            }
+          }
+        ],
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "SourceSecurityGroupId": {
+              "Ref": "WorkerSecurityGroup"
+            }
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": 443,
+            "ToPort": 443,
+            "CidrIp": "127.0.0.1/32"
+          }
+        ]
+      }
+    },
+    "SsmEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Properties": {
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "TestVpc"
+        },
+        "SubnetIds": [
+          {
+            "Ref": "TestSubnet"
+          }
+        ],
+        "SecurityGroupIds": [
+          {
+            "Ref": "EndpointSecurityGroup"
+          }
+        ],
+        "ServiceName": {
+          "Fn::Sub": "com.amazonaws.${AWS::Region}.ssm"
+        },
+        "PrivateDnsEnabled": true
+      }
+    },
+    "MessagesEndpoint": {
+      "Type": "AWS::EC2::VPCEndpoint",
+      "Properties": {
+        "VpcEndpointType": "Interface",
+        "VpcId": {
+          "Ref": "TestVpc"
+        },
+        "SubnetIds": [
+          {
+            "Ref": "TestSubnet"
+          }
+        ],
+        "SecurityGroupIds": [
+          {
+            "Ref": "EndpointSecurityGroup"
+          }
+        ],
+        "ServiceName": {
+          "Fn::Sub": "com.amazonaws.${AWS::Region}.ssmmessages"
+        },
+        "PrivateDnsEnabled": true
+      }
+    }
+  },
+  "Outputs": {
+    "FleetId": {
+      "Value": {
+        "Ref": "FleetId"
+      }
+    },
+    "InstanceProfileName": {
+      "Value": {
+        "Ref": "WorkerProfile"
+      }
+    },
+    "ExpiryRuleName": {
+      "Value": {
+        "Ref": "ExpiryRule"
+      }
+    },
+    "ExpiryFunctionName": {
+      "Value": {
+        "Ref": "ExpiryFunction"
+      }
+    },
+    "ExpiryAlarmName": {
+      "Value": {
+        "Ref": "ExpiryErrors"
+      }
+    },
+    "VpcId": {
+      "Value": {
+        "Ref": "TestVpc"
+      }
+    },
+    "SubnetId": {
+      "Value": {
+        "Ref": "TestSubnet"
+      }
+    },
+    "SecurityGroupId": {
+      "Value": {
+        "Ref": "WorkerSecurityGroup"
+      }
+    }
+  }
+}

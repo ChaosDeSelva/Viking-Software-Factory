@@ -1,0 +1,16 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/testing.ts"],
+  "tsconfig": "tsconfig.build.json",
+  "out": "../../docs/api",
+  "name": "@brokkr/sdk",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true,
+  "githubPages": false,
+  "hideGenerator": true,
+  "disableSources": true,
+  "validation": { "notExported": false, "invalidLink": true },
+  "treatWarningsAsErrors": false
+}

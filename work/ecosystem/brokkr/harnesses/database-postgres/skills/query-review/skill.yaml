@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: query-review
+  version: 1.0.0
+  description: "Review SQL for correctness, safety and performance on PostgreSQL"
+  tags:
+    - postgres
+    - sql
+selectors:
+  keywords:
+    - "query"
+    - "sql"
+    - "explain"
+    - "join"
+    - "slow query"
+    - "index"
+body: instructions.md
+estimatedTokens: 180

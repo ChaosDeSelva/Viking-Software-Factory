@@ -1,0 +1,17 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: error-handling
+  version: 1.0.0
+  description: "Typed errors, safe responses and no swallowed failures"
+  tags:
+    - errors
+selectors:
+  keywords:
+    - "error"
+    - "exception"
+    - "failure"
+    - "retry"
+    - "timeout"
+body: instructions.md
+estimatedTokens: 230

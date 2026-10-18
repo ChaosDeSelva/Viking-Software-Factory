@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: structured-logging
+  version: 1.0.0
+  description: "Structured, redacted JSON logging with correlation IDs"
+  tags:
+    - logging
+    - observability
+    - pino
+selectors:
+  keywords:
+    - "log"
+    - "logging"
+    - "observability"
+    - "trace"
+    - "monitoring"
+body: instructions.md
+estimatedTokens: 220

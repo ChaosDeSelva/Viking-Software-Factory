@@ -1,0 +1,105 @@
+{
+  "description": "Error replies: any non-2xx status carries this body.",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$ref": "#/$defs/ApiErrorBody",
+    "$defs": {
+      "ApiErrorBody": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "validation_failed",
+                  "invalid_transition",
+                  "policy_denied",
+                  "unauthorized",
+                  "not_found",
+                  "conflict",
+                  "idempotency_replay_mismatch",
+                  "runtime_unavailable",
+                  "capability_unavailable",
+                  "cursor_expired",
+                  "internal"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "examples": [
+    {
+      "case": "not_found",
+      "status": 404,
+      "body": {
+        "error": {
+          "code": "not_found",
+          "message": "mission not found",
+          "details": {
+            "id": "msn_00000000000000000000000036"
+          }
+        }
+      }
+    },
+    {
+      "case": "validation_failed",
+      "status": 422,
+      "body": {
+        "error": {
+          "code": "validation_failed",
+          "message": "request validation failed",
+          "details": {
+            "issues": [
+              {
+                "path": [
+                  "projectId"
+                ],
+                "message": "expected a prj_<ulid> id",
+                "code": "invalid_format"
+              },
+              {
+                "path": [
+                  "objective"
+                ],
+                "message": "Too small: expected string to have >=1 characters",
+                "code": "too_small"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "case": "invalid_transition",
+      "status": 409,
+      "body": {
+        "error": {
+          "code": "invalid_transition",
+          "message": "only a completed task can be delivered",
+          "details": {
+            "taskId": "tsk_00000000000000000000000006",
+            "status": "ready"
+          }
+        }
+      }
+    }
+  ]
+}

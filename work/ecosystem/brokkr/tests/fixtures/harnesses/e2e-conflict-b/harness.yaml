@@ -1,0 +1,36 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+metadata:
+  name: e2e-conflict-b
+  version: 1.0.0
+  description: Brokkr e2e fixture harness e2e-conflict-b
+compatibility:
+  platforms: [darwin, linux]
+  taskTypes: [frontend]
+
+skills:
+  required: []
+  optional: []
+workflow:
+  stages: [implement, typecheck, test]
+checks:
+  - id: typecheck
+    command: [tsc, --noEmit, -p, tsconfig.json]
+    required: true
+    timeoutSeconds: 120
+    when:
+      fileExists: [tsconfig.json]
+  - id: unit
+    command: [node, --test]
+    required: true
+    timeoutSeconds: 120
+    when:
+      scriptExists: [test]
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor: [install-dependencies]
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false

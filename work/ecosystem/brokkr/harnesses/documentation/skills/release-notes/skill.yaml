@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: release-notes
+  version: 1.0.0
+  description: "Write accurate, reader-focused release notes and changelog entries"
+  tags:
+    - docs
+    - release
+    - changelog
+selectors:
+  keywords:
+    - "release"
+    - "changelog"
+    - "release notes"
+    - "version"
+    - "migration guide"
+body: instructions.md
+estimatedTokens: 190

@@ -1,0 +1,157 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: frontend-react
+  version: 1.0.0
+  description: "React + TypeScript frontend engineering harness with accessibility, responsive and browser verification gates"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - frontend
+    - ui
+    - react
+
+skills:
+  required:
+    - react-architecture
+    - typescript
+    - accessibility
+    - responsive-design
+  optional:
+    - component-reuse
+    - playwright
+    - visual-qa
+    - tailwind
+    - performance
+    - component-design
+
+workflow:
+  stages:
+    - inspect
+    - implement
+    - typecheck
+    - lint
+    - unit-test
+    - browser-verify
+    - visual-verify
+    - review
+
+checks:
+  - id: typecheck
+    command:
+      - pnpm
+      - exec
+      - tsc
+      - --noEmit
+    required: true
+    timeoutSeconds: 180
+    when:
+      fileExists:
+        - tsconfig.json
+
+  - id: lint
+    command:
+      - pnpm
+      - run
+      - lint
+    required: false
+    timeoutSeconds: 180
+    when:
+      scriptExists:
+        - lint
+
+  - id: unit
+    command:
+      - pnpm
+      - test
+    required: true
+    timeoutSeconds: 300
+    when:
+      scriptExists:
+        - test
+
+  - id: build
+    command:
+      - pnpm
+      - run
+      - build
+    required: false
+    timeoutSeconds: 300
+    when:
+      scriptExists:
+        - build
+
+  - id: screenshot-desktop
+    command:
+      - pnpm
+      - exec
+      - playwright
+      - test
+      - "--project=desktop-1280x800"
+      - "--grep-invert=@a11y"
+    required: true
+    timeoutSeconds: 600
+    when:
+      anyFileExists:
+        - playwright.config.ts
+        - playwright.config.mts
+        - playwright.config.js
+        - playwright.config.mjs
+
+  - id: screenshot-mobile
+    command:
+      - pnpm
+      - exec
+      - playwright
+      - test
+      - "--project=mobile-390x844"
+      - "--grep-invert=@a11y"
+    required: true
+    timeoutSeconds: 600
+    when:
+      anyFileExists:
+        - playwright.config.ts
+        - playwright.config.mts
+        - playwright.config.js
+        - playwright.config.mjs
+
+  - id: axe
+    command:
+      - pnpm
+      - exec
+      - playwright
+      - test
+      - "--project=desktop-1280x800"
+      - "--grep=@a11y"
+    required: true
+    timeoutSeconds: 600
+    when:
+      anyFileExists:
+        - playwright.config.ts
+        - playwright.config.mts
+        - playwright.config.js
+        - playwright.config.mjs
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: true
+
+aiReview:
+  criteria:
+    - "Components reuse the existing design system instead of introducing one-off styles or duplicates"
+    - "Interactive elements are keyboard accessible, labelled and show a visible focus state"
+    - "Layouts hold at 1280x800 and 390x844 with no overflow, overlap or clipped text"
+    - "New state handling covers loading, empty and error cases"

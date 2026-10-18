@@ -1,0 +1,40 @@
+{
+  "name": "@mimir/sdk",
+  "version": "0.2.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "pack:local": "node scripts/pack-local.mjs",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4",
+    "@mimir/testing": "workspace:*",
+    "@mimir/server": "workspace:*",
+    "@mimir/core": "workspace:*",
+    "@mimir/fake-runtime": "workspace:*"
+  },
+  "dependencies": {
+    "@mimir/protocol": "workspace:*"
+  },
+  "files": [
+    "dist",
+    "contracts"
+  ]
+}

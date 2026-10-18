@@ -1,0 +1,23 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: migration-safety
+  version: 1.0.0
+  description: "Write reversible, lock-aware PostgreSQL migrations that are safe to deploy online"
+  tags:
+    - postgres
+    - migrations
+selectors:
+  taskTypes:
+    - "database"
+  keywords:
+    - "migration"
+    - "alter table"
+    - "schema change"
+    - "migrate"
+    - "ddl"
+  pathGlobs:
+    - "migrations/**"
+    - "db/migrations/**"
+body: instructions.md
+estimatedTokens: 210

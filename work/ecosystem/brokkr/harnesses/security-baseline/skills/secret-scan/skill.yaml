@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: secret-scan
+  version: 1.0.0
+  description: "Detect committed secrets using the bundled pattern list and tag each result finding or heuristic"
+  tags:
+    - security
+    - secrets
+selectors:
+  keywords:
+    - "secret"
+    - "credential"
+    - "api key"
+    - "token"
+    - "password"
+    - ".env"
+body: instructions.md
+estimatedTokens: 230

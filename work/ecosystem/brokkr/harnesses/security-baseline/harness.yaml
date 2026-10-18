@@ -1,0 +1,99 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: security-baseline
+  version: 1.0.0
+  description: "Secrets, dependency vulnerabilities, insecure configuration and dangerous code patterns, with findings separated from heuristics"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - security
+
+skills:
+  required:
+    - secret-scan
+    - dependency-audit
+    - insecure-config
+    - dangerous-code
+  optional: []
+
+workflow:
+  stages:
+    - inspect
+    - scan
+    - triage
+    - review
+
+checks:
+  - id: secret-scan
+    command:
+      - node
+      - "{{harnessDir}}/scripts/scan.mjs"
+      - --kind
+      - secrets
+    required: true
+    timeoutSeconds: 120
+
+  - id: dependency-audit-pnpm
+    command:
+      - pnpm
+      - audit
+      - --json
+    required: false
+    timeoutSeconds: 180
+    when:
+      fileExists:
+        - pnpm-lock.yaml
+
+  - id: dependency-audit-npm
+    command:
+      - npm
+      - audit
+      - --json
+    required: false
+    timeoutSeconds: 180
+    when:
+      fileExists:
+        - package-lock.json
+
+  - id: insecure-config
+    command:
+      - node
+      - "{{harnessDir}}/scripts/scan.mjs"
+      - --kind
+      - config
+    required: false
+    timeoutSeconds: 120
+
+  - id: dangerous-code
+    command:
+      - node
+      - "{{harnessDir}}/scripts/scan.mjs"
+      - --kind
+      - code
+    required: false
+    timeoutSeconds: 120
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+    - network-access
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "No confirmed secret (finding) is present; each heuristic has a recorded disposition"
+    - "No high or critical vulnerability remains in production dependencies without an approved exception"
+    - "No security control (TLS verification, auth, CORS) was weakened"

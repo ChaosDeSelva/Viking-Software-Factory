@@ -1,0 +1,21 @@
+
+@theme {
+  --color-white: #fffefa;
+  --color-zinc-50: #f6f5ef; --color-zinc-100: #efeee6; --color-zinc-200: #e1e2d6; --color-zinc-300: #d5d6c9; --color-zinc-400: #a6ab9b; --color-zinc-500: #747b6c; --color-zinc-600: #62675d; --color-zinc-700: #444d40; --color-zinc-800: #303e32; --color-zinc-900: #232821; --color-zinc-950: #142019;
+  --color-slate-50: #f6f5ef; --color-slate-100: #efeee6; --color-slate-200: #e1e2d6; --color-slate-300: #d5d6c9; --color-slate-400: #a6ab9b; --color-slate-500: #747b6c; --color-slate-600: #62675d; --color-slate-700: #444d40; --color-slate-800: #303e32; --color-slate-900: #232821; --color-slate-950: #142019;
+  --color-blue-50: #fff3e9; --color-blue-100: #fce5d3; --color-blue-200: #f3cbb4; --color-blue-300: #eab293; --color-blue-600: #bd4b27; --color-blue-700: #ad401c; --color-blue-800: #8c3114; --color-blue-900: #642710; --color-blue-950: #3f1d10;
+  --color-indigo-50: #edf3ea; --color-indigo-100: #e5eee5; --color-indigo-200: #c7d8c1; --color-indigo-300: #a5c397; --color-indigo-600: #32694e; --color-indigo-700: #275642; --color-indigo-800: #1e4836; --color-indigo-900: #18382a;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text-xs: .8125rem;
+}
+@layer base {
+  html { font-family: var(--font-sans); }
+  body { background: #f6f5ef; }
+  h1,h2,h3 { letter-spacing: -.025em; }
+  button,input,select { min-height: 38px; }
+  :focus-visible { outline-color: #275642; outline-offset: 3px; }
+}
+@layer components {
+  .project-brand { display:inline-flex;align-items:center;gap:10px;white-space:nowrap; }
+  .project-initial { display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border:1px solid #a6ab9b;border-radius:6px;background:#fffefa;color:#275642;font-size:22px;font-weight:700; }
+}

@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: visual-qa
+  version: 1.0.0
+  description: "Screenshot-based visual verification of UI changes at desktop and mobile sizes"
+  tags:
+    - visual
+    - qa
+    - screenshots
+dependsOn:
+  - playwright
+selectors:
+  keywords:
+    - "screenshot"
+    - "visual"
+    - "regression"
+    - "pixel"
+    - "layout bug"
+body: instructions.md
+estimatedTokens: 200

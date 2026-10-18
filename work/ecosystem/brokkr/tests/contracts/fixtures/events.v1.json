@@ -1,0 +1,152 @@
+[
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_9e9b32bd-d2d2-417a-8a26-16cdf94af120",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.199Z",
+    "sequence": 1,
+    "type": "verification.started",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "runDir": "/var/folders/hm/t3x0_d6j6ms83phrm9n7s0f00000gn/T/fix-glcTnu/.brokkr/runs/run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "workspace": "/var/folders/hm/t3x0_d6j6ms83phrm9n7s0f00000gn/T/fix-glcTnu",
+    "taskId": "QA-142",
+    "harnesses": ["qa-regression@1.0.0"],
+    "checks": 4
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_aa9886b1-b890-4179-b30c-a420feaa5610",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.201Z",
+    "sequence": 2,
+    "type": "verification.check.started",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "test",
+    "command": ["pnpm", "test", "--run"]
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_bd1dd249-14cd-4233-9ef0-1ea9e4459a8a",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.201Z",
+    "sequence": 3,
+    "type": "verification.check.completed",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "test",
+    "result": {
+      "id": "test",
+      "required": true,
+      "command": ["pnpm", "test", "--run"],
+      "cwd": ".",
+      "from": ["qa-regression@1.0.0"],
+      "durationMs": 0,
+      "state": "passed",
+      "exitCode": 0,
+      "signal": null,
+      "startedAt": "2026-10-14T17:05:41.201Z",
+      "completedAt": "2026-10-14T17:05:41.201Z",
+      "outputBytes": 16,
+      "truncated": false,
+      "secretFindings": 0,
+      "log": "logs/test.log"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_ebf090db-70f6-4edf-aca2-4d0770f7a87d",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.202Z",
+    "sequence": 4,
+    "type": "verification.check.completed",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "integration",
+    "result": {
+      "id": "integration",
+      "required": false,
+      "command": ["pnpm", "run", "test:integration"],
+      "cwd": ".",
+      "from": ["qa-regression@1.0.0"],
+      "durationMs": 0,
+      "state": "skipped",
+      "reason": "missing_script",
+      "message": "when.scriptExists: package.json has no 'test:integration' script"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_f50c06b5-fea0-4c0c-99ff-e2973e10e3df",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.204Z",
+    "sequence": 5,
+    "type": "verification.check.started",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "e2e",
+    "command": ["pnpm", "run", "test:e2e"]
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_f76d1196-068f-467d-b57d-161c793dd65d",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.204Z",
+    "sequence": 6,
+    "type": "verification.check.completed",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "e2e",
+    "result": {
+      "id": "e2e",
+      "required": false,
+      "command": ["pnpm", "run", "test:e2e"],
+      "cwd": ".",
+      "from": ["qa-regression@1.0.0"],
+      "durationMs": 0,
+      "state": "failed",
+      "exitCode": 1,
+      "signal": null,
+      "startedAt": "2026-10-14T17:05:41.204Z",
+      "completedAt": "2026-10-14T17:05:41.204Z",
+      "outputBytes": 9,
+      "truncated": false,
+      "secretFindings": 0,
+      "log": "logs/e2e.log"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_24f3d3de-8777-4859-b249-62ef656ae987",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.205Z",
+    "sequence": 7,
+    "type": "verification.check.completed",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "checkId": "coverage",
+    "result": {
+      "id": "coverage",
+      "required": false,
+      "command": ["pnpm", "run", "coverage"],
+      "cwd": ".",
+      "from": ["qa-regression@1.0.0"],
+      "durationMs": 0,
+      "state": "skipped",
+      "reason": "missing_script",
+      "message": "when.scriptExists: package.json has no 'coverage' script"
+    }
+  },
+  {
+    "schemaVersion": 1,
+    "eventId": "evt_2abec729-58c7-4567-84e2-cdf9ef663878",
+    "correlationId": "mission-7/verify-1",
+    "timestamp": "2026-10-14T17:05:41.209Z",
+    "sequence": 8,
+    "type": "verification.completed",
+    "runId": "run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "runDir": "/var/folders/hm/t3x0_d6j6ms83phrm9n7s0f00000gn/T/fix-glcTnu/.brokkr/runs/run_01M4XP0YTD43EJQH0GBV58JRZW",
+    "verdict": "passed",
+    "summary": {
+      "passed": 1,
+      "failed": 1,
+      "skipped": 2,
+      "errored": 0
+    },
+    "reasons": []
+  }
+]

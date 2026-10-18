@@ -1,0 +1,32 @@
+SOURCE RELEASE READINESS
+
+Decision: ready to create the GitHub source repositories for the documented release scope, after final archive integrity checks.
+
+The earlier publication hold is resolved for the supported Apple silicon macOS editor and factory source release. This supersedes the earlier HOLD decision in REVIEW.txt. It does not approve old app bundles or unsupported platform and server deployments.
+
+Completed fixes
+
+* Updated Wasmtime and WASI to 48.0.6, rustls to 0.23.46, cxx to 1.0.195, and affected cache, memory, concurrency and HTTP related dependencies.
+* Replaced the inherited RSA implementation with AWS LC. OAEP with SHA256 is retained; legacy encryption and decryption fallback are rejected. The intermediate OpenSSL approach was rejected because its native symbols conflicted with WebRTC; it is not in the final editor graph.
+* Removed the inherited administrator token logging statement.
+* Corrected extension regression fixtures to expect the Hulder theme and grant only their fake download host. Production capability defaults remain restricted.
+* Added a repeatable supported target advisory gate and tests that prevent security or unsoundness advisories from being silently treated as maintenance notices.
+* Prepared clean source snapshots without inherited Git history. Preserved licenses and attribution, normalized tar ownership metadata, and documented separate source and binary release procedures.
+* Corrected the combined collection README, added root license boundaries and runtime ignore rules, and included Skidbladnir in the collection build script.
+
+Verified in this remediation run
+
+* Hulder builds with the pinned Rust toolchain and committed lockfile. No duplicate crypto symbols remain. The debug link reports a large unwind table warning and an inherited future Rust compatibility warning for block 0.1.6; neither prevented the build or acceptance.
+* All 113 tests pass across extension_host, herd_panel, hulder_net, rpc and veil. The separate release audit has three passing regression tests.
+* The supported editor graph contains 951 checked registry package versions and zero blocking security advisories. Eight specifically reviewed maintenance notices remain visible in SECURITY.md. Full workspace findings outside that graph remain in unsupported server tooling or other platform dependencies and are not silently cleared.
+* All five JavaScript projects report zero known vulnerabilities including development and build dependencies.
+* The rebuilt development bundle passed local signature verification. In a separate test profile the app launched, opened and saved the synthetic acceptance file, and displayed the Factory connection controls. The project remained in restricted mode. The session was then closed.
+* Prior AWS and exe.dev acceptance and cleanup evidence remains unchanged. No cloud resources were created, restarted or modified during this remediation.
+
+Publication scope
+
+Use the seven prepared directories under the prepared github-ready handoff to create fresh repositories. Do not publish the surrounding workspace, local test logs, credential stores or arbitrary original Git history. The source handoff excludes local build products and runtime state. Review START-HERE.txt before initializing Git.
+
+Hulder is a source preview for Apple silicon macOS. Public binaries still require your Developer ID signing, notarization and a clean installation check. These are binary distribution tasks, not blockers to creating the source repository. Vendor integrations without accounts remain explicitly experimental as previously agreed. No GitHub repository or Pages deployment has been created.
+
+Registry advisory checks are not a guarantee against every vulnerability. Git dependencies are enumerated for separate source review. The final source scan and exact archive hashes are recorded in the accompanying final evidence.

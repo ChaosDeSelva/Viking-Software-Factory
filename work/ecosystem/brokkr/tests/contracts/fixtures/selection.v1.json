@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "task": {
+    "id": "QA-142",
+    "title": "Regression pass",
+    "description": "Independent regression",
+    "taskTypes": ["qa"]
+  },
+  "harnesses": [
+    {
+      "name": "qa-regression",
+      "version": "1.0.0",
+      "digest": "sha256:c17b2ffc5fb4ba1fea6717c08ef29b828f1f817e86fe6fdcf0cb86d11293bb84",
+      "description": "Independent regression test plan, re-run of the project's tests and evidence capture",
+      "taskTypes": ["qa", "test", "regression"],
+      "source": "builtin",
+      "sourceRef": "builtin",
+      "trust": "trusted",
+      "executionAllowed": true,
+      "checks": [
+        {
+          "id": "test",
+          "required": true
+        },
+        {
+          "id": "integration",
+          "required": false
+        },
+        {
+          "id": "e2e",
+          "required": false
+        },
+        {
+          "id": "coverage",
+          "required": false
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "flaky-test-triage",
+      "version": "1.0.0",
+      "digest": "sha256:25278bf06859d33958d115d14034261765cf9b2d7ba52a38e6d20a72693288e8",
+      "reason": "required by qa-regression@1.0.0",
+      "requiredBy": "qa-regression@1.0.0",
+      "score": 3
+    },
+    {
+      "name": "independent-verification",
+      "version": "1.0.0",
+      "digest": "sha256:416ab06885f18af54cf152b76ae00ad12434101bb74db6c8996cfefcfab3cdb8",
+      "reason": "required by qa-regression@1.0.0",
+      "requiredBy": "qa-regression@1.0.0",
+      "score": 5
+    },
+    {
+      "name": "regression-test-plan",
+      "version": "1.0.0",
+      "digest": "sha256:b86b70608911c11556f69752d02aa0930e40702702cd8726dbf34f5d3bb4b332",
+      "reason": "required by qa-regression@1.0.0",
+      "requiredBy": "qa-regression@1.0.0",
+      "score": 5
+    },
+    {
+      "name": "test-evidence",
+      "version": "1.0.0",
+      "digest": "sha256:e05507eb77b2b8005e8c4066b398439b0fdecbb1d6a96f2bb3b268d2903d6179",
+      "reason": "required by qa-regression@1.0.0",
+      "requiredBy": "qa-regression@1.0.0",
+      "score": 3
+    }
+  ],
+  "lock": {
+    "lockVersion": 2,
+    "harnesses": [
+      {
+        "name": "qa-regression",
+        "version": "1.0.0",
+        "digest": "sha256:c17b2ffc5fb4ba1fea6717c08ef29b828f1f817e86fe6fdcf0cb86d11293bb84",
+        "source": "builtin"
+      }
+    ],
+    "skills": [
+      {
+        "name": "flaky-test-triage",
+        "version": "1.0.0",
+        "digest": "sha256:25278bf06859d33958d115d14034261765cf9b2d7ba52a38e6d20a72693288e8"
+      },
+      {
+        "name": "independent-verification",
+        "version": "1.0.0",
+        "digest": "sha256:416ab06885f18af54cf152b76ae00ad12434101bb74db6c8996cfefcfab3cdb8"
+      },
+      {
+        "name": "playwright-e2e",
+        "version": "1.0.0",
+        "digest": "sha256:f67a2a10212054e1f031257b812f705c6330a9c46619ff3d996f4851486a8deb"
+      },
+      {
+        "name": "regression-test-plan",
+        "version": "1.0.0",
+        "digest": "sha256:b86b70608911c11556f69752d02aa0930e40702702cd8726dbf34f5d3bb4b332"
+      },
+      {
+        "name": "test-evidence",
+        "version": "1.0.0",
+        "digest": "sha256:e05507eb77b2b8005e8c4066b398439b0fdecbb1d6a96f2bb3b268d2903d6179"
+      }
+    ],
+    "adapters": [
+      {
+        "id": "claude-code",
+        "version": "0.1.0"
+      },
+      {
+        "id": "codex",
+        "version": "0.1.0"
+      },
+      {
+        "id": "generic",
+        "version": "0.1.0"
+      }
+    ],
+    "generatedAt": "2026-10-14T17:05:41.019Z",
+    "digest": "sha256:ea5f1a7cc594b10ea00c6ffa4a1649a2c1db009b4e2941a5ff65a4279e8ad79d"
+  },
+  "rationale": [
+    {
+      "kind": "harness",
+      "name": "backend-kotlin-spring",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "backend-node",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "database-postgres",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "documentation",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "frontend-react",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "godot-game",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "security-baseline",
+      "selected": false,
+      "reason": "no task type, tag or repository signal matched"
+    },
+    {
+      "kind": "harness",
+      "name": "qa-regression",
+      "selected": true,
+      "reason": "task types/tags match: qa"
+    },
+    {
+      "kind": "skill",
+      "name": "flaky-test-triage",
+      "selected": true,
+      "reason": "required by qa-regression@1.0.0",
+      "score": 3
+    },
+    {
+      "kind": "skill",
+      "name": "independent-verification",
+      "selected": true,
+      "reason": "required by qa-regression@1.0.0",
+      "score": 5
+    },
+    {
+      "kind": "skill",
+      "name": "regression-test-plan",
+      "selected": true,
+      "reason": "required by qa-regression@1.0.0",
+      "score": 5
+    },
+    {
+      "kind": "skill",
+      "name": "test-evidence",
+      "selected": true,
+      "reason": "required by qa-regression@1.0.0",
+      "score": 3
+    },
+    {
+      "kind": "skill",
+      "name": "playwright-e2e",
+      "selected": false,
+      "reason": "no selector matched the task (score 0, threshold 2)",
+      "score": 0
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,18 @@
+Skidbladnir
+Copyright 2026 Skidbladnir contributors
+
+Project source and original SVG artwork are provided under Apache-2.0.
+The original SVG artwork in site/assets was authored for this project.
+The raster banner skidbladnir-banner.png was supplied by the project owner
+on October 15, 2026 as “Moonlit Skidbladnir_ A Norse Magical Voyage.png”
+for inclusion in the project README and website. Original pixels preserved.
+No independent claim about its generation process or third-party rights is made.
+
+This project uses the AWS SDK for JavaScript, React, React DOM, Vite, Tailwind CSS, Playwright, axe-core,
+and their dependencies. Their licenses remain with their respective authors
+in installed package metadata. The source distribution does not vendor those
+packages; the production dashboard bundles runtime dependencies. Review and
+retain their notices when distributing production bundles.
+
+The Skidbladnir name is a working project name. No affiliation with AWS,
+exe.dev, or other projects with similar names is claimed.

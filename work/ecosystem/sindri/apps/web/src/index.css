@@ -1,0 +1,5 @@
+@import "tailwindcss";
+@import "./brand-theme.css";
+
+/* Theme is class-driven (toggle in the header), not media-driven. */
+@custom-variant dark (&:where(.dark, .dark *));

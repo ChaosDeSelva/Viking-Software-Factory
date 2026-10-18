@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: component-reuse
+  version: 1.0.0
+  description: "Reuse the existing design system and shared components before creating new ones"
+  tags:
+    - components
+    - design-system
+    - reuse
+selectors:
+  keywords:
+    - "reuse"
+    - "shared component"
+    - "ui kit"
+    - "storybook"
+body: instructions.md
+estimatedTokens: 260

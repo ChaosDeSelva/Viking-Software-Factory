@@ -1,0 +1,17 @@
+{
+  "data": {
+    "issue": {
+      "id": "8f1b5c1e-2d6a-4f0e-9a3b-6c2d7e8f9a01",
+      "identifier": "ENG-42",
+      "title": "Retry webhook deliveries with backoff",
+      "description": "Webhook deliveries currently fail permanently on the first 5xx.\n\n- Retry up to 5 times\n- Exponential backoff starting at 1s\n\n<img src=x onerror=alert(1)>",
+      "url": "https://linear.app/acme/issue/ENG-42/retry-webhook-deliveries-with-backoff",
+      "priority": 2,
+      "createdAt": "2026-09-25T14:00:00.000Z",
+      "updatedAt": "2026-10-01T09:12:44.000Z",
+      "state": { "name": "Todo", "type": "unstarted" },
+      "team": { "key": "ENG", "name": "Engineering" },
+      "labels": { "nodes": [{ "name": "reliability" }] }
+    }
+  }
+}

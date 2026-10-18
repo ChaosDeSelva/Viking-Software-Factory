@@ -1,0 +1,57 @@
+{
+  "comment": "Coverage gate. thresholds = measured (2026-10-14, base 0973e00) minus 2 points, floored. Never lower these to make a run pass; add tests instead. apps/cli is not run: its e2e suites assert process start-up time and spawn trees, which NODE_V8_COVERAGE instrumentation slows past their limits.",
+  "exclude": ["src/**/*.test.ts", "src/**/*.d.ts", "test/**", "dist/**", "**/fixtures/**"],
+  "packages": {
+    "packages/runner": {
+      "thresholds": {
+        "statements": 90,
+        "branches": 81,
+        "functions": 92,
+        "lines": 93
+      }
+    },
+    "packages/policy": {
+      "thresholds": {
+        "statements": 97,
+        "branches": 94,
+        "functions": 98,
+        "lines": 98
+      }
+    },
+    "packages/registry": {
+      "thresholds": {
+        "statements": 87,
+        "branches": 78,
+        "functions": 90,
+        "lines": 88
+      }
+    },
+    "packages/resolver": {
+      "thresholds": {
+        "statements": 95,
+        "branches": 80,
+        "functions": 94,
+        "lines": 96
+      }
+    },
+    "packages/evidence": {
+      "thresholds": {
+        "statements": 90,
+        "branches": 78,
+        "functions": 83,
+        "lines": 91
+      }
+    },
+    "packages/sdk": {
+      "thresholds": {
+        "statements": 86,
+        "branches": 81,
+        "functions": 81,
+        "lines": 87
+      },
+      "exclude": ["src/types.ts"]
+    },
+    "packages/core": {},
+    "packages/reporters": {}
+  }
+}

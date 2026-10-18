@@ -1,0 +1,65 @@
+{
+  "operation": "POST /v1/tasks/{id}/retry",
+  "method": "POST",
+  "path": "/v1/tasks/{id}/retry",
+  "status": 202,
+  "request": {
+    "url": "/v1/tasks/tsk_00000000000000000000000006/retry",
+    "body": {
+      "reason": "flaky"
+    },
+    "headers": [
+      "authorization",
+      "idempotency-key"
+    ]
+  },
+  "response": {
+    "status": 202,
+    "contentType": "application/json",
+    "body": {
+      "operationId": "op_00000000000000000000000021",
+      "commandId": "cmd_00000000000000000000000022"
+    }
+  },
+  "schemas": {
+    "request": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$ref": "#/$defs/OperationAccepted",
+      "$defs": {
+        "OperationAccepted": {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "commandId": {
+              "type": "string",
+              "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          "required": [
+            "operationId",
+            "commandId"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

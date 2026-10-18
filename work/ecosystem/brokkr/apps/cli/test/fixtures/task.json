@@ -1,0 +1,7 @@
+{
+  "id": "UI-142",
+  "title": "Build analytics dashboard",
+  "description": "Create a responsive analytics dashboard component with accessible charts",
+  "tags": ["frontend", "react"],
+  "paths": ["src/components/Dashboard.tsx"]
+}

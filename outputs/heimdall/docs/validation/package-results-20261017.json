@@ -1,0 +1,276 @@
+[
+  {
+    "project": "mimir",
+    "package": "packages/brokkr-verifier",
+    "exitCode": 0,
+    "seconds": 3.94,
+    "log": "mimir-packages-brokkr-verifier.log",
+    "passedTests": 21
+  },
+  {
+    "project": "mimir",
+    "package": "packages/core",
+    "exitCode": 0,
+    "seconds": 12.85,
+    "log": "mimir-packages-core.log",
+    "passedTests": 2092
+  },
+  {
+    "project": "mimir",
+    "package": "packages/fake-runtime",
+    "exitCode": 0,
+    "seconds": 0.39,
+    "log": "mimir-packages-fake-runtime.log",
+    "passedTests": 17
+  },
+  {
+    "project": "mimir",
+    "package": "packages/git",
+    "exitCode": 0,
+    "seconds": 10.06,
+    "log": "mimir-packages-git.log",
+    "passedTests": 129
+  },
+  {
+    "project": "mimir",
+    "package": "packages/herdr-adapter",
+    "exitCode": 0,
+    "seconds": 6.08,
+    "log": "mimir-packages-herdr-adapter.log",
+    "passedTests": 103
+  },
+  {
+    "project": "mimir",
+    "package": "packages/protocol",
+    "exitCode": 0,
+    "seconds": 0.5,
+    "log": "mimir-packages-protocol.log",
+    "passedTests": 229
+  },
+  {
+    "project": "mimir",
+    "package": "packages/sdk",
+    "exitCode": 0,
+    "seconds": 2.84,
+    "log": "mimir-packages-sdk.log",
+    "rerunAfterFix": true,
+    "passedTests": 83
+  },
+  {
+    "project": "mimir",
+    "package": "packages/telemetry",
+    "exitCode": 0,
+    "seconds": 0.29,
+    "log": "mimir-packages-telemetry.log",
+    "passedTests": 1
+  },
+  {
+    "project": "mimir",
+    "package": "packages/testing",
+    "exitCode": 0,
+    "seconds": 0.45,
+    "log": "mimir-packages-testing.log",
+    "rerunAfterFix": true,
+    "passedTests": 44
+  },
+  {
+    "project": "mimir",
+    "package": "apps/cli",
+    "exitCode": 0,
+    "seconds": 9.07,
+    "log": "mimir-apps-cli.log",
+    "passedTests": 22
+  },
+  {
+    "project": "mimir",
+    "package": "apps/server",
+    "exitCode": 0,
+    "seconds": 16.53,
+    "log": "mimir-apps-server.log",
+    "passedTests": 415
+  },
+  {
+    "project": "mimir",
+    "package": "apps/web",
+    "exitCode": 0,
+    "seconds": 4.01,
+    "log": "mimir-apps-web.log",
+    "passedTests": 156
+  },
+  {
+    "project": "sindri",
+    "package": "packages/delivery",
+    "exitCode": 0,
+    "seconds": 2.17,
+    "log": "sindri-packages-delivery.log",
+    "passedTests": 158
+  },
+  {
+    "project": "sindri",
+    "package": "packages/director",
+    "exitCode": 0,
+    "seconds": 1.02,
+    "log": "sindri-packages-director.log",
+    "passedTests": 80
+  },
+  {
+    "project": "sindri",
+    "package": "packages/harnesses",
+    "exitCode": 0,
+    "seconds": 0.49,
+    "log": "sindri-packages-harnesses.log",
+    "passedTests": 14
+  },
+  {
+    "project": "sindri",
+    "package": "packages/intake",
+    "exitCode": 0,
+    "seconds": 0.87,
+    "log": "sindri-packages-intake.log",
+    "passedTests": 69
+  },
+  {
+    "project": "sindri",
+    "package": "packages/knowledge",
+    "exitCode": 0,
+    "seconds": 2.27,
+    "log": "sindri-packages-knowledge.log",
+    "passedTests": 135
+  },
+  {
+    "project": "sindri",
+    "package": "packages/mimir-client",
+    "exitCode": 0,
+    "seconds": 0.71,
+    "log": "sindri-packages-mimir-client.log",
+    "passedTests": 32
+  },
+  {
+    "project": "sindri",
+    "package": "packages/planner",
+    "exitCode": 0,
+    "seconds": 0.55,
+    "log": "sindri-packages-planner.log",
+    "passedTests": 39
+  },
+  {
+    "project": "sindri",
+    "package": "packages/specs",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "sindri-packages-specs.log",
+    "passedTests": 18
+  },
+  {
+    "project": "sindri",
+    "package": "packages/testing",
+    "exitCode": 0,
+    "seconds": 0.61,
+    "log": "sindri-packages-testing.log",
+    "passedTests": 24
+  },
+  {
+    "project": "sindri",
+    "package": "apps/cli",
+    "exitCode": 0,
+    "seconds": 7.23,
+    "log": "sindri-apps-cli.log",
+    "passedTests": 27
+  },
+  {
+    "project": "sindri",
+    "package": "apps/server",
+    "exitCode": 0,
+    "seconds": 2.56,
+    "log": "sindri-apps-server.log",
+    "passedTests": 134
+  },
+  {
+    "project": "sindri",
+    "package": "apps/web",
+    "exitCode": 0,
+    "seconds": 3.06,
+    "log": "sindri-apps-web.log",
+    "passedTests": 106
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/core",
+    "exitCode": 0,
+    "seconds": 0.6,
+    "log": "brokkr-packages-core.log",
+    "passedTests": 190
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/evidence",
+    "exitCode": 0,
+    "seconds": 1.14,
+    "log": "brokkr-packages-evidence.log",
+    "passedTests": 39
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/policy",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "brokkr-packages-policy.log",
+    "passedTests": 330
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/registry",
+    "exitCode": 0,
+    "seconds": 1.07,
+    "log": "brokkr-packages-registry.log",
+    "passedTests": 125
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/reporters",
+    "exitCode": 0,
+    "seconds": 0.39,
+    "log": "brokkr-packages-reporters.log",
+    "passedTests": 17
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/resolver",
+    "exitCode": 0,
+    "seconds": 0.4,
+    "log": "brokkr-packages-resolver.log",
+    "passedTests": 25
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/runner",
+    "exitCode": 0,
+    "seconds": 35.51,
+    "log": "brokkr-packages-runner.log",
+    "passedTests": 99
+  },
+  {
+    "project": "brokkr",
+    "package": "packages/sdk",
+    "exitCode": 0,
+    "seconds": 4.73,
+    "log": "brokkr-packages-sdk.log",
+    "passedTests": 72
+  },
+  {
+    "project": "brokkr",
+    "package": "apps/cli",
+    "exitCode": 0,
+    "seconds": 24.61,
+    "log": "brokkr-apps-cli.log",
+    "passedTests": 87
+  },
+  {
+    "project": "brokkr",
+    "package": "tests/contracts",
+    "exitCode": 0,
+    "seconds": 1.71,
+    "log": "brokkr-tests-contracts.log",
+    "passedTests": 19
+  }
+]

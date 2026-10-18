@@ -1,0 +1,22 @@
+{
+  "name": "@brokkr-tests/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "description": "Consumer-driven contract tests: pin the public @brokkr/sdk surface, the report schema and the event schema.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@brokkr/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@brokkr/cli": "workspace:*",
+    "ajv": "^8.20.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  }
+}

@@ -1,0 +1,17 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: kotlin-idioms
+  version: 1.0.0
+  description: "Null-safe, immutable Kotlin conventions for JVM services"
+  tags:
+    - kotlin
+selectors:
+  keywords:
+    - "kotlin"
+    - "data class"
+    - "coroutine"
+    - "nullable"
+    - "sealed"
+body: instructions.md
+estimatedTokens: 150

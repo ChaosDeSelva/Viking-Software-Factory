@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: runnable-examples
+  version: 1.0.0
+  description: "Ensure documentation examples are complete, copy-pasteable and actually run"
+  tags:
+    - docs
+    - examples
+selectors:
+  keywords:
+    - "example"
+    - "snippet"
+    - "tutorial"
+    - "quickstart"
+    - "sample"
+body: instructions.md
+estimatedTokens: 200

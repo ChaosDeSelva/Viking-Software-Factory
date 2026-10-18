@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: accessibility
+  version: 1.0.0
+  description: "WCAG 2.2 AA accessibility rules for interactive UI"
+  tags:
+    - a11y
+    - accessibility
+selectors:
+  keywords:
+    - "accessibility"
+    - "a11y"
+    - "aria"
+    - "keyboard"
+    - "screen reader"
+body: instructions.md
+estimatedTokens: 260

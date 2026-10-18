@@ -1,0 +1,96 @@
+{
+  "operation": "GET /v1/artifacts/{id}",
+  "method": "GET",
+  "path": "/v1/artifacts/{id}",
+  "status": 200,
+  "request": {
+    "url": "/v1/artifacts/art_00000000000000000000000034",
+    "headers": [
+      "authorization"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "artifact": {
+        "id": "art_00000000000000000000000034",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "version": 1,
+        "taskId": "tsk_00000000000000000000000006",
+        "kind": "test.output",
+        "uri": "file:///dev/null",
+        "hash": "sha256:00"
+      }
+    }
+  },
+  "schemas": {
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "required": [
+        "artifact"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "Artifact": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^art_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "kind": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uri": {
+              "type": "string",
+              "minLength": 1
+            },
+            "hash": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "taskId",
+            "kind",
+            "uri",
+            "hash"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

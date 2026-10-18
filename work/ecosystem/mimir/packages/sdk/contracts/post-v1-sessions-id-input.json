@@ -1,0 +1,64 @@
+{
+  "operation": "POST /v1/sessions/{id}/input",
+  "method": "POST",
+  "path": "/v1/sessions/{id}/input",
+  "status": 202,
+  "request": {
+    "url": "/v1/sessions/ses_00000000000000000000000009/input",
+    "body": {
+      "text": "continue"
+    },
+    "headers": [
+      "authorization",
+      "idempotency-key"
+    ]
+  },
+  "response": {
+    "status": 202,
+    "contentType": "application/json",
+    "body": {
+      "operationId": "op_00000000000000000000000028",
+      "commandId": "cmd_00000000000000000000000029"
+    }
+  },
+  "schemas": {
+    "request": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$ref": "#/$defs/OperationAccepted",
+      "$defs": {
+        "OperationAccepted": {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "commandId": {
+              "type": "string",
+              "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          "required": [
+            "operationId",
+            "commandId"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: gdscript-quality
+  version: 1.0.0
+  description: "Typed, readable GDScript conventions for Godot 4 projects"
+  tags:
+    - godot
+    - gdscript
+selectors:
+  taskTypes:
+    - "game"
+  keywords:
+    - "gdscript"
+    - "godot"
+    - "node"
+    - "signal"
+    - "autoload"
+  pathGlobs:
+    - "**/*.gd"
+body: instructions.md
+estimatedTokens: 180

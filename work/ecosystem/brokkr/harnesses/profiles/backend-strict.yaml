@@ -1,0 +1,6 @@
+name: backend-strict
+harnesses:
+  - name: backend-node
+    version: "^1.0.0"
+  - name: security-baseline
+    version: "^1.0.0"

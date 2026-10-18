@@ -1,0 +1,18 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: sql-testing
+  version: 1.0.0
+  description: "Test migrations and queries against a real disposable PostgreSQL instance"
+  tags:
+    - postgres
+    - testing
+selectors:
+  keywords:
+    - "database test"
+    - "fixture"
+    - "seed"
+    - "testcontainers"
+    - "rollback"
+body: instructions.md
+estimatedTokens: 180

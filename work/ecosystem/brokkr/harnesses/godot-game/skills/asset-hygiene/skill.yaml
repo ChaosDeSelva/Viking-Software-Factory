@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: asset-hygiene
+  version: 1.0.0
+  description: "Keep game assets, import settings and project references clean and licensed"
+  tags:
+    - godot
+    - assets
+selectors:
+  keywords:
+    - "asset"
+    - "texture"
+    - "audio"
+    - "import"
+    - "sprite"
+    - "license"
+body: instructions.md
+estimatedTokens: 140

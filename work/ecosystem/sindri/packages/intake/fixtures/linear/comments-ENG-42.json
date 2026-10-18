@@ -1,0 +1,17 @@
+{
+  "data": {
+    "issue": {
+      "id": "8f1b5c1e-2d6a-4f0e-9a3b-6c2d7e8f9a01",
+      "comments": {
+        "nodes": [
+          {
+            "id": "c0ffee00-0000-4000-8000-000000000001",
+            "body": "Make sure retries are idempotent.",
+            "createdAt": "2026-09-26T10:00:00.000Z",
+            "user": { "name": "Sam Staff" }
+          }
+        ]
+      }
+    }
+  }
+}

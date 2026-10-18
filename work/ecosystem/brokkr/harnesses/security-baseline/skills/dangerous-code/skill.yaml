@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: dangerous-code
+  version: 1.0.0
+  description: "Detect dangerous code patterns such as eval, shell injection and unsafe HTML sinks"
+  tags:
+    - security
+    - code
+selectors:
+  keywords:
+    - "eval"
+    - "injection"
+    - "xss"
+    - "exec"
+    - "innerHTML"
+    - "deserialization"
+body: instructions.md
+estimatedTokens: 220

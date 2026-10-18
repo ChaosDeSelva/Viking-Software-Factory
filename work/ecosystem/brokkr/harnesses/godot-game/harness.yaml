@@ -1,0 +1,66 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: godot-game
+  version: 1.0.0
+  description: "Godot 4 project validation: script parsing, scene and resource references, optional headless checks"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - game
+    - godot
+
+skills:
+  required:
+    - gdscript-quality
+    - scene-structure
+    - game-testing
+    - asset-hygiene
+  optional: []
+
+workflow:
+  stages:
+    - inspect
+    - implement
+    - check-only
+    - review
+    - human-playtest
+
+checks:
+  - id: godot-check
+    command:
+      - godot
+      - --headless
+      - --check-only
+      - --path
+      - .
+      - --script
+      - res://scripts/main.gd
+    required: true
+    timeoutSeconds: 300
+    when:
+      fileExists:
+        - project.godot
+        - scripts/main.gd
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "Scripts parse and scene resource references resolve"
+    - "Visual and gameplay quality is flagged for human playtest review"

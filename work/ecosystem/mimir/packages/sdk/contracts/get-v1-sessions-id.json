@@ -1,0 +1,59 @@
+{
+  "operation": "GET /v1/sessions/{id}",
+  "method": "GET",
+  "path": "/v1/sessions/{id}",
+  "status": 200,
+  "request": {
+    "url": "/v1/sessions/ses_00000000000000000000000009",
+    "headers": [
+      "authorization"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "session": null,
+      "persisted": {
+        "id": "ses_00000000000000000000000009",
+        "taskId": "tsk_00000000000000000000000006",
+        "crewId": "crw_00000000000000000000000004"
+      },
+      "observedAt": null,
+      "available": false
+    }
+  },
+  "schemas": {
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "session": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "persisted": {},
+        "observedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "available": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "session",
+        "persisted",
+        "observedAt",
+        "available"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

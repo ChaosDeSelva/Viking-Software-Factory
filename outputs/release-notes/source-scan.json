@@ -1,0 +1,15 @@
+{
+  "privateKeyOrApiKeyPatternFindings": [
+    "work/ecosystem/mimir/apps/server/src/orchestrator/collect.test.ts",
+    "work/ecosystem/mimir/apps/server/test/security/credentials.test.ts",
+    "work/ecosystem/mimir/packages/core/src/redaction.corpus.test.ts",
+    "work/ecosystem/mimir/packages/core/src/redaction.test.ts",
+    "work/ecosystem/sindri/packages/knowledge/src/bootstrap-hardening.test.ts",
+    "work/ecosystem/sindri/packages/knowledge/src/bootstrap.test.ts",
+    "work/ecosystem/sindri/packages/knowledge/src/secrets-redact.test.ts",
+    "work/ecosystem/sindri/packages/knowledge/src/secrets-review.test.ts"
+  ],
+  "scope": "exported source files under 2 MB; not a full security audit",
+  "reviewedFindings": "Synthetic redaction and credential-handling test fixtures; retained for regression coverage",
+  "unreviewedFindings": []
+}

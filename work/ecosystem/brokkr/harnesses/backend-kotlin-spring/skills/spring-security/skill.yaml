@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: spring-security
+  version: 1.0.0
+  description: "Secure defaults for Spring Boot endpoints, authentication and configuration"
+  tags:
+    - kotlin
+    - spring
+    - security
+selectors:
+  taskTypes:
+    - "security"
+  keywords:
+    - "spring security"
+    - "authentication"
+    - "csrf"
+    - "cors"
+    - "jwt"
+body: instructions.md
+estimatedTokens: 140

@@ -1,0 +1,25 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: component-design
+  version: 1.0.0
+  description: "Designing reusable, composable UI components"
+  tags:
+    - components
+    - design-system
+dependsOn:
+  - react-architecture
+selectors:
+  taskTypes:
+    - "ui"
+  keywords:
+    - "component"
+    - "design system"
+    - "button"
+    - "form"
+    - "modal"
+    - "dashboard"
+  pathGlobs:
+    - "src/components/**"
+body: instructions.md
+estimatedTokens: 180

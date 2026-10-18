@@ -1,0 +1,17 @@
+node_modules/
+**/dist/
+**/target/
+**/.turbo/
+**/coverage/
+**/test-results/
+**/.data/
+**/.mimir/
+**/.sindri/
+**/.heimdall/
+work/local-factory/
+.env
+.env.*
+!.env.example
+auth-token
+*.log
+.DS_Store

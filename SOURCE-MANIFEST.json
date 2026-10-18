@@ -1,0 +1,31 @@
+[
+  {
+    "project": "mimir",
+    "files": 642,
+    "baseCommit": "3ec5e48f8a031d2c241dcf68fbaf878dc43fb2d4",
+    "includesWorkingChanges": true
+  },
+  {
+    "project": "sindri",
+    "files": 460,
+    "baseCommit": "55bec27e7640035fe553f180d591e2a04721d0dd",
+    "includesWorkingChanges": true
+  },
+  {
+    "project": "brokkr",
+    "files": 472,
+    "baseCommit": "99e00ad4ac3a212eb1e0c85f766a3514b9653cf1",
+    "includesWorkingChanges": true
+  },
+  {
+    "project": "heimdall",
+    "files": 77,
+    "baseCommit": "ff154efdd0fc94b2eadc1cf6c727869a4b334633",
+    "includesWorkingChanges": true
+  },
+  {
+    "project": "skidbladnir",
+    "files": 66,
+    "includesWorkingChanges": true
+  }
+]

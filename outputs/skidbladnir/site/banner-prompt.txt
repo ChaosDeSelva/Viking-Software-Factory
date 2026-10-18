@@ -1,0 +1,11 @@
+# Skidbladnir banner prompt
+
+Create a panoramic 3:1 illustrated banner, approximately 2172 × 724 pixels, for an open-source developer tool named “SKIDBLADNIR”. Match a richly detailed moonlit Norse woodcut illustration: intricate engraved linework, deep pine-green and near-black shadows, antique copper ornament, warm amber lanterns, parchment-colored lettering, subtle teal aurora, and moss-covered stone.
+
+On the left two-thirds, show Skidbladnir, a magnificent magical Viking longship, unfolding from a small carved wooden vessel held by a cloaked craftsperson on a forested fjord shore. The full-size ship floats just above the moonlit water. Its carved dragon prow, interwoven rigging, luminous sail, and modular wooden deck compartments suggest temporary cloud workspaces. Small illuminated rune panels on the ship represent independent computing environments; fine threads of soft teal light connect them to a modest lantern-lit workshop on shore. Show one distant vessel gently folding back into a palm-sized carved ship: compute appears when needed and folds away afterward. Mountains, dense evergreen forest, ravens, a full moon, and a restrained aurora establish the same visual world as Hulder, Sindri, Mimir, Brokkr, and Heimdall.
+
+Keep the right third dark, quiet, and uncluttered for one large, highly legible title: “SKIDBLADNIR”, spelled exactly. Hand-carved parchment-colored Norse-inspired lettering, readable Latin characters, not substitute runes. Beneath it, a subtle ornamental divider; no subtitle. Across the bottom edge, a thin continuous copper Celtic/Norse knotwork border ending in small dragon heads. Balanced cinematic composition, exceptionally detailed craftsmanship, cohesive forest-green/amber palette, mystical and sophisticated rather than cartoonish. No corporate logos, no AWS branding, no glossy 3D, no photorealism, no neon city, no modern stock-photo aesthetic, no extra words, no watermark.
+
+## Integration
+
+The project owner supplied the finished image on October 15, 2026. It is stored unchanged at `site/assets/skidbladnir-banner.png` and used in the README and the Pages site. The original SVG is retained as an unused alternative. Provenance is recorded in `NOTICE`.

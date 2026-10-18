@@ -1,0 +1,22 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: scene-structure
+  version: 1.0.0
+  description: "Organize Godot scenes, resources and references so they stay valid"
+  tags:
+    - godot
+    - scenes
+selectors:
+  keywords:
+    - "scene"
+    - "tscn"
+    - "resource"
+    - "tres"
+    - "prefab"
+    - "instance"
+  pathGlobs:
+    - "**/*.tscn"
+    - "**/*.tres"
+body: instructions.md
+estimatedTokens: 170

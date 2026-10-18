@@ -1,0 +1,78 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: database-postgres
+  version: 1.0.0
+  description: "PostgreSQL schema changes, migrations and query review"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - database
+    - postgres
+    - sql
+
+skills:
+  required:
+    - migration-safety
+    - schema-design
+    - query-review
+    - sql-testing
+  optional: []
+
+workflow:
+  stages:
+    - inspect
+    - implement
+    - migration-dry-run
+    - lint-sql
+    - review
+
+checks:
+  - id: migration-dry-run
+    command:
+      - pnpm
+      - run
+      - "db:migrate:dry-run"
+    required: true
+    timeoutSeconds: 300
+    when:
+      fileExists:
+        - migrations
+      scriptExists:
+        - "db:migrate:dry-run"
+
+  - id: sqlfluff
+    command:
+      - sqlfluff
+      - lint
+      - --dialect
+      - postgres
+      - migrations
+    required: false
+    timeoutSeconds: 180
+    when:
+      fileExists:
+        - migrations
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+    - database-migration
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "Migrations are reversible or have a documented forward-fix and avoid long exclusive locks"
+    - "New filters and joins are backed by an index shown in EXPLAIN"

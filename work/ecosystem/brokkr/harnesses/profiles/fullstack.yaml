@@ -1,0 +1,8 @@
+name: fullstack
+harnesses:
+  - name: frontend-react
+    version: "^1.0.0"
+  - name: backend-node
+    version: "^1.0.0"
+  - name: security-baseline
+    version: "^1.0.0"

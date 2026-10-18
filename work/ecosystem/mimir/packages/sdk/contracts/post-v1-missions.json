@@ -1,0 +1,368 @@
+{
+  "operation": "POST /v1/missions",
+  "method": "POST",
+  "path": "/v1/missions",
+  "status": 201,
+  "request": {
+    "url": "/v1/missions",
+    "body": {
+      "projectId": "prj_00000000000000000000000001",
+      "objective": "with tasks",
+      "tasks": [
+        {
+          "title": "A",
+          "brief": "do A"
+        }
+      ]
+    },
+    "headers": [
+      "authorization",
+      "idempotency-key"
+    ]
+  },
+  "response": {
+    "status": 201,
+    "contentType": "application/json",
+    "body": {
+      "mission": {
+        "id": "msn_00000000000000000000000012",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "version": 1,
+        "projectId": "prj_00000000000000000000000001",
+        "objective": "with tasks",
+        "status": "draft"
+      }
+    }
+  },
+  "schemas": {
+    "request": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "limitTokens": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "limitCost": {
+              "type": "number",
+              "minimum": 0
+            },
+            "warnAtFraction": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "enforce": {
+              "type": "string",
+              "enum": [
+                "hard",
+                "soft"
+              ]
+            },
+            "onUnknown": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "block"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "priority": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "verification": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 86400000
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              },
+              "brief": {
+                "type": "string",
+                "minLength": 1
+              },
+              "acceptanceCriteria": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "dependsOn": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+                }
+              },
+              "crewId": {
+                "type": "string",
+                "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+              },
+              "argv": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "title",
+              "brief"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "projectId",
+        "objective"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "mission": {
+          "$ref": "#/$defs/Mission"
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Task"
+          }
+        }
+      },
+      "required": [
+        "mission"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "Mission": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "projectId": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "objective": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "paused",
+                "completed",
+                "cancelled",
+                "failed"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "projectId",
+            "objective",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "Task": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^tsk_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "resultCommit": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,64}$"
+            },
+            "verification": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 86400000
+            },
+            "missionId": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "crewId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "acceptance": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "pending",
+                "ready",
+                "leased",
+                "running",
+                "verifying",
+                "completed",
+                "blocked",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "attempt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "maxAttempts": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "agentId": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^agt_[0-9A-HJKMNP-TV-Z]{26}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "leaseExpiresAt": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "blockedReason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "missionId",
+            "crewId",
+            "title",
+            "acceptance",
+            "status",
+            "attempt",
+            "maxAttempts",
+            "agentId",
+            "leaseExpiresAt"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

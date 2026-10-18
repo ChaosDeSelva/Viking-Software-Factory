@@ -1,0 +1,19 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: schema-design
+  version: 1.0.0
+  description: "Relational schema design with keys, constraints and types suited to PostgreSQL"
+  tags:
+    - postgres
+    - schema
+selectors:
+  keywords:
+    - "schema"
+    - "table"
+    - "column"
+    - "foreign key"
+    - "constraint"
+    - "index"
+body: instructions.md
+estimatedTokens: 200

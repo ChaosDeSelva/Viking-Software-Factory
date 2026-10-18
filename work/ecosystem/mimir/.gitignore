@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+spikes/**/out/
+.turbo/
+coverage/
+AGENTS.md
+.worktrees/
+dist-packages/
+qa-smoke-output/

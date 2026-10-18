@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: tailwind
+  version: 1.0.0
+  description: "Tailwind CSS usage aligned with the project's design tokens"
+  tags:
+    - tailwind
+    - css
+selectors:
+  keywords:
+    - "tailwind"
+    - "css"
+    - "styling"
+    - "theme"
+  pathGlobs:
+    - "**/*.css"
+    - "tailwind.config.*"
+body: instructions.md
+estimatedTokens: 240

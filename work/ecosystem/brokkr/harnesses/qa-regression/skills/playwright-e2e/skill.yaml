@@ -1,0 +1,20 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: playwright-e2e
+  version: 1.0.0
+  description: "Write stable Playwright end-to-end regression tests for user-visible flows"
+  tags:
+    - qa
+    - e2e
+    - playwright
+selectors:
+  taskTypes:
+    - "e2e"
+  keywords:
+    - "playwright"
+    - "e2e"
+    - "end-to-end"
+    - "browser"
+body: instructions.md
+estimatedTokens: 230

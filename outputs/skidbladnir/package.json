@@ -1,0 +1,30 @@
+{
+  "name": "skidbladnir",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "vite build apps/web --outDir ../../dist --emptyOutDir && node scripts/write-notices.mjs",
+    "start": "node apps/api/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "preview:site": "node scripts/preview-site.mjs",
+    "test:browser": "node tests/browser.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ssm": "3.1152.0",
+    "@aws-sdk/credential-providers": "3.1152.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.64.0",
+    "@tailwindcss/vite": "4.3.3",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4"
+  }
+}

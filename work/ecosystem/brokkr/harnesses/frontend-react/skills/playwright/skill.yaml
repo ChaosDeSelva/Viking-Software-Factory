@@ -1,0 +1,22 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: playwright
+  version: 1.0.0
+  description: "Reliable Playwright end-to-end and screenshot tests for browser verification"
+  tags:
+    - playwright
+    - e2e
+    - testing
+selectors:
+  keywords:
+    - "playwright"
+    - "e2e"
+    - "end-to-end"
+    - "browser test"
+  pathGlobs:
+    - "e2e/**"
+    - "tests/**/*.spec.ts"
+    - "playwright.config.*"
+body: instructions.md
+estimatedTokens: 190

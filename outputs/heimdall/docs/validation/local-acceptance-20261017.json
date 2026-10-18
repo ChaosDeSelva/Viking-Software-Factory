@@ -1,0 +1,46 @@
+{
+  "packageSuites": 34,
+  "packageTestsPassed": 5151,
+  "sdkTestsPassed": 83,
+  "testingPackageTestsPassed": 44,
+  "skidbladnirTestsPassed": 20,
+  "factoryAcceptance": {
+    "passed": true,
+    "qualityGates": 6,
+    "agentProvider": "deterministic fixture",
+    "modelProvider": "deterministic fixture",
+    "realComponents": [
+      "Mimir",
+      "Sindri",
+      "Git",
+      "Brokkr"
+    ],
+    "restartRecovery": true,
+    "plantedFailureRepair": true,
+    "localDeliveryRequest": true
+  },
+  "skidbladnirBrowser": {
+    "providers": [
+      "simulator",
+      "AWS fixture"
+    ],
+    "widths": [
+      320,
+      390,
+      1440
+    ],
+    "axeViolations": 0,
+    "cloudResourcesCreated": 0
+  },
+  "heimdallStress": {
+    "eventInserts": 25000,
+    "retainedRows": 20000,
+    "snapshotTasks": 1002,
+    "reconnectCycles": 3
+  },
+  "limitations": [
+    "Historical counter delivery still needs fresh browser review evidence",
+    "Manual assistive technology acceptance remains outstanding",
+    "Unavailable vendor accounts remain experimental"
+  ]
+}

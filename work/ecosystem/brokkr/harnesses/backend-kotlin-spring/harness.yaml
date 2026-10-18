@@ -1,0 +1,60 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Harness
+
+metadata:
+  name: backend-kotlin-spring
+  version: 1.0.0
+  description: "Kotlin + Spring Boot backend engineering harness with JVM test gates"
+
+compatibility:
+  platforms:
+    - darwin
+    - linux
+    - win32
+  taskTypes:
+    - kotlin
+    - spring
+    - jvm
+
+skills:
+  required:
+    - spring-architecture
+    - kotlin-idioms
+    - jvm-testing
+    - spring-security
+  optional: []
+
+workflow:
+  stages:
+    - inspect
+    - implement
+    - test
+    - review
+
+checks:
+  - id: gradle-test
+    command:
+      - ./gradlew
+      - test
+    required: true
+    timeoutSeconds: 1200
+    when:
+      fileExists:
+        - gradlew
+
+policies:
+  network: deny
+  destructiveCommands: deny
+  requireApprovalFor:
+    - install-dependencies
+    - modify-ci
+
+evidence:
+  captureLogs: true
+  captureTestResults: true
+  captureScreenshots: false
+
+aiReview:
+  criteria:
+    - "Controllers are thin and no entity leaks through the API"
+    - "Every endpoint is covered by authentication and authorization tests"

@@ -1,0 +1,92 @@
+{
+  "operation": "POST /v1/tasks/{id}/pr",
+  "method": "POST",
+  "path": "/v1/tasks/{id}/pr",
+  "status": 202,
+  "request": {
+    "url": "/v1/tasks/tsk_00000000000000000000000007/pr",
+    "body": {},
+    "headers": [
+      "authorization",
+      "idempotency-key"
+    ]
+  },
+  "response": {
+    "status": 202,
+    "contentType": "application/json",
+    "body": {
+      "operationId": "op_00000000000000000000000023",
+      "commandId": "cmd_00000000000000000000000024",
+      "status": "approval_required",
+      "approvalId": "apr_00000000000000000000000025"
+    }
+  },
+  "schemas": {
+    "request": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "commandId": {
+              "type": "string",
+              "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "status": {
+              "type": "string",
+              "const": "approval_required"
+            },
+            "approvalId": {
+              "type": "string",
+              "pattern": "^apr_[0-9A-HJKMNP-TV-Z]{26}$"
+            }
+          },
+          "required": [
+            "operationId",
+            "commandId",
+            "status",
+            "approvalId"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "pattern": "^op_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "commandId": {
+              "type": "string",
+              "pattern": "^cmd_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "status": {
+              "type": "string",
+              "const": "delivered"
+            },
+            "prUrl": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "required": [
+            "operationId",
+            "commandId",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

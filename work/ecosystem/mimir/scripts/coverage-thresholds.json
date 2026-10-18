@@ -1,0 +1,33 @@
+{
+  "$comment": "Per core package floors for pnpm test:coverage: measured % minus 2, truncated to one decimal, from all-green runs (QA lane, 2026-10-14, after merging T12fix f4b12a6). git varies by up to 2 points between runs (timing-dependent paths), so its floor comes from the lowest all-green run. Raise as coverage grows; never lower one to make a run pass.",
+  "packages/core": {
+    "statements": 88.8,
+    "branches": 84.1,
+    "functions": 89.8,
+    "lines": 91.9
+  },
+  "packages/protocol": {
+    "statements": 98,
+    "branches": 94,
+    "functions": 98,
+    "lines": 98
+  },
+  "packages/herdr-adapter": {
+    "statements": 85.2,
+    "branches": 75.4,
+    "functions": 91.7,
+    "lines": 88
+  },
+  "packages/git": {
+    "statements": 89.3,
+    "branches": 80.1,
+    "functions": 84.6,
+    "lines": 91.9
+  },
+  "apps/server": {
+    "statements": 87.7,
+    "branches": 75.9,
+    "functions": 91.2,
+    "lines": 91
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "executionId": "exe_e7d0a755-e810-4637-be66-ae031a9abc72",
+  "deliveryStatus": "built",
+  "tasks": [
+    {
+      "task": "implement-backend",
+      "passed": true
+    },
+    {
+      "task": "implement-frontend",
+      "passed": true
+    },
+    {
+      "task": "review-backend",
+      "passed": true
+    },
+    {
+      "task": "review-frontend",
+      "passed": true
+    },
+    {
+      "task": "docs",
+      "passed": true
+    },
+    {
+      "task": "qa",
+      "passed": true
+    }
+  ],
+  "criteria": [
+    {
+      "id": "AC1",
+      "status": "satisfied"
+    },
+    {
+      "id": "AC2",
+      "status": "satisfied"
+    },
+    {
+      "id": "AC3",
+      "status": "satisfied"
+    },
+    {
+      "id": "AC4",
+      "status": "satisfied"
+    },
+    {
+      "id": "AC5",
+      "status": "satisfied"
+    }
+  ],
+  "manualScreenReader": "deferred to operator",
+  "originalHistoricalReviews": "preserved"
+}

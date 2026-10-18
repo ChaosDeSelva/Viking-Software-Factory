@@ -1,0 +1,21 @@
+apiVersion: brokkr.dev/v1alpha1
+kind: Skill
+metadata:
+  name: spring-architecture
+  version: 1.0.0
+  description: "Layering, dependency injection and configuration for Spring Boot services in Kotlin"
+  tags:
+    - kotlin
+    - spring
+selectors:
+  taskTypes:
+    - "backend"
+  keywords:
+    - "spring"
+    - "kotlin"
+    - "controller"
+    - "service"
+    - "bean"
+    - "gradle"
+body: instructions.md
+estimatedTokens: 170
