@@ -128,7 +128,15 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private func describeStatus(_ value: [String: Any]) -> String {
         let install = value["installation"] as? [String: Any]
         let components = install?["components"] as? [String] ?? []
-        return "Factory version: " + (install?["version"] as? String ?? "Not installed") + "\n\nServices: " + ((value["core_healthy"] as? Bool == true) ? "Healthy" : (value["core_loaded"] as? Bool == true ? "Loaded, check health" : "Stopped")) + "\n\nComponents: " + (components.isEmpty ? "None selected" : components.joined(separator: ", ")) + "\n\nUpdates: " + (value["channel"] as? String ?? "preview") + ((value["pending_recovery"] as? Bool == true) ? "\n\nAn interrupted update needs recovery." : "")
+        let version = install?["version"] as? String ?? "Not installed"
+        let healthy = value["core_healthy"] as? Bool == true
+        let loaded = value["core_loaded"] as? Bool == true
+        let serviceState = healthy ? "Healthy" : (loaded ? "Loaded, check health" : "Stopped")
+        let componentNames = components.isEmpty ? "None selected" : components.joined(separator: ", ")
+        let channel = value["channel"] as? String ?? "preview"
+        var lines = ["Factory version: \(version)", "Services: \(serviceState)", "Components: \(componentNames)", "Updates: \(channel)"]
+        if value["pending_recovery"] as? Bool == true { lines.append("An interrupted update needs recovery.") }
+        return lines.joined(separator: "\n\n")
     }
     private func confirm(_ title: String, _ detail: String, action: () -> Void) {
         let alert = NSAlert();alert.messageText = title;alert.informativeText = detail;alert.addButton(withTitle: "Continue");alert.addButton(withTitle: "Cancel")
