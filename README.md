@@ -44,4 +44,4 @@ The experimental public source prerelease is `v0.1.0`. See [release scope and se
 
 ## Mac companion and managed installation
 
-The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. It is under local acceptance. Existing v0.1.0 source assets are not installable runtime bundles. Public signed distribution remains a separate release gate.
+The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. [Download the signed Mac setup](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.2.0/Viking-Factory-Setup-0.2.0-macos-arm64.zip) and follow [installation and release notes](RELEASE-v0.2.0.md). The v0.2.0 preview includes notarized apps and signed update manifests. Manual accessibility and a separate clean Mac acceptance remain pending.
