@@ -1,0 +1,18 @@
+name: Factory manager checks
+on:
+  pull_request:
+    paths: ['manager/**', '.github/workflows/manager.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: manager
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --locked
+      - run: cargo fmt --check
+      - run: bash scripts/build-app.sh

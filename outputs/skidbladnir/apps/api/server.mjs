@@ -127,7 +127,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
   return { server, close, snapshot, store, expire };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const dir = resolve(root,'.data'); mkdirSync(dir,{recursive:true,mode:0o700}); chmodSync(dir,0o700);
+  const dir = resolve(process.env.SKIDBLADNIR_DATA_DIR || resolve(root,'.data')); mkdirSync(dir,{recursive:true,mode:0o700}); chmodSync(dir,0o700);
   const configPath=process.env.SKIDBLADNIR_AWS_CONFIG;
   const provider=configPath?new AwsProvider(JSON.parse(readFileSync(resolve(configPath),'utf8'))):new Simulator();
   const app = createApp({database:resolve(dir,provider.mode==='aws'?'aws-'+provider.config.fleetId+'.sqlite':'skidbladnir.sqlite'),provider});

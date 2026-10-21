@@ -41,3 +41,7 @@ The root Apache license covers this collection's original integration files. Eac
 ## Experimental release status
 
 The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+
+## Mac companion and managed installation
+
+The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. It is under local acceptance. Existing v0.1.0 source assets are not installable runtime bundles. Public signed distribution remains a separate release gate.
