@@ -2,7 +2,7 @@
 
 A Rust management CLI and native macOS menu bar companion for installing and operating compatible factory bundles. The companion calls the same CLI used in automation. It is intended for Apple silicon Macs running macOS 13 or newer.
 
-The local preview has passed lifecycle tests and a disposable real Codex mission. See [acceptance evidence](docs/acceptance.md) for the exact scope. The companion has a signed and notarized local artifact with a pinned update public key. Public distribution still requires published installable release assets and acceptance of the downloaded update. Existing v0.1.0 source releases do not contain those assets.
+The v0.2.0 preview has passed lifecycle tests, a disposable real Codex mission and a live GitHub download and update acceptance. See [acceptance evidence](docs/acceptance.md) for the exact scope. The companion is Developer ID signed and notarized with a pinned update public key. Download the setup archive from the [v0.2.0 release](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/tag/v0.2.0). Existing v0.1.0 source releases do not contain installable runtime assets.
 
 ## Local development
 
@@ -21,7 +21,7 @@ The CLI is at `target/release/viking`, and is also embedded in the app at `Conte
 A managed bundle contains Node and npm, the built factory services and their production dependencies. Optional packages contain Skidbladnir, Hulder and Bifrost. Users of a prepared bundle do not need Rust, Xcode, npm or pnpm to build the factory. Git and authenticated agent tools are separate prerequisites; use Health check and Agent sign in for guidance. Cloud accounts are optional and installation does not create cloud resources.
 
 1. Open the companion and choose optional components.
-2. Select Install bundle. A distribution can include its bundle; a development app instead asks for a trusted local `factory-manifest.json` alongside its archives.
+2. Select Install bundle. For the public setup archive, select `factory-manifest.json` inside the extracted `bundle` directory. Keep its package archives alongside it.
 3. Run Health check. Install Git and the official Codex and Claude Code tools if needed, then complete their official sign in flows.
 4. Start factory and open Heimdall. Access codes displays the private credentials for the current local session.
 5. Start workers separately if you selected Skidbladnir. This starts its simulator, not an AWS fleet.

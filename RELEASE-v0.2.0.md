@@ -12,7 +12,7 @@ The separate app ZIP is a small download for existing installations. The package
 
 ## Verified scope
 
-Developer ID signing, Apple notarization, stapling and Gatekeeper acceptance passed for the companion and Hulder. Manager CI passes, including thirteen Rust tests and the Swift build. Local installation, service startup, a real Codex task, update restart, rollback, recovery and refusal to stop an active mission passed. Seven worker lifecycle regression tests passed. See manager/docs/acceptance.md for evidence and distribution acceptance updates.
+Developer ID signing, Apple notarization, stapling and Gatekeeper acceptance passed for the companion and Hulder. Manager CI passes, including thirteen Rust tests and the Swift build. Local installation, service startup, a real Codex task, update restart, rollback, recovery and refusal to stop an active mission passed. Seven worker lifecycle regression tests passed. Live GitHub package download, pinned signature verification, activation and service restart also passed on a disposable running installation. See manager/docs/acceptance.md for evidence and distribution acceptance updates.
 
 ## Boundaries
 
