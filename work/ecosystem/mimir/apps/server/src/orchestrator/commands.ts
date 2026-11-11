@@ -22,6 +22,26 @@ export function projectSettings(project: Project | undefined): ProjectSettings {
   return parsed.success ? parsed.data : {};
 }
 
+/**
+ * The project's `settings.agent` environment for a process started on this host: its extra
+ * variables, and PATH with the project's directories in front of `basePath`. Undefined when the
+ * project sets none.
+ */
+export function projectEnv(
+  project: Project | undefined,
+  basePath: string | undefined = process.env["PATH"],
+): Record<string, string> | undefined {
+  const agent = projectSettings(project).agent;
+  const prepend = agent?.pathPrepend ?? [];
+  const env = {
+    ...agent?.env,
+    ...(prepend.length > 0
+      ? { PATH: [...prepend, ...(basePath ? [basePath] : [])].join(":") }
+      : {}),
+  };
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
 /** Project entries extend the defaults; validated test argv is allowed exactly. */
 export function allowlistOf(project: Project | undefined): readonly AllowlistEntry[] {
   const settings = projectSettings(project);

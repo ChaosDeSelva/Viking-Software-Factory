@@ -16,6 +16,17 @@ export type TaskEvent =
   | { type: "verification_passed" }
   | { type: "verification_failed" }
   | { type: "verification_gated" }
+  /**
+   * The verifying attempt cannot be concluded or continued in place (the result could not be
+   * frozen, or the next attempt's session could not be created): the attempt fails once and the
+   * scheduler retries it while attempts are left.
+   */
+  | { type: "verification_errored" }
+  /**
+   * The runtime had no free capacity for a leased task's session: the lease is given back and
+   * the task waits in `ready` without using an attempt.
+   */
+  | { type: "launch_deferred" }
   | { type: "runtime_blocked"; reason: string }
   | { type: "approval_needed"; reason: string }
   | { type: "input_received" }
@@ -154,6 +165,8 @@ const EDGES: Record<TaskEventType, Edge> = {
     to: (task) => (attemptsLeft(task) ? "running" : "failed"),
   },
   verification_gated: { from: ["verifying"], to: "blocked" },
+  verification_errored: { from: ["verifying"], to: "failed" },
+  launch_deferred: { from: ["leased"], to: "ready" },
   runtime_blocked: { from: ["running"], to: "blocked" },
   approval_needed: { from: ["running"], to: "blocked" },
   input_received: { from: ["blocked"], to: "running", guard: notParked },
@@ -214,6 +227,9 @@ function transition(task: Task, event: TaskEvent): Task {
       break;
     case "retry":
       next.attempt = task.attempt + 1;
+      next.agentId = null;
+      break;
+    case "launch_deferred":
       next.agentId = null;
       break;
     case "runtime_blocked":

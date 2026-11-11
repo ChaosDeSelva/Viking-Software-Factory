@@ -92,6 +92,17 @@ const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
       version: 0,
     },
   },
+  "project.updated": {
+    project: {
+      id: newId("prj"),
+      name: "demo",
+      repoPath: "/repo",
+      settings: {},
+      createdAt: now,
+      updatedAt: now,
+      version: 0,
+    },
+  },
   "crew.scheduling_changed": { crewId, paused: true },
   "crew.created": {
     crew: {
@@ -202,6 +213,7 @@ describe("event types", () => {
       "mission.failed",
       "session.input",
       "project.created",
+      "project.updated",
       "crew.created",
       "crew.scheduling_changed",
       "usage.recorded",

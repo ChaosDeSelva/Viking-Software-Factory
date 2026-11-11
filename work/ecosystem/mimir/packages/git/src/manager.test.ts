@@ -628,6 +628,55 @@ describe("verified task handoff", () => {
     expect(existsSync(join(repo, "backend.txt"))).toBe(false);
   });
 
+  it("combines equal inputs into the same commit, whatever their order or spelling", async () => {
+    const a = await mgr.createWorktree(input({ taskSlug: "left" }));
+    const b = await mgr.createWorktree(input({ taskSlug: "right" }));
+    await writeFile(join(a.path, "left.txt"), "left\n");
+    await writeFile(join(b.path, "right.txt"), "right\n");
+    const resultA = await mgr.checkpoint(a.id);
+    const resultB = await mgr.checkpoint(b.id);
+    const first = await mgr.dependencyBase(projectId, repo, [resultA, resultB]);
+    // Commit dates have one-second resolution: a later call must not depend on the clock.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    const second = await mgr.dependencyBase(projectId, repo, [
+      resultB,
+      resultA.slice(0, 12),
+      resultA,
+    ]);
+    expect(second).toBe(first);
+    expect(first).not.toBe(resultA);
+    expect(first).not.toBe(resultB);
+    // One commit given twice (abbreviated and full) is that commit, not a merge with itself.
+    await expect(
+      mgr.dependencyBase(projectId, repo, [resultA.slice(0, 12), resultA]),
+    ).resolves.toBe(resultA);
+  });
+
+  it("exports a rework against the default branch: the patch carries the original and the follow-up", async () => {
+    const original = sh(repo, "rev-parse", "HEAD");
+    const a = await mgr.createWorktree(input({ taskSlug: "original" }));
+    await writeFile(join(a.path, "feature.txt"), "original\n");
+    const delivered = await mgr.checkpoint(a.id);
+    const rework = await mgr.createWorktree(input({ taskSlug: "rework", baseRef: delivered }));
+    expect(rework.baseSha).toBe(delivered);
+    await writeFile(join(rework.path, "followup.txt"), "follow-up\n");
+    const reworked = await mgr.checkpoint(rework.id);
+
+    const followUpOnly = await mgr.exportResult(projectId, repo, [rework.baseSha], [reworked]);
+    expect(followUpOnly.baseSha).toBe(delivered);
+    expect(followUpOnly.patch).not.toContain("feature.txt");
+
+    const whole = await mgr.exportResult(projectId, repo, [rework.baseSha], [reworked], {
+      fromDefaultBranch: true,
+    });
+    expect(whole.baseSha).toBe(original);
+    expect(whole.patch).toContain("feature.txt");
+    expect(whole.patch).toContain("followup.txt");
+    const patchFile = join(root, "rework.patch");
+    await writeFile(patchFile, whole.patch);
+    sh(repo, "apply", "--check", patchFile);
+  });
+
   it("refuses conflicting or missing dependency results", async () => {
     const a = await mgr.createWorktree(input({ taskSlug: "one" }));
     const b = await mgr.createWorktree(input({ taskSlug: "two" }));

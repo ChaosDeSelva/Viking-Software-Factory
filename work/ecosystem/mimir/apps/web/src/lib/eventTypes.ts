@@ -49,6 +49,7 @@ const ALL: Record<EventType, true> = {
   "artifact.collection_skipped": true,
   "artifact.collection_truncated": true,
   "project.created": true,
+  "project.updated": true,
   "crew.created": true,
   "crew.scheduling_changed": true,
   "usage.recorded": true,

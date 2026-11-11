@@ -19,7 +19,14 @@ export type FleetNode = {
 };
 type Placement = { node: string; key: string; fingerprint: string; session: RuntimeSession };
 type NodeState = { identity: string; draining: boolean };
+/** `details.reason` of a `runtime_unavailable` that only means "no free slot right now". */
+export const RUNTIME_AT_CAPACITY = "capacity";
 const terminal = new Set(["completed", "failed", "stopped", "lost"]);
+/**
+ * Node runtimes whose sessions live only in this process (`CliRuntime`: a worker dies with the
+ * server). A session such a node no longer reports cannot come back, so it has ended.
+ */
+const IN_PROCESS_RUNTIMES = new Set(["cli", "tmux"]);
 /** One controller (protected by Mimir's store lock), durable placement before dispatch.
  * An uncertain dispatch reserves capacity until the SAME worker confirms its outcome.
  */
@@ -187,6 +194,7 @@ export class FleetRuntime implements RuntimeAdapter {
       if (this.placements.has(spec.sessionId))
         throw new MimirError("conflict", "Fleet session ID already exists");
       const eligible: { node: FleetNode; load: number }[] = [];
+      let full = false;
       for (const node of this.nodes) {
         if (
           this.states.get(node.id)!.draining ||
@@ -196,7 +204,13 @@ export class FleetRuntime implements RuntimeAdapter {
         const active = [...this.placements.values()].filter(
           (p) => p.node === node.id && !terminal.has(p.session.state),
         ).length;
-        if (active >= node.capacity) continue;
+        if (active >= node.capacity) {
+          full ||= await node.runtime
+            .capabilities()
+            .then((c) => c.agentKinds.includes(spec.agentKind))
+            .catch(() => false);
+          continue;
+        }
         try {
           if (
             (await node.runtime.capabilities()).agentKinds.includes(spec.agentKind) &&
@@ -213,6 +227,8 @@ export class FleetRuntime implements RuntimeAdapter {
         throw new MimirError(
           "runtime_unavailable",
           "No reachable, compatible fleet worker has capacity",
+          // A compatible worker exists but is busy: the launch can wait instead of failing.
+          full ? { reason: RUNTIME_AT_CAPACITY } : undefined,
         );
       const placement: Placement = {
         node: node.id,
@@ -281,8 +297,10 @@ export class FleetRuntime implements RuntimeAdapter {
     return this.serial(async () => {
       for (const node of this.nodes) {
         let observed: RuntimeSession[] = [];
+        let inProcess = false;
         try {
           observed = (await node.runtime.reconcile()).sessions;
+          inProcess = IN_PROCESS_RUNTIMES.has((await node.runtime.capabilities()).runtime);
         } catch {
           /* Preserve the owner and reservation. */
         }
@@ -290,7 +308,8 @@ export class FleetRuntime implements RuntimeAdapter {
           if (p.node !== node.id || terminal.has(p.session.state)) continue;
           const session = observed.find((s) => s.sessionId === p.session.sessionId);
           if (session) p.session = session;
-          else p.session = { ...p.session, state: "unknown" }; // Missing is not proof of termination.
+          // Elsewhere missing is not proof of termination: the reservation is kept.
+          else p.session = { ...p.session, state: inProcess ? "failed" : "unknown" };
         }
       }
       this.save();

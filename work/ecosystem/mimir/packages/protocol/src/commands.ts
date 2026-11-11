@@ -91,6 +91,13 @@ export type CreateProjectRequest = z.infer<typeof CreateProjectRequestSchema>;
 export const CreateProjectResponseSchema = z.object({ project: ProjectSchema });
 export type CreateProjectResponse = z.infer<typeof CreateProjectResponseSchema>;
 
+/** `PATCH /v1/projects/:id`: replaces the project's settings (validated like create). */
+export const UpdateProjectRequestSchema = z.strictObject({ settings: ProjectSettingsSchema });
+export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
+
+export const UpdateProjectResponseSchema = z.object({ project: ProjectSchema });
+export type UpdateProjectResponse = z.infer<typeof UpdateProjectResponseSchema>;
+
 export const ListProjectsResponseSchema = z.object({ projects: z.array(ProjectSchema) });
 export type ListProjectsResponse = z.infer<typeof ListProjectsResponseSchema>;
 

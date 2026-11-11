@@ -45,4 +45,4 @@ export {
   assertNoSymlinkBelow,
   MAX_SLUG_LENGTH,
 } from "./paths.js";
-export { auditRepoConfig, gitEnv, GIT_ENV_ALLOWLIST, SAFE_CONFIG } from "./git.js";
+export { auditRepoConfig, gitEnv, resolveCommit, GIT_ENV_ALLOWLIST, SAFE_CONFIG } from "./git.js";

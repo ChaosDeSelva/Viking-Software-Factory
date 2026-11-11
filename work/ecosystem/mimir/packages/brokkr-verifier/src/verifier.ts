@@ -22,6 +22,11 @@ export interface BrokkrVerifyInput extends VerifierBinding {
   taskTitle?: string;
   /** `project.settings.verification`, opaque to the orchestrator. */
   verifierConfig?: unknown;
+  /**
+   * Variables laid over this process's environment before Brokkr filters it for a check (its
+   * allowlist plus the names the harness lists under `env`). PATH here is the complete value.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface VerifierCheck {
@@ -150,6 +155,7 @@ export class BrokkrVerifier {
       workspace: input.worktreePath,
       task,
       signal: input.signal,
+      ...(input.env !== undefined ? { env: { ...process.env, ...input.env } } : {}),
     });
     if (!sdk.VerificationReportSchema.safeParse(raw).success) {
       throw new MimirError("internal", "Brokkr returned a report that does not match its schema");

@@ -63,6 +63,56 @@ export const AllowlistEntrySchema = z.object({
 });
 export type AllowlistEntryInput = z.infer<typeof AllowlistEntrySchema>;
 
+/** Environment variable names a project may not set: they would defeat the launch hardening. */
+const RESERVED_ENV_NAME = /^(?:GIT_.*|LD_.*|DYLD_.*|MIMIR_.*|NODE_OPTIONS|BASH_ENV|ENV|HOME|PATH)$/;
+
+const EnvNameSchema = z
+  .string()
+  .max(128)
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "expected an environment variable name")
+  .refine((name) => !RESERVED_ENV_NAME.test(name), "this variable cannot be set by a project");
+
+const hasControlChar = (text: string) =>
+  [...text].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
+
+/** An absolute path without control characters or `..` segments. */
+const AbsolutePathSchema = z
+  .string()
+  .max(1024)
+  .refine((path) => path.startsWith("/") && !hasControlChar(path), "expected an absolute path")
+  .refine((path) => !path.split("/").includes(".."), "must not contain '..' segments");
+
+/**
+ * What a project's agent sessions and verification runs get on top of the allowlisted
+ * environment. Operator configuration: only the projects API writes it.
+ */
+export const ProjectAgentSettingsSchema = z.strictObject({
+  /** Extra environment variables. */
+  env: z
+    .record(
+      EnvNameSchema,
+      z
+        .string()
+        .max(4096)
+        .refine((value) => !value.includes("\0"), "must not contain NUL"),
+    )
+    .refine((env) => Object.keys(env).length <= 64, "at most 64 variables")
+    .optional(),
+  /** Absolute directories put in front of PATH, in this order. */
+  pathPrepend: z
+    .array(AbsolutePathSchema.refine((p) => !p.includes(":"), "must not contain ':'"))
+    .max(32)
+    .optional(),
+  /** Codex `workspace-write` sandbox additions for this project's tasks. */
+  codexSandbox: z
+    .strictObject({
+      writableRoots: z.array(AbsolutePathSchema).max(32).optional(),
+      networkAccess: z.boolean().optional(),
+    })
+    .optional(),
+});
+export type ProjectAgentSettings = z.infer<typeof ProjectAgentSettingsSchema>;
+
 /**
  * Known project settings (other keys pass through). `testCommand` is an argv array (no implicit
  * shell); `allowedCommands` replaces the default exact allowlist for this project's commands.
@@ -78,6 +128,9 @@ export const ProjectSettingsSchema = z.looseObject({
    */
   verification: z.record(z.string(), z.unknown()).optional(),
   timeoutMs: z.number().int().positive().max(86_400_000).optional(),
+  agent: ProjectAgentSettingsSchema.optional(),
+  /** Time limit of one test-command verification run (default 10 minutes). */
+  verificationTimeoutMs: z.number().int().min(1000).max(86_400_000).optional(),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
 

@@ -24,7 +24,12 @@ const EXTRA = [
   [
     "POST",
     "/v1/tasks/{id}/pr",
-    "Request a pull request for a task. `pr.create` is gated by policy: the response is `status: approval_required` with an `approvalId` until a human approves, then `delivered`. Uses the `gh` CLI. 202 OperationAccepted.",
+    "Request a pull request for a task. `pr.create` is gated by policy: the response is `status: approval_required` with an `approvalId` until a human approves, then `delivered`. By default nothing is pushed and no pull request is opened: delivery records a `local_delivery` artifact, a git patch of the mission's verified results with its `apply` and `undo` commands (`LocalDeliveryRunner`). The `gh` CLI is used only by a server built with `GhPrRunner`. 202 OperationAccepted.",
+  ],
+  [
+    "PATCH",
+    "/v1/projects/{id}",
+    "Replace a project's settings. Body: `{ settings }`, validated like `POST /v1/projects` (not merged with the stored settings). Needs an `Idempotency-Key`. Sessions and verifications started afterwards use the new settings. 200 `{ project }`; settings equal to the stored ones change nothing.",
   ],
   [
     "GET",

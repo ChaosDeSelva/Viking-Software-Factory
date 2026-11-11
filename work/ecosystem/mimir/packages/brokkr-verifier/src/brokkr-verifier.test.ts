@@ -270,6 +270,44 @@ describe("BrokkrVerifier", () => {
     expect(unknown.passed).toBe(false);
   });
 
+  it("lays the project's environment over the one Brokkr filters for its checks", async () => {
+    const wt = worktree();
+    const e = await env(wt);
+    const requests: { env: Record<string, string> }[] = [];
+    const inner = passing();
+    const executor = {
+      execute: (request: { env: Record<string, string> }) => {
+        requests.push(request);
+        return (inner as unknown as { execute(r: unknown): Promise<unknown> }).execute(request);
+      },
+    };
+    const callerEnvs: (Readonly<Record<string, string | undefined>> | undefined)[] = [];
+    class SpyBrokkr extends sdk.Brokkr {
+      override verify(options: Parameters<sdk.Brokkr["verify"]>[0]) {
+        callerEnvs.push(options.env);
+        return super.verify(options);
+      }
+    }
+    const v = new BrokkrVerifier({
+      sdk: { ...realSdk, Brokkr: SpyBrokkr as unknown as BrokkrSdk["Brokkr"] },
+      homeDir: e.home,
+      dataDir: e.dataDir,
+      executor,
+    });
+    const path = `/opt/project-tools/bin:${process.env["PATH"] ?? ""}`;
+    const r = await v.verify(input(wt, e, { env: { GOCACHE: "/var/cache/go", PATH: path } }));
+    expect(r.passed).toBe(true);
+    // Brokkr reads harness-listed names from here; PATH is on its own allowlist.
+    expect(callerEnvs[0]).toMatchObject({ GOCACHE: "/var/cache/go", PATH: path });
+    expect(requests.length).toBeGreaterThan(0);
+    for (const request of requests) expect(request.env["PATH"]).toBe(path);
+
+    // Without project settings Brokkr keeps its default (the process environment).
+    callerEnvs.length = 0;
+    await v.verify(input(wt, e));
+    expect(callerEnvs[0]).toBeUndefined();
+  });
+
   it("runs workspace-untrusted with the project's contract, Mimir's run root and key, no approvers", async () => {
     const wt = worktree();
     const e = await env(wt);

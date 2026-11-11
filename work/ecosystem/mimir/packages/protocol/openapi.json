@@ -854,6 +854,7 @@
               "mission.failed",
               "session.input",
               "project.created",
+              "project.updated",
               "crew.created",
               "crew.scheduling_changed",
               "usage.recorded",
@@ -1375,6 +1376,49 @@
                       "timeoutMs": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
+                        "maximum": 86400000
+                      },
+                      "agent": {
+                        "type": "object",
+                        "properties": {
+                          "env": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string",
+                              "maxLength": 4096
+                            }
+                          },
+                          "pathPrepend": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "maxLength": 1024
+                            },
+                            "maxItems": 32
+                          },
+                          "codexSandbox": {
+                            "type": "object",
+                            "properties": {
+                              "writableRoots": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "maxLength": 1024
+                                },
+                                "maxItems": 32
+                              },
+                              "networkAccess": {
+                                "type": "boolean"
+                              }
+                            },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "verificationTimeoutMs": {
+                        "type": "integer",
+                        "minimum": 1000,
                         "maximum": 86400000
                       }
                     },

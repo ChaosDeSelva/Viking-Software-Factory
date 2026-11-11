@@ -97,4 +97,29 @@ describe("argv templates", () => {
     expect(argv.at(-1)).toBe(briefFor("lead", "a; rm -rf / && echo $HOME"));
     expect(argv.filter((word) => word.includes("rm -rf"))).toHaveLength(1);
   });
+
+  it("puts a project's Codex sandbox overrides before the brief, for codex only", () => {
+    const codexSandbox = { writableRoots: ["/var/cache/go", '/tmp/a "b"'], networkAccess: true };
+    expect(argvFor("codex", "implementer", "Fix it", { codexSandbox })).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "--json",
+      "-c",
+      'sandbox_workspace_write.writable_roots=["/var/cache/go","/tmp/a \\"b\\""]',
+      "-c",
+      "sandbox_workspace_write.network_access=true",
+      briefFor("implementer", "Fix it"),
+    ]);
+    expect(argvFor("codex", "implementer", "Fix it", { codexSandbox: {} })).toEqual(
+      argvFor("codex", "implementer", "Fix it"),
+    );
+    expect(
+      argvFor("codex", "implementer", "x", { codexSandbox: { networkAccess: false } }),
+    ).not.toContain("-c");
+    expect(argvFor("claude", "implementer", "Fix it", { codexSandbox })).toEqual(
+      argvFor("claude", "implementer", "Fix it"),
+    );
+  });
 });

@@ -82,6 +82,40 @@ describe("TestCommandVerifier", () => {
   });
 });
 
+describe("TestCommandVerifier with project settings", () => {
+  it("kills the running command when the verification is aborted", async () => {
+    const ac = new AbortController();
+    const started = Date.now();
+    const pending = new TestCommandVerifier().verify({
+      ...bind(tmp()),
+      testCommand: ["sh", "-c", "sleep 30 & wait"],
+      signal: ac.signal,
+    });
+    setTimeout(() => ac.abort(), 300);
+    await expect(pending).rejects.toMatchObject({ code: "conflict" });
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
+
+  it("runs the command with the project's environment and time limit", async () => {
+    const path = `/opt/tools/bin:${process.env["PATH"] ?? ""}`;
+    const r = await new TestCommandVerifier().verify({
+      ...bind(tmp()),
+      testCommand: ["sh", "-c", 'echo "cache=[$GOCACHE] path=[$PATH]"'],
+      env: { GOCACHE: "/var/cache/go", PATH: path },
+      signal: signal(),
+    });
+    expect(r.checks[0]?.output).toContain(`cache=[/var/cache/go] path=[${path}]`);
+    // The project's limit wins over the verifier's own.
+    const slow = await new TestCommandVerifier({ timeoutMs: 60_000 }).verify({
+      ...bind(tmp()),
+      testCommand: ["sleep", "30"],
+      timeoutMs: 300,
+      signal: signal(),
+    });
+    expect(slow.checks[0]).toMatchObject({ passed: false, timedOut: true, exitCode: null });
+  });
+});
+
 describe("TestCommandVerifier binding (T12b)", () => {
   it("passes taskId, missionId, worktree, baseRef and headSha through unchanged", async () => {
     const dir = tmp();

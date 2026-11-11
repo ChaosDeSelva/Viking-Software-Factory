@@ -32,6 +32,10 @@ export interface VerifyInput extends VerifyBinding {
   testCommand?: readonly string[];
   /** Opaque reference to a verification profile, passed through to Brokkr. */
   harnessRef?: string;
+  /** The project's `settings.agent` environment (see `projectEnv`); PATH is the complete value. */
+  env?: Readonly<Record<string, string>>;
+  /** The project's `settings.verificationTimeoutMs` (test command only). */
+  timeoutMs?: number;
   signal: AbortSignal;
 }
 
@@ -90,8 +94,12 @@ export class TestCommandVerifier implements Verifier {
     }
     if (input.signal.aborted) throw new MimirError("conflict", "verification was cancelled");
     const r = await runTests(input.worktreePath, [...command], {
-      timeoutMs: this.options.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS,
+      timeoutMs: input.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS,
+      ...(input.env !== undefined ? { env: { ...input.env } } : {}),
+      // Cancelling the mission (or stopping the server) kills the running command.
+      signal: input.signal,
     });
+    if (input.signal.aborted) throw new MimirError("conflict", "verification was cancelled");
     const passed = r.exitCode === 0 && !r.timedOut;
     return {
       source: "test-command",

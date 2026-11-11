@@ -74,6 +74,7 @@ export const EVENT_TYPES = [
   "mission.failed",
   "session.input",
   "project.created",
+  "project.updated",
   "crew.created",
   "crew.scheduling_changed",
   "usage.recorded",
@@ -323,6 +324,8 @@ export const EVENT_PAYLOAD_SCHEMAS = {
   /** Operator input sent to a session (text redacted before storage). */
   "session.input": z.object({ text: z.string(), redacted: z.boolean() }),
   "project.created": z.object({ project: ProjectSchema }),
+  /** The project after its settings were replaced. */
+  "project.updated": z.object({ project: ProjectSchema }),
   "crew.scheduling_changed": z.object({ crewId: CrewIdSchema, paused: z.boolean() }),
   "crew.created": z.object({
     crew: CrewSchema,

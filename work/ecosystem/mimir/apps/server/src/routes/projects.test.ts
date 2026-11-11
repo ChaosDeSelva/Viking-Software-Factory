@@ -5,6 +5,8 @@ import {
   ApiErrorBodySchema,
   CreateProjectResponseSchema,
   ListProjectsResponseSchema,
+  UpdateProjectResponseSchema,
+  newId,
 } from "@mimir/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AUTH, makeServer, tempGitRepo, type TestServer } from "../test-helpers.js";
@@ -249,5 +251,81 @@ describe("projects are event-sourced (T12)", () => {
     expect(store.read({ limit: 100, types: ["project.created"] }).events).toHaveLength(1);
     const dup = await post(s2, { name: "again", repoPath: tmp.repo });
     expect(dup.statusCode).toBe(409);
+  });
+});
+
+describe("PATCH /v1/projects/:id", () => {
+  const patch = (s: TestServer, id: string, body: unknown, key: string | null = "patch-1") =>
+    s.app.inject({
+      method: "PATCH",
+      url: `/v1/projects/${id}`,
+      headers: key === null ? AUTH : { ...AUTH, "idempotency-key": key },
+      payload: body as Record<string, unknown>,
+    });
+  const agent = {
+    env: { GOCACHE: "/var/cache/go-build" },
+    pathPrepend: ["/opt/mise/shims"],
+    codexSandbox: { writableRoots: ["/var/cache/go-build"], networkAccess: true },
+  };
+
+  it("replaces the settings, is idempotent, and the change survives a restart", async () => {
+    const store = openEventStore(join(tmp.dir, "mimir.db"));
+    const s1 = makeServer({}, store);
+    const created = CreateProjectResponseSchema.parse(
+      (
+        await post(s1, {
+          name: "p",
+          repoPath: tmp.repo,
+          settings: { testCommand: ["npm", "test"], harnessRef: "old" },
+        })
+      ).json(),
+    ).project;
+    const settings = { testCommand: ["npm", "test"], agent, verificationTimeoutMs: 1_800_000 };
+    const res = await patch(s1, created.id, { settings });
+    expect(res.statusCode).toBe(200);
+    const { project } = UpdateProjectResponseSchema.parse(res.json());
+    // Replaced, not merged: harnessRef is gone.
+    expect(project).toMatchObject({ id: created.id, repoPath: created.repoPath, settings });
+    expect(project.settings).toEqual(settings);
+    expect(project.version).toBe(created.version + 1);
+
+    const replay = await patch(s1, created.id, { settings });
+    expect(replay.headers["idempotency-replayed"]).toBe("true");
+    expect(replay.json()).toEqual(res.json());
+    // The same settings under a new key change nothing and append nothing.
+    const same = await patch(s1, created.id, { settings }, "patch-2");
+    expect(same.statusCode).toBe(200);
+    expect(same.json()).toEqual(res.json());
+    expect(store.read({ limit: 100, types: ["project.updated"] }).events).toHaveLength(1);
+
+    await s1.app.close();
+    const s2 = track(makeServer({}, store));
+    const list = await s2.app.inject({ method: "GET", url: "/v1/projects", headers: AUTH });
+    expect(ListProjectsResponseSchema.parse(list.json()).projects).toEqual([project]);
+  });
+
+  it("validates like create and refuses unknown projects, bad environments and credentials", async () => {
+    const s = track(makeServer());
+    const { project } = CreateProjectResponseSchema.parse(
+      (await post(s, { name: "p", repoPath: tmp.repo })).json(),
+    );
+    let n = 0;
+    const status = async (body: unknown, id: string = project.id) =>
+      (await patch(s, id, body, `bad-${++n}`)).statusCode;
+    expect(await status({ settings: {} }, newId("prj"))).toBe(404);
+    expect((await patch(s, project.id, { settings: {} }, null)).statusCode).toBe(422);
+    expect(await status({})).toBe(422);
+    expect(await status({ settings: {}, name: "renamed" })).toBe(422);
+    expect(await status({ settings: { agent: { env: { PATH: "/evil" } } } })).toBe(422);
+    expect(await status({ settings: { agent: { env: { GIT_SSH_COMMAND: "x" } } } })).toBe(422);
+    expect(await status({ settings: { agent: { pathPrepend: ["relative/bin"] } } })).toBe(422);
+    expect(await status({ settings: { testCommand: ["rm", "-rf", "/"] } })).toBe(422);
+    expect(
+      await status({
+        settings: { agent: { env: { GOPROXY: "https://user:hunter2pass@proxy.example" } } },
+      }),
+    ).toBe(422);
+    expect(s.store.read({ limit: 100, types: ["project.updated"] }).events).toEqual([]);
+    expect(s.app.mimir.readModel.projects.get(project.id)?.settings).toEqual({});
   });
 });

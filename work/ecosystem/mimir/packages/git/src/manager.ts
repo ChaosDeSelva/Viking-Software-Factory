@@ -216,6 +216,8 @@ const STATUS_CODES: Record<string, FileChangeStatus> = {
   T: "typechange",
 };
 
+/** Date of a combined dependency commit (raw git format); fixed so it does not vary per call. */
+const COMBINED_COMMIT_DATE = "946684800 +0000";
 const DIFF_FLAGS = ["--no-renames", "--no-ext-diff", "--no-textconv", "--no-color"];
 
 function nowIso(): string {
@@ -626,11 +628,14 @@ export class GitManager {
     const repo = await this.registerProject({ projectId: id, repoPath });
     await auditRepoConfig(repo);
     const scratch = await ScratchRepo.open(join(await this.ensureRoot(), SCRATCH_DIR), id, repo);
-    const commits: string[] = [];
-    for (const task of [...new Set(taskIds)].sort()) {
+    const resolved: string[] = [];
+    for (const task of new Set(taskIds)) {
       const parsed = GitShaSchema.parse(task);
-      commits.push(await resolveCommit(repo, parsed, "verified dependency commit"));
+      resolved.push(await resolveCommit(repo, parsed, "verified dependency commit"));
     }
+    // Sorted full shas: an abbreviated and a full form of one commit are one input, and equal
+    // inputs combine in the same order.
+    const commits = [...new Set(resolved)].sort();
     let base = commits[0]!;
     for (const next of commits.slice(1)) {
       const merge = await scratch.run(
@@ -649,6 +654,7 @@ export class GitManager {
         tree,
         [base, next],
         "Combine verified task dependencies",
+        COMBINED_COMMIT_DATE,
       );
     }
     await this.importResult(repo, scratch, base);
@@ -697,6 +703,8 @@ export class GitManager {
     tree: string,
     parents: string[],
     message: string,
+    /** Fixed author and committer date: the same tree and parents then give the same sha. */
+    date?: string,
   ): Promise<string> {
     return (
       await scratch.run(
@@ -707,6 +715,7 @@ export class GitManager {
             GIT_AUTHOR_EMAIL: "mimir@localhost",
             GIT_COMMITTER_NAME: "Mimir",
             GIT_COMMITTER_EMAIL: "mimir@localhost",
+            ...(date !== undefined ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}),
           },
         },
       )

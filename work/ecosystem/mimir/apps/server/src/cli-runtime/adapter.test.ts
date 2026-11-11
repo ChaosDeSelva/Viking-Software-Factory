@@ -191,3 +191,27 @@ it.skipIf(spawnSync(process.env["MIMIR_TMUX_BIN"] ?? "tmux", ["-V"]).status !== 
     expect(await runtime.readTerminal("s1")).toContain("tmux evidence");
   },
 );
+
+it("gives the agent the project's variables and PATH entries on top of the allowlist", async () => {
+  process.env["MIMIR_CLI_TEST_SECRET"] = "not-for-agents";
+  try {
+    const { runtime, spec } = fixture(
+      "console.log(JSON.stringify({cache:process.env.GOCACHE,path:process.env.PATH,task:process.env.MIMIR_TASK_ID,secret:process.env.MIMIR_CLI_TEST_SECRET??null}));",
+    );
+    await runtime.createSession({
+      ...spec,
+      env: { MIMIR_TASK_ID: "t1" },
+      agentEnv: { env: { GOCACHE: "/var/cache/go" }, pathPrepend: ["/opt/tools/bin", "/opt/b"] },
+    });
+    await until(async () => (await runtime.getSession("s1"))?.state === "completed");
+    const seen = JSON.parse((await runtime.readTerminal("s1")).trim()) as Record<string, string>;
+    expect(seen).toEqual({
+      cache: "/var/cache/go",
+      path: `/opt/tools/bin:/opt/b:${process.env["PATH"]}`,
+      task: "t1",
+      secret: null,
+    });
+  } finally {
+    delete process.env["MIMIR_CLI_TEST_SECRET"];
+  }
+});

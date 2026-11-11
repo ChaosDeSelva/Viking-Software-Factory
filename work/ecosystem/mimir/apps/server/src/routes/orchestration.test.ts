@@ -17,7 +17,8 @@ import {
   type RuntimeEvent,
 } from "@mimir/protocol";
 import type { FakeRuntime } from "@mimir/fake-runtime";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -27,6 +28,7 @@ import {
   type Harness,
   type HarnessOptions,
 } from "../orchestrator/test-harness.js";
+import { writingRuntime } from "../orchestrator/test-agent-files.js";
 
 // Integration tests: real git worktrees, npm verification and server boots (slow on a busy host).
 vi.setConfig({ testTimeout: 120_000 });
@@ -263,6 +265,99 @@ describe("mission base commits", () => {
       .map((e) => e.payload as { baseSha: string })[0];
     expect(original?.baseSha).not.toBe(delivered);
   });
+
+  it("stores base commits as resolved full shas and refuses one the repository does not have", async () => {
+    const h = await track();
+    const { projectId, missionId } = await setupMission(h);
+    const first = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    const delivered = h.task(first).resultCommit!;
+    const m = await h.post("/v1/missions", {
+      projectId,
+      objective: "abbreviated",
+      baseCommits: [delivered.slice(0, 12), delivered],
+    });
+    expect(m.status).toBe(201);
+    expect(m.json.mission.baseCommits).toEqual([delivered]);
+    const missing = await h.post("/v1/missions", {
+      projectId,
+      objective: "missing",
+      baseCommits: [delivered, "0123456789abcdef0123456789abcdef01234567"],
+    });
+    expect(missing.status).toBe(422);
+    expect(missing.json.error.details).toMatchObject({
+      reason: "unknown_base_commit",
+      issues: [{ path: ["baseCommits", 1] }],
+    });
+    expect((await h.get(`/v1/missions?projectId=${projectId}`)).json.missions).toHaveLength(2);
+  });
+
+  it("a rework on several base commits gives every root one base and delivers the whole change against the default branch", async () => {
+    // Each session leaves one file named after its task, so every task has its own change.
+    const h = await track({
+      wrapRuntime: (fake) =>
+        writingRuntime(fake, (cwd) => {
+          const task = cwd.split("/").at(-1)!;
+          if (!existsSync(join(cwd, `${task}.txt`))) writeFileSync(join(cwd, `${task}.txt`), task);
+        }),
+    });
+    const { projectId, missionId } = await setupMission(h);
+    const a = await createTask(h, missionId, "A", "echo a");
+    const b = await createTask(h, missionId, "B", "echo b");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    const results = [h.task(a).resultCommit!, h.task(b).resultCommit!];
+    expect(results.every(Boolean)).toBe(true);
+    const defaultBranch = execFileSync("git", ["rev-parse", "main"], {
+      cwd: h.repo,
+      encoding: "utf8",
+    }).trim();
+
+    const m = await h.post("/v1/missions", {
+      projectId,
+      objective: "rework both",
+      baseCommits: results,
+    });
+    const rework = m.json.mission.id as string;
+    await h.post("/v1/crews", {
+      missionId: rework,
+      template: "solo",
+      limits: { maxConcurrentTasks: 2 },
+      members: [{ role: "implementer", agentKind: "shell" }],
+    });
+    const r1 = await createTask(h, rework, "R1", "echo r1");
+    const r2 = await createTask(h, rework, "R2", "echo r2");
+    await h.post(`/v1/missions/${rework}/start`);
+    await h.tick();
+    await h.advance(1000);
+    expect([h.task(r1).status, h.task(r2).status]).toEqual(["completed", "completed"]);
+    const bases = h
+      .events(["git.worktree_created"])
+      .filter((e) => e.taskId === r1 || e.taskId === r2)
+      .map((e) => (e.payload as { baseSha: string }).baseSha);
+    // Both roots combined the same two commits, each in its own call: one commit, not two.
+    expect(bases).toHaveLength(2);
+    expect(bases[0]).toBe(bases[1]);
+    expect(results).not.toContain(bases[0]);
+
+    const res = await h.post(`/v1/tasks/${r1}/pr`);
+    await h.post(`/v1/approvals/${res.json.approvalId}/decision`, { decision: "approved" });
+    const delivery = h
+      .events(["artifact.recorded"])
+      .find((e) => e.taskId === r1 && (e.payload as { kind: string }).kind === "local_delivery");
+    expect(delivery).toBeDefined();
+    const content = await h.app.inject({
+      method: "GET",
+      url: `/v1/artifacts/${(delivery!.payload as { artifactId: string }).artifactId}/content`,
+      headers: { authorization: "Bearer test-token-0123456789" },
+    });
+    const body = JSON.parse(content.body) as { baseSha: string; patch: string };
+    expect(body.baseSha).toBe(defaultBranch);
+    for (const task of [a, b, r1, r2]) expect(body.patch).toContain(`${task}.txt`);
+  }, 180_000);
 
   it("rejects a base commit that is not a git sha", async () => {
     const h = await track();

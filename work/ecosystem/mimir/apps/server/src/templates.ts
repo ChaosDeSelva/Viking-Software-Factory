@@ -63,6 +63,30 @@ export const ROLE_TEMPLATES: Readonly<Record<CrewRole, { preamble: string }>> = 
   },
 };
 
+/** `settings.agent.codexSandbox` of the task's project. */
+export interface CodexSandboxOptions {
+  writableRoots?: readonly string[] | undefined;
+  networkAccess?: boolean | undefined;
+}
+
+/**
+ * Codex `-c key=value` overrides (the value is TOML) widening the `workspace-write` sandbox.
+ * A JSON array of control-character-free strings is also a TOML array of basic strings.
+ */
+export function codexSandboxArgs(sandbox: CodexSandboxOptions | undefined): string[] {
+  const args: string[] = [];
+  if (sandbox?.writableRoots?.length) {
+    args.push(
+      "-c",
+      `sandbox_workspace_write.writable_roots=${JSON.stringify(sandbox.writableRoots)}`,
+    );
+  }
+  if (sandbox?.networkAccess === true) {
+    args.push("-c", "sandbox_workspace_write.network_access=true");
+  }
+  return args;
+}
+
 /** The agent brief: the role preamble followed by the task's instruction. */
 export function briefFor(role: CrewRole, instruction: string): string {
   // HerdR types argv into a terminal and rejects control characters. Preserve one prompt
@@ -72,9 +96,15 @@ export function briefFor(role: CrewRole, instruction: string): string {
 
 /**
  * Argv for a crew member of `agentKind` and `role` working on `instruction`. Shell members get
- * the instruction verbatim as the `sh -c` command; agent kinds get the role brief.
+ * the instruction verbatim as the `sh -c` command; agent kinds get the role brief. Codex also
+ * gets the project's sandbox overrides, placed before the brief.
  */
-export function argvFor(agentKind: string, role: CrewRole, instruction: string): string[] {
+export function argvFor(
+  agentKind: string,
+  role: CrewRole,
+  instruction: string,
+  options: { codexSandbox?: CodexSandboxOptions | undefined } = {},
+): string[] {
   const template = AGENT_ARGV_TEMPLATES[agentKind];
   if (template === undefined) {
     throw new MimirError("validation_failed", `no argv template for agent kind ${agentKind}`, {
@@ -83,5 +113,6 @@ export function argvFor(agentKind: string, role: CrewRole, instruction: string):
     });
   }
   const text = agentKind === "shell" ? instruction : briefFor(role, instruction);
-  return template.map((word) => (word === INSTRUCTION ? text : word));
+  const extra = agentKind === "codex" ? codexSandboxArgs(options.codexSandbox) : [];
+  return template.flatMap((word) => (word === INSTRUCTION ? [...extra, text] : [word]));
 }

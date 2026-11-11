@@ -93,6 +93,17 @@ function bump<T extends Versioned>(entity: T, at: string, patch: Partial<T>): T 
 
 class Skip extends Error {}
 
+/** One failed check of a verification, as kept for the next attempt's brief. */
+export interface FailedCheck {
+  command: string;
+  /** null when the command was killed (timeout or signal). */
+  exitCode: number | null;
+  outputTail: string;
+}
+const MAX_FAILED_CHECKS = 3;
+const FAILED_CHECK_COMMAND_CHARS = 200;
+const FAILED_CHECK_TAIL_CHARS = 1200;
+
 /**
  * In-memory projection of the event log: missions, tasks (+ dependencies), crews, agents,
  * sessions, approvals, worktrees and usage. Built by folding events; `GET /v1/snapshot` reads it.
@@ -119,6 +130,8 @@ export class ReadModel {
   readonly approvalMeta = new Map<string, ApprovalMeta>();
   /** `task.created` brief/argv per task (what the dispatched session runs). */
   private readonly taskSpecs = new Map<string, { brief?: string; argv?: string[] }>();
+  /** Failed checks of each task's latest verification (bounded; see `verificationFailure`). */
+  private readonly failedChecks = new Map<string, FailedCheck[]>();
   /** Cursor of the last applied event; consistent with `snapshot()`. */
   cursor: string;
   /** `occurredAt` of the last applied event. */
@@ -160,6 +173,14 @@ export class ReadModel {
   /** The brief and explicit argv a task was created with (both optional). */
   taskSpec(taskId: string): { brief?: string; argv?: string[] } {
     return this.taskSpecs.get(taskId) ?? {};
+  }
+
+  /**
+   * The failed checks of a task's latest verification (command, exit code, end of the output as
+   * stored, i.e. redacted), newest verification only. Empty once a verification passes.
+   */
+  verificationFailure(taskId: string): readonly FailedCheck[] {
+    return this.failedChecks.get(taskId) ?? [];
   }
 
   /** Applies one event. Never throws; returns false when the event was skipped. */
@@ -222,9 +243,24 @@ export class ReadModel {
     // Narrowing a generic payload by `type` needs a cast per branch; keep them local.
     const p = payload as EventPayloadMap[EventType] & Record<string, unknown>;
     switch (type) {
-      case "project.created": {
+      case "project.created":
+      case "project.updated": {
         const pl = p as EventPayloadMap["project.created"];
         this.projects.set(pl.project.id, pl.project as Project);
+        return;
+      }
+      case "test.run_completed": {
+        const pl = p as EventPayloadMap["test.run_completed"];
+        if (pl.passed || event.taskId === undefined) return;
+        const checks = this.failedChecks.get(event.taskId) ?? [];
+        if (checks.length < MAX_FAILED_CHECKS) {
+          checks.push({
+            command: pl.command.slice(0, FAILED_CHECK_COMMAND_CHARS),
+            exitCode: pl.exitCode ?? null,
+            outputTail: (pl.output ?? "").slice(-FAILED_CHECK_TAIL_CHARS),
+          });
+          this.failedChecks.set(event.taskId, checks);
+        }
         return;
       }
       case "crew.scheduling_changed": {
@@ -344,6 +380,9 @@ export class ReadModel {
       case "task.started":
       case "task.failed":
       case "task.retried": {
+        // A new verification (or a pass) replaces what the previous one reported.
+        if ((type === "task.verifying" || type === "task.completed") && event.taskId)
+          this.failedChecks.delete(event.taskId);
         this.applyTask(event, type, p);
         return;
       }

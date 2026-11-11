@@ -48,6 +48,8 @@ export interface RuntimeSessionSpec {
   timeoutMs?: number;
   cwd: string;
   env: Record<string, string>;
+  /** See `RuntimeSessionSpecSchema.agentEnv`. */
+  agentEnv?: { env?: Record<string, string>; pathPrepend?: string[] };
   workspaceLabel: string;
 }
 
@@ -133,6 +135,16 @@ export const RuntimeSessionSpecSchema = z.object({
   timeoutMs: z.number().int().positive().exactOptional(),
   cwd: z.string().min(1),
   env: z.record(z.string(), z.string()),
+  /**
+   * The project's `settings.agent` environment. Applied by runtimes that launch on this host
+   * (`cli`, `tmux`); the others ignore it.
+   */
+  agentEnv: z
+    .object({
+      env: z.record(z.string(), z.string()).exactOptional(),
+      pathPrepend: z.array(z.string()).exactOptional(),
+    })
+    .exactOptional(),
   workspaceLabel: z.string(),
 });
 

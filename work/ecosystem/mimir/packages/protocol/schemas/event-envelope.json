@@ -74,6 +74,7 @@
         "mission.failed",
         "session.input",
         "project.created",
+        "project.updated",
         "crew.created",
         "crew.scheduling_changed",
         "usage.recorded",

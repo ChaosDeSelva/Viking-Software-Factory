@@ -63,3 +63,48 @@ tasks with `verification` set fail closed. Only tasks without a Brokkr contract 
 `vendor/brokkr/` holds the 12 `@brokkr/*` 0.1.0 tarballs and `manifest.json` built from Brokkr
 main `99e00ad` (step 2 integration) with `pnpm build && pnpm pack:local`; `pnpm-workspace.yaml` overrides each package to its tarball. To update,
 copy a new `dist-packages/` over `vendor/brokkr/`, update the overrides, and run `pnpm install`.
+
+## Project environment (`settings.agent`, `settings.verificationTimeoutMs`)
+
+Agent sessions and verification runs start from a small allowlisted environment. A project that
+needs more (tool shims on PATH, a build cache outside the worktree, network for Codex) says so in
+its settings. These are operator configuration: only `POST /v1/projects` and
+`PATCH /v1/projects/{id}` write them, and nothing an agent can reach does.
+
+```json
+{
+  "agent": {
+    "env": { "GOCACHE": "/Users/me/Library/Caches/go-build" },
+    "pathPrepend": ["/Users/me/.local/share/mise/shims"],
+    "codexSandbox": { "writableRoots": ["/Users/me/Library/Caches/go-build"], "networkAccess": true }
+  },
+  "verificationTimeoutMs": 1800000
+}
+```
+
+| Field | Applies to |
+|---|---|
+| `agent.env` | Agent sessions on the `cli` and `tmux` runtimes (also as `fleet` workers), the test command, and the environment Brokkr filters for its checks. Other runtimes ignore it. |
+| `agent.pathPrepend` | The same places: these directories go in front of the server's PATH, in order. |
+| `agent.codexSandbox` | Codex sessions only: `-c sandbox_workspace_write.writable_roots=[...]` and `-c sandbox_workspace_write.network_access=true` are added to the `codex exec` arguments. |
+| `verificationTimeoutMs` | The test command (default 10 minutes). A Brokkr check keeps the `timeoutSeconds` of its harness. |
+
+Limits: at most 64 variables, names matching `^[A-Za-z_][A-Za-z0-9_]*$` (128 characters), values
+up to 4096 characters; at most 32 PATH entries and 32 writable roots, each an absolute path of up
+to 1024 characters without `..` segments or control characters (PATH entries also without `:`).
+`PATH`, `HOME`, `NODE_OPTIONS`, `BASH_ENV`, `ENV` and every `GIT_*`, `LD_*`, `DYLD_*` and `MIMIR_*`
+name are refused; PATH changes only through `pathPrepend`. Values that look like credentials are
+refused as in any project field.
+
+Brokkr passes a check its own allowlist (`PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, `CI` and a few
+more) plus the variable names the harness lists under `env`. A variable from `agent.env` reaches a
+check only when the harness names it, and never when its name looks like a secret or an
+interpreter option. `pathPrepend` always reaches checks, because PATH is on that allowlist.
+
+Changed settings apply to sessions and verifications started afterwards. With `agent.codexSandbox`
+set, a task that carries explicit `argv` no longer equals the Codex template unless it includes
+the same `-c` arguments, so it needs an approval like any other non-template argv.
+
+When a verification fails and attempts are left, the next attempt's brief ends with a one-line
+summary of the failed checks (command, exit code, the end of the redacted output; at most three
+checks of 1200 characters each). Shell members and tasks with explicit `argv` get no summary.

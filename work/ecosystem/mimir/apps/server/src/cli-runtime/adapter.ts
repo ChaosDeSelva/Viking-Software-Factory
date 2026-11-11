@@ -224,6 +224,15 @@ export class CliRuntime implements RuntimeAdapter {
             "MIMIR_TMUX_BIN",
           ].flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]!]])),
         ),
+        ...spec.agentEnv?.env,
+        ...(spec.agentEnv?.pathPrepend?.length
+          ? {
+              PATH: [
+                ...spec.agentEnv.pathPrepend,
+                ...(process.env["PATH"] ? [process.env["PATH"]] : []),
+              ].join(":"),
+            }
+          : {}),
         ...spec.env,
       },
       timeoutMs: spec.timeoutMs,

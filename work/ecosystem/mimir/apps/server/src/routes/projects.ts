@@ -1,15 +1,20 @@
 import { execFile } from "node:child_process";
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import {
   CreateProjectRequestSchema,
   MimirError,
+  ProjectIdSchema,
+  UpdateProjectRequestSchema,
   newId,
   type CreateProjectResponse,
   type ListProjectsResponse,
   type Project,
+  type ProjectSettings,
+  type UpdateProjectResponse,
 } from "@mimir/protocol";
+import { z } from "zod";
 import { classifyCommand, findCredentialShapes, type CredentialShape } from "@mimir/core";
 import type { FastifyInstance } from "fastify";
 import { emit } from "../emit.js";
@@ -131,6 +136,31 @@ function assertNoCredentials(name: string, settings: unknown): void {
   );
 }
 
+/**
+ * The test command runs in every task worktree: it must be on the project's exact allowlist
+ * (ADR-014), checked in the repository the worktrees are made from (review C2).
+ */
+function assertTestCommandAllowed(settings: ProjectSettings, repoPath: string): void {
+  const testCommand = settings.testCommand;
+  if (testCommand === undefined) return;
+  const probe = { settings } as unknown as Project;
+  const action = classifyCommand(testCommand, classifyOptions(probe, repoPath, undefined));
+  if (action === null) return;
+  throw new MimirError(
+    "validation_failed",
+    "settings.testCommand is not on the project's command allowlist",
+    {
+      reason: "test_command_not_allowlisted",
+      action,
+      issues: [
+        { path: ["settings", "testCommand"], message: `classified ${action}`, code: "custom" },
+      ],
+    },
+  );
+}
+
+const ProjectIdParamsSchema = z.object({ id: ProjectIdSchema });
+
 export function projectRoutes(app: FastifyInstance): void {
   const ctx = app.mimir;
 
@@ -144,30 +174,7 @@ export function projectRoutes(app: FastifyInstance): void {
       const body = parseWith(CreateProjectRequestSchema, request.body);
       assertNoCredentials(body.name, body.settings ?? {});
       const repoPath = await resolveRepoPath(body.repoPath, ctx.allowedRoots);
-      // The test command runs in every task worktree: it must be on the project's exact allowlist
-      // (ADR-014), checked in the repository the worktrees are made from (review C2).
-      const testCommand = body.settings?.testCommand;
-      if (testCommand !== undefined) {
-        const probe = { settings: body.settings ?? {} } as unknown as Project;
-        const action = classifyCommand(testCommand, classifyOptions(probe, repoPath, undefined));
-        if (action !== null) {
-          throw new MimirError(
-            "validation_failed",
-            "settings.testCommand is not on the project's command allowlist",
-            {
-              reason: "test_command_not_allowlisted",
-              action,
-              issues: [
-                {
-                  path: ["settings", "testCommand"],
-                  message: `classified ${action}`,
-                  code: "custom",
-                },
-              ],
-            },
-          );
-        }
-      }
+      assertTestCommandAllowed(body.settings ?? {}, repoPath);
       if ([...ctx.readModel.projects.values()].some((p) => p.repoPath === repoPath)) {
         throw new MimirError("conflict", "a project for this repository already exists", {
           repoPath,
@@ -191,6 +198,40 @@ export function projectRoutes(app: FastifyInstance): void {
       });
       const response: CreateProjectResponse = { project };
       return { status: 201, body: response, target: project.id };
+    }),
+  );
+
+  /**
+   * Replaces the project's settings, validated like create. Operator configuration: sessions and
+   * verifications started afterwards use it. Settings equal to the stored ones change nothing.
+   */
+  app.patch(
+    "/v1/projects/:id",
+    idempotent(ctx, "project.update", (request) => {
+      const { id } = parseWith(ProjectIdParamsSchema, request.params);
+      const body = parseWith(UpdateProjectRequestSchema, request.body);
+      const current = ctx.readModel.projects.get(id);
+      if (!current) throw new MimirError("not_found", `project ${id} not found`, { projectId: id });
+      assertNoCredentials(current.name, body.settings);
+      assertTestCommandAllowed(body.settings, current.repoPath);
+      if (isDeepStrictEqual(current.settings, body.settings)) {
+        const same: UpdateProjectResponse = { project: current };
+        return { status: 200, body: same, target: id };
+      }
+      const at = ctx.now();
+      const project: Project = {
+        ...current,
+        settings: body.settings,
+        updatedAt: at.toISOString(),
+        version: current.version + 1,
+      };
+      emit(ctx.store, at, {
+        type: "project.updated",
+        streamId: `project:${id}`,
+        payload: { project },
+      });
+      const response: UpdateProjectResponse = { project };
+      return { status: 200, body: response, target: id };
     }),
   );
 }

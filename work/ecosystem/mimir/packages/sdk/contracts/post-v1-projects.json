@@ -162,6 +162,54 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 86400000
+            },
+            "agent": {
+              "type": "object",
+              "properties": {
+                "env": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 4096
+                  }
+                },
+                "pathPrepend": {
+                  "maxItems": 32,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 1024
+                  }
+                },
+                "codexSandbox": {
+                  "type": "object",
+                  "properties": {
+                    "writableRoots": {
+                      "maxItems": 32,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 1024
+                      }
+                    },
+                    "networkAccess": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            },
+            "verificationTimeoutMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 86400000
             }
           },
           "additionalProperties": {}

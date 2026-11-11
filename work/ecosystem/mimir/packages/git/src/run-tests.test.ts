@@ -49,6 +49,29 @@ describe("runTests", () => {
     expect(unexpected).toEqual([]);
   });
 
+  it("kills the command's process group when the signal aborts", async () => {
+    const ac = new AbortController();
+    const started = Date.now();
+    // A shell that starts a grandchild: both must die with the group.
+    const pending = runTests(dir, ["sh", "-c", "sleep 30 & echo $! && wait"], {
+      signal: ac.signal,
+    });
+    setTimeout(() => ac.abort(), 300);
+    const r = await pending;
+    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(r.exitCode).toBeNull();
+    expect(r.signal).toBe("SIGKILL");
+    expect(r.timedOut).toBe(false);
+    const grandchild = Number(r.stdout.trim());
+    expect(grandchild).toBeGreaterThan(0);
+    expect(() => process.kill(grandchild, 0)).toThrow();
+
+    const already = new AbortController();
+    already.abort();
+    const killed = await runTests(dir, ["sleep", "30"], { signal: already.signal });
+    expect(killed.signal).toBe("SIGKILL");
+  });
+
   it("caps each output stream at 1 MiB", async () => {
     const r = await runTests(dir, [
       node,
