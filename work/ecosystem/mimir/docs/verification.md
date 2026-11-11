@@ -69,7 +69,7 @@ tasks with `verification` set fail closed. Only tasks without a Brokkr contract 
 ## Vendored Brokkr
 
 `vendor/brokkr/` holds the 12 `@brokkr/*` 0.1.0 tarballs and `manifest.json` built from Brokkr
-main `99e00ad` (step 2 integration) with `pnpm build && pnpm pack:local`; `pnpm-workspace.yaml` overrides each package to its tarball. To update,
+the factory branch `local/factory-poc` (commit `e4a915f`, which adds `baseCommit`) with `pnpm build && pnpm pack:local`; `pnpm-workspace.yaml` overrides each package to its tarball. To update,
 copy a new `dist-packages/` over `vendor/brokkr/`, update the overrides, and run `pnpm install`.
 
 ## Project environment (`settings.agent`, `settings.verificationTimeoutMs`)

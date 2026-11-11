@@ -644,42 +644,42 @@ packages:
     engines: {node: '>=25'}
 
   '@brokkr/core@file:vendor/brokkr/brokkr-core-0.1.0.tgz':
-    resolution: {integrity: sha512-O0penn+eV2WpqbtIvzeXm670/Ud/ru9cVREP4UvygKw+rdhwAEkQ64v/wn51n1Jmx8gfBfioITq9z323OkR6yg==, tarball: file:vendor/brokkr/brokkr-core-0.1.0.tgz}
+    resolution: {integrity: sha512-dY6OymPBhr+miWcP3ERDj3NrwihLb9PufUTrJkre2VdiWXpFIC5Wkd8Qok1a+9tDP1Yb09hqONCV+/XAIYhUjw==, tarball: file:vendor/brokkr/brokkr-core-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/evidence@file:vendor/brokkr/brokkr-evidence-0.1.0.tgz':
-    resolution: {integrity: sha512-SClyjsb1yv+o7Suo0/kMPbBbSNULerGHNFXACex1SvgOwB5trSnUpbwI/d38UON/+yOBBAiIuhbD7ZhGSUgwcQ==, tarball: file:vendor/brokkr/brokkr-evidence-0.1.0.tgz}
+    resolution: {integrity: sha512-/QX+wBC/xnjRIM9i6LomVbl/9NtDgickLSmA24sw8lIAt9QesMLQH4Q4ApEgCfqAkK9OyPJIzg5OxQGknEOi9Q==, tarball: file:vendor/brokkr/brokkr-evidence-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/policy@file:vendor/brokkr/brokkr-policy-0.1.0.tgz':
-    resolution: {integrity: sha512-NhyVvyhqQnWy3erkmmrqRMNjinnhqo+BiYgk3Q0ZaVH66ivcZYmiNDOwwFuOkhNZa2uWoco1fSPs+4B9d5zRDw==, tarball: file:vendor/brokkr/brokkr-policy-0.1.0.tgz}
+    resolution: {integrity: sha512-RhxObxjUcwpI+uek1AymO1oE3qd5dsz8BG5I98PAih/T6YgXIVI8P1g7JoIwu5FRvSdUYPDSN9lm3pHOS62U+A==, tarball: file:vendor/brokkr/brokkr-policy-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/registry@file:vendor/brokkr/brokkr-registry-0.1.0.tgz':
-    resolution: {integrity: sha512-15CUkwKBRYN013j6rCVIto9wPe7TX2jL1nrpv6C7m8DWdJZEZDB84id3H5MFvRdDttT0ArYBoQWTreu4E/ANxw==, tarball: file:vendor/brokkr/brokkr-registry-0.1.0.tgz}
+    resolution: {integrity: sha512-XJg47xogx0oMdXCKkLDLo6+bcJCty5/Lzt9F/pX8+U0QUWsSQzIEg9t1dfAqQzUDx2KbPljmkp/QO1cTcL5CkQ==, tarball: file:vendor/brokkr/brokkr-registry-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/reporters@file:vendor/brokkr/brokkr-reporters-0.1.0.tgz':
-    resolution: {integrity: sha512-sT14Z+tAElzSGn2HsYQvNyikmgWR8wDTIZOkl48Kts+oegKdP2uoEIyUhKe3Hb7mTBE3uGcDER9P0TUYrf/YuA==, tarball: file:vendor/brokkr/brokkr-reporters-0.1.0.tgz}
+    resolution: {integrity: sha512-RJZV1L/jMsiHMLiQit6SMO2L1Qc+gboiH4uNcxtMmeyGfaISF7ULrg07tKA8JC9MUzxAPln+VHut0B3eGKu5Mw==, tarball: file:vendor/brokkr/brokkr-reporters-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/resolver@file:vendor/brokkr/brokkr-resolver-0.1.0.tgz':
-    resolution: {integrity: sha512-BqaWiCHDTPtJOoEVH6a3rfSFiGlhfb/Fj1xtxckGWxmfvdaIaItEBH/+pESpJeX2yuy9sO9r8HlXd/xcW6lCaQ==, tarball: file:vendor/brokkr/brokkr-resolver-0.1.0.tgz}
+    resolution: {integrity: sha512-TetUJKPlOU50kwpUI6p9QoZSPkH7CuUAQucVg7vmukz1/CLFalCe4FtWWZkT5qMv3DlqWSKx1MPYG41plWRGMQ==, tarball: file:vendor/brokkr/brokkr-resolver-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/runner@file:vendor/brokkr/brokkr-runner-0.1.0.tgz':
-    resolution: {integrity: sha512-p9C/eOcXd+ZPqOfVH04Hcqc3GbwL6MIQo0bR4UN+Fo5CGDQmbVqrscPznKEddBndtKfOt0ysgNsPSxQMWgWfPg==, tarball: file:vendor/brokkr/brokkr-runner-0.1.0.tgz}
+    resolution: {integrity: sha512-MUYAg9CWRVjxyOTkexmrB22Gle1H9sQABa7vjtqLB77p091df0+l7pTLozA+uf074S14uDSXM5CCJlEUAo1UqQ==, tarball: file:vendor/brokkr/brokkr-runner-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
   '@brokkr/sdk@file:vendor/brokkr/brokkr-sdk-0.1.0.tgz':
-    resolution: {integrity: sha512-7zjiMycD/7Qd4gK/YC1ycDsQmCRZxUuCExhZrBNHvcpLprHy+KAgFvp+Ldeq88iUjOZRf6A5lkUiNEsRxH1uqg==, tarball: file:vendor/brokkr/brokkr-sdk-0.1.0.tgz}
+    resolution: {integrity: sha512-GJt/qgZ5nIvZ2be9NeF05JHfpcOKhYENlxaMXj0tq5lYg8CP4QUc7HzGuDiMfJsaOkcwHGqk8iytjlRz86fC4Q==, tarball: file:vendor/brokkr/brokkr-sdk-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
