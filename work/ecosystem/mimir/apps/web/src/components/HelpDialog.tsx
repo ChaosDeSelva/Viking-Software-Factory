@@ -1,5 +1,5 @@
 import { Dialog, Link, Markdown, Switch } from "@factory/ui";
-import { screenSection } from "../lib/docs.js";
+import { screenSection } from "../lib/docsSection.js";
 import { useShortcutsEnabled } from "../lib/shortcutsPref.js";
 import { SHORTCUTS } from "../lib/useShortcuts.js";
 import type { ScreenId } from "./Screen.js";

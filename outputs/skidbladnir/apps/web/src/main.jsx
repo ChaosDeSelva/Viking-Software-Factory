@@ -1,6 +1,15 @@
-import React, { StrictMode, useMemo, useState } from 'react';
+import React, { StrictMode, Suspense, lazy, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { AppShell, Badge, GlossaryProvider, LinkProvider, Tooltip, useUrlState } from '@factory/ui';
+import {
+  AppShell,
+  Badge,
+  ErrorState,
+  GlossaryProvider,
+  LinkProvider,
+  SkeletonCard,
+  Tooltip,
+  useUrlState,
+} from '@factory/ui';
 import { getTerm, glossary, screenHref, termHref } from '@factory/docs';
 import { projectSnapshot } from '../../../packages/contracts/worker.mjs';
 import { appHref, href, useRoute } from './routes.js';
@@ -8,11 +17,27 @@ import { useFleet } from './useFleet.js';
 import { FleetPage } from './pages/Fleet.jsx';
 import { LaunchPage } from './pages/Launch.jsx';
 import { HistoryPage } from './pages/History.jsx';
-import { DocsPage } from './pages/Docs.jsx';
 import { NotFoundPage } from './pages/NotFound.jsx';
 import { AskDrawer } from './AskDrawer.jsx';
 import { switcherApps } from './apps.js';
 import './style.css';
+
+// The docs page carries every page's text; it loads only when Docs is opened. A failed load (the
+// chunk is gone after a rebuild) shows a reload prompt: there is no error boundary to catch a throw.
+const DocsPage = lazy(() =>
+  import('./pages/Docs.jsx')
+    .then((m) => ({ default: m.DocsPage }))
+    .catch(() => ({
+      default: () => (
+        <ErrorState
+          title="The docs did not load"
+          message="Skidbladnir may have been rebuilt since this page opened. Reload to get the current version."
+          onRetry={() => window.location.reload()}
+          retryLabel="Reload"
+        />
+      ),
+    })),
+);
 
 const PAGE_TITLES = {
   fleet: 'Worker fleet',
@@ -121,7 +146,17 @@ function App() {
           {route.page === 'fleet' && <FleetPage {...pageProps} />}
           {route.page === 'launch' && <LaunchPage {...pageProps} />}
           {route.page === 'history' && <HistoryPage {...pageProps} />}
-          {route.page === 'docs' && <DocsPage route={route} />}
+          {route.page === 'docs' && (
+            <Suspense
+              fallback={
+                <div aria-busy="true" aria-label="Loading the docs">
+                  <SkeletonCard lines={6} />
+                </div>
+              }
+            >
+              <DocsPage route={route} />
+            </Suspense>
+          )}
           {route.page === 'not-found' && <NotFoundPage />}
           <AskDrawer open={askOpen} onOpenChange={setAskOpen} docsHref={appHref(docsTarget)} />
         </AppShell>

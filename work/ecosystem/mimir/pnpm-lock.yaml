@@ -200,7 +200,7 @@ overrides:
   '@brokkr/resolver': file:vendor/brokkr/brokkr-resolver-0.1.0.tgz
   '@brokkr/runner': file:vendor/brokkr/brokkr-runner-0.1.0.tgz
   '@brokkr/sdk': file:vendor/brokkr/brokkr-sdk-0.1.0.tgz
-  '@factory/docs': file:vendor/factory/factory-docs-0.1.2.tgz
+  '@factory/docs': file:vendor/factory/factory-docs-0.1.4.tgz
   '@factory/ui': file:vendor/factory/factory-ui-0.1.1.tgz
 
 importers:
@@ -309,8 +309,8 @@ importers:
   apps/web:
     dependencies:
       '@factory/docs':
-        specifier: file:../../vendor/factory/factory-docs-0.1.2.tgz
-        version: file:vendor/factory/factory-docs-0.1.2.tgz
+        specifier: file:../../vendor/factory/factory-docs-0.1.4.tgz
+        version: file:vendor/factory/factory-docs-0.1.4.tgz
       '@factory/ui':
         specifier: file:../../vendor/factory/factory-ui-0.1.1.tgz
         version: file:vendor/factory/factory-ui-0.1.1.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -909,9 +909,9 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.2.tgz':
-    resolution: {integrity: sha512-gZ+gimlP7ciN8Po+r4a6d0MJ2XY5U3lTmBS5RdZobbelZi5zK7N3hJgLqQzGiq5MYEOsXKV3/+LTIN1fDIJK+A==, tarball: file:vendor/factory/factory-docs-0.1.2.tgz}
-    version: 0.1.2
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.4.tgz':
+    resolution: {integrity: sha512-8id0FFk4CcpuU0XDoDFYC+IWYKilJtp5Q56Mh7g5blsKA7QhVrCkphtMq0gsJYo4WjeCfnG8xSfW+lr+sDVuFQ==, tarball: file:vendor/factory/factory-docs-0.1.4.tgz}
+    version: 0.1.4
     engines: {node: '>=24'}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.1.tgz':
@@ -3157,7 +3157,7 @@ snapshots:
 
   '@exodus/bytes@1.16.0': {}
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.2.tgz': {}
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.4.tgz': {}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.1.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:

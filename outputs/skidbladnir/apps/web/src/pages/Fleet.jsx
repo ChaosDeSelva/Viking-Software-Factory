@@ -56,6 +56,7 @@ export function FleetFrame({
   fleet,
   aws,
   notice = true,
+  detailOpen = false,
   children,
 }) {
   return (
@@ -67,7 +68,13 @@ export function FleetFrame({
         scope={{ project }}
         actions={actions}
       />
-      {fleet.data && notice && <ModeNotice aws={aws} />}
+      {/* On a phone an open detail replaces the list; the simulation notice steps aside for it, but the
+          cloud-mode warning stays because actions there cost money. */}
+      {fleet.data && notice && (
+        <div className={detailOpen && !aws ? 'max-md:hidden' : undefined}>
+          <ModeNotice aws={aws} />
+        </div>
+      )}
       {fleet.data?.providerError && (
         <div role="alert">
           <Callout tone="danger" title="The cloud provider did not answer">
@@ -120,33 +127,38 @@ export function FleetPage({ fleet, scoped, project, aws, route, setProject }) {
       actions={launch}
       fleet={fleet}
       aws={aws}
+      detailOpen={Boolean(worker)}
     >
-      <CardGroup min={220}>
-        <MetricCard
-          label="Active workers"
-          term="Slot"
-          value={`${fleetActive} / ${max}`}
-          description={
-            project
-              ? 'Across all projects: the limit is shared.'
-              : aws
-                ? 'Configured fleet limit'
-                : 'Local simulation limit'
-          }
-        />
-        <MetricCard
-          label="Running"
-          value={workers.filter((w) => w.state === 'running').length}
-          description={project ? `In ${project}` : aws ? 'Observed AWS state' : 'Simulated environments'}
-        />
-        <MetricCard
-          label="Cloud spend"
-          value={aws ? 'Not measured' : '$0'}
-          description={
-            aws ? 'Review charges in AWS Billing; not measured does not mean free.' : 'Simulation creates no resources'
-          }
-        />
-      </CardGroup>
+      <div className={worker ? 'max-md:hidden' : undefined}>
+        <CardGroup min={220}>
+          <MetricCard
+            label="Active workers"
+            term="Slot"
+            value={`${fleetActive} / ${max}`}
+            description={
+              project
+                ? 'Across all projects: the limit is shared.'
+                : aws
+                  ? 'Configured fleet limit'
+                  : 'Local simulation limit'
+            }
+          />
+          <MetricCard
+            label="Running"
+            value={workers.filter((w) => w.state === 'running').length}
+            description={project ? `In ${project}` : aws ? 'Observed AWS state' : 'Simulated environments'}
+          />
+          <MetricCard
+            label="Cloud spend"
+            value={aws ? 'Not measured' : '$0'}
+            description={
+              aws
+                ? 'Review charges in AWS Billing; not measured does not mean free.'
+                : 'Simulation creates no resources'
+            }
+          />
+        </CardGroup>
+      </div>
       {!workers.length ? (
         <Card>
           <FleetEmpty project={project} total={fleet.data?.workers.length ?? 0} aws={aws} setProject={setProject} />

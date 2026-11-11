@@ -11,6 +11,28 @@ const MIMIR_URL = process.env["MIMIR_URL"] ?? "http://127.0.0.1:7700";
 export default defineConfig({
   cacheDir: "node_modules/.vite",
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      // Libraries get their own cacheable chunk. The docs package stays out: its page text must
+      // follow the lazily loaded Docs screen and help dialog.
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react",
+              test: /node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+              priority: 2,
+            },
+            {
+              name: "vendor",
+              priority: 1,
+              test: (id: string) => /node_modules/.test(id) && !/@factory[\\/]docs/.test(id),
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     host: "127.0.0.1",
     port: 5173,

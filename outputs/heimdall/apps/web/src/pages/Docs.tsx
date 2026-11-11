@@ -2,9 +2,9 @@
 // over pages, headings and glossary terms, and `/docs/<page>#<heading>` deep links.
 import {
   SECTIONS,
-  docsIndex,
   getPage,
   glossary,
+  searchDocs,
   termHref,
 } from "@factory/docs";
 import {
@@ -25,43 +25,38 @@ interface Hit {
   context: string;
 }
 
-/** Pages, headings and glossary terms whose text contains every word of the query. */
-export function searchDocs(query: string, limit = 12): Hit[] {
+/**
+ * The shared docs search (page titles, headings, page text), then glossary terms matched on their
+ * aliases and short meaning, which the page text alone can miss.
+ */
+export function searchHeimdallDocs(query: string, limit = 12): Hit[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
-  const has = (text: string) =>
-    words.every((w) => text.toLowerCase().includes(w));
-  const hits: Hit[] = [];
-  for (const section of docsIndex.sections)
-    for (const page of section.pages) {
-      if (has(page.title + " " + page.summary))
-        hits.push({
-          href: page.href,
-          title: page.title,
-          context: section.title,
-        });
-      for (const h of page.headings)
-        if (h.depth > 1 && has(h.text))
-          hits.push({
-            href: `${page.href}#${h.anchor}`,
-            title: h.text,
-            context: page.title,
-          });
-    }
-  for (const entry of glossary)
-    if (has(entry.term + " " + entry.short + " " + entry.aliases.join(" ")))
-      hits.push({
-        href: termHref(entry),
-        title: entry.term,
-        context: entry.short,
-      });
-  return hits.slice(0, limit);
+  const hits: Hit[] = searchDocs(query, limit).map((h) => ({
+    href: h.href,
+    title: h.title,
+    context: h.where,
+  }));
+  const seen = new Set(hits.map((h) => h.href));
+  for (const entry of glossary) {
+    const text =
+      `${entry.term} ${entry.short} ${entry.aliases.join(" ")}`.toLowerCase();
+    if (hits.length >= limit) break;
+    if (!words.every((w) => text.includes(w)) || seen.has(termHref(entry)))
+      continue;
+    seen.add(termHref(entry));
+    hits.push({
+      href: termHref(entry),
+      title: entry.term,
+      context: entry.short,
+    });
+  }
+  return hits;
 }
 
 export function DocsPage({ slug }: { slug: string }) {
   const [query, setQuery] = useState("");
   const page = getPage(slug || DEFAULT);
-  const hits = searchDocs(query);
+  const hits = searchHeimdallDocs(query);
   // Deep links: scroll to `#heading` once the page is rendered.
   useEffect(() => {
     const id = decodeURIComponent(location.hash.slice(1));
@@ -120,8 +115,8 @@ export function DocsPage({ slug }: { slug: string }) {
           sections={SECTIONS}
           activeSlug={page.slug}
           hrefFor={(s) => `/docs/${s}`}
-          // The page title is the H1 above; the document's own "# Title" line would repeat it.
-          markdown={page.markdown.replace(/^#\s.*\n+/, "")}
+          // The page title is the H1 above, so the body without its own "# Title" line.
+          markdown={page.body}
         />
       ) : (
         <EmptyState

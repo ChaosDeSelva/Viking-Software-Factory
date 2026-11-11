@@ -45,6 +45,8 @@ export interface DocPage {
   section: string;
   summary: string;
   markdown: string;
+  /** `markdown` without its leading `# Title` line, for pages that show the title as their own H1. */
+  body: string;
 }
 
 export interface ScreenRef {

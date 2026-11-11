@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { Suspense, useCallback, useMemo, useState, type ReactNode } from "react";
 import { BrowserRouter, MemoryRouter, Route, Routes } from "react-router";
 import { createClient, describeError, type ClientOptions, type MimirClient } from "./api/client.js";
 import { SessionContext } from "./api/session.js";
@@ -12,7 +12,6 @@ import { TokenPrompt } from "./components/TokenPrompt.js";
 import { Activity } from "./screens/Activity.js";
 import { AgentInspector } from "./screens/AgentInspector.js";
 import { CrewDetail, Crews } from "./screens/Crews.js";
-import { Docs } from "./screens/Docs.js";
 import { MissionDetail } from "./screens/MissionDetail.js";
 import { Missions } from "./screens/Missions.js";
 import { Overview } from "./screens/Overview.js";
@@ -20,6 +19,15 @@ import { Projects } from "./screens/Projects.js";
 import { Reviews } from "./screens/Reviews.js";
 import { Settings } from "./screens/Settings.js";
 import { StoreProvider } from "./store/StoreProvider.js";
+import { lazyScreen } from "./lib/lazyScreen.js";
+
+// Docs carries every page's text; it loads only when opened.
+const Docs = lazyScreen(() => import("./screens/Docs.js").then((m) => m.Docs));
+const docs = (
+  <Suspense fallback={<p className="p-6 text-sm text-muted">Loading the docs…</p>}>
+    <Docs />
+  </Suspense>
+);
 
 function NotFound() {
   return (
@@ -53,8 +61,8 @@ export function AppRoutes() {
         <Route path="/reviews" element={<Reviews />} />
         <Route path="/activity" element={<Activity />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="/docs" element={<Docs />} />
-        <Route path="/docs/:slug" element={<Docs />} />
+        <Route path="/docs" element={docs} />
+        <Route path="/docs/:slug" element={docs} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>

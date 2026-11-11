@@ -170,7 +170,7 @@ describe("Layout", () => {
     await user.keyboard("go");
     expect(screen.getByRole("heading", { name: "Overview page" })).toBeTruthy();
     await user.keyboard("?");
-    const dialog = screen.getByRole("dialog", { name: /keyboard shortcuts/i });
+    const dialog = await screen.findByRole("dialog", { name: /keyboard shortcuts/i });
     expect(dialog.textContent).toMatch(/g m/);
     expect(within(dialog).getByRole("heading", { name: "On this screen" })).toBeTruthy();
     expect(
@@ -186,7 +186,7 @@ describe("Layout", () => {
     const user = userEvent.setup();
     renderLayout(mockClient());
     await user.keyboard("?");
-    const dialog = screen.getByRole("dialog", { name: /keyboard shortcuts/i });
+    const dialog = await screen.findByRole("dialog", { name: /keyboard shortcuts/i });
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     await user.tab();
     expect(dialog.contains(document.activeElement)).toBe(true);

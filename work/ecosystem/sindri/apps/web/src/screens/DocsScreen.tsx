@@ -1,5 +1,5 @@
 import { Card } from "../components/ui.js";
-import { docHref, getPage, headingAnchors, pages, SECTIONS } from "@factory/docs";
+import { docHref, getPage, headingAnchors, searchDocs, SECTIONS } from "@factory/docs";
 import {
   DocsView,
   EmptyState,
@@ -15,35 +15,6 @@ import { useStore } from "../store/context.js";
 import { appHref } from "../store/route.js";
 
 export const DEFAULT_DOC = "how-the-factory-works";
-
-interface Hit {
-  key: string;
-  title: string;
-  where: string;
-  href: string;
-}
-
-/** Page and heading matches for every query word (case-insensitive), headings first. */
-export function searchDocs(query: string, limit = 20): Hit[] {
-  const words = query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
-  if (words.length === 0) return [];
-  const all = (s: string) => words.every((w) => s.toLowerCase().includes(w));
-  const headings: Hit[] = [];
-  const bodies: Hit[] = [];
-  for (const p of pages) {
-    for (const h of headingAnchors(p.markdown))
-      if (h.depth > 1 && all(h.text))
-        headings.push({
-          key: `${p.slug}#${h.anchor}`,
-          title: h.text,
-          where: p.title,
-          href: docHref(p.slug, h.anchor),
-        });
-    if (all(`${p.title} ${p.summary} ${p.markdown}`))
-      bodies.push({ key: p.slug, title: p.title, where: p.summary, href: docHref(p.slug) });
-  }
-  return [...headings, ...bodies].slice(0, limit);
-}
 
 /** Element for a docs anchor: the Markdown renderer's heading ids differ slightly from docs anchors. */
 function anchorElement(markdown: string, anchor: string): HTMLElement | null {

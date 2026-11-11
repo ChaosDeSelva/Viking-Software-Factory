@@ -1,4 +1,4 @@
-import { getPage, pages, SECTIONS, slugify } from "@factory/docs";
+import { getPage, searchDocs, SECTIONS, slugify } from "@factory/docs";
 import { DocsView, Input, Link } from "@factory/ui";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "react-router";
@@ -7,22 +7,6 @@ import { EmptyState } from "../components/StateViews.js";
 import { DOCS_HOME } from "../lib/docs.js";
 
 const HOME_SLUG = DOCS_HOME.replace("/docs/", "");
-
-/** Pages whose title, summary or text contain every word of the query, title hits first. */
-function search(query: string) {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [];
-  return pages
-    .map((p) => {
-      const title = p.title.toLowerCase();
-      const text = `${title} ${p.summary.toLowerCase()} ${p.markdown.toLowerCase()}`;
-      if (!words.every((w) => text.includes(w))) return null;
-      return { page: p, score: words.filter((w) => title.includes(w)).length };
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 12);
-}
 
 /**
  * Shared factory docs inside the Mimir shell: contents from @factory/docs, a search box, and deep
@@ -33,7 +17,7 @@ export function Docs() {
   const { hash } = useLocation();
   const [query, setQuery] = useState("");
   const page = getPage(slug);
-  const results = useMemo(() => search(query), [query]);
+  const results = useMemo(() => searchDocs(query), [query]);
 
   // The renderer and the docs index slug headings slightly differently; match either.
   useEffect(() => {
@@ -45,12 +29,13 @@ export function Docs() {
         ...document.querySelectorAll<HTMLElement>("article h1, article h2, article h3, article h4"),
       ].find((h) => slugify(h.textContent ?? "") === anchor);
     target?.scrollIntoView({ block: "start" });
-  }, [hash, slug]);
+    // query: clicking a search hit for the current URL changes nothing else, yet must still scroll.
+  }, [hash, slug, query]);
 
   return (
     <Screen
       screen="docs"
-      title="Docs"
+      title={query.trim() || !page ? "Docs" : page.title}
       description="How the factory fits together, every screen, every status and the glossary. The same text in every factory app."
       global
     >
@@ -78,16 +63,16 @@ export function Docs() {
             </EmptyState>
           ) : (
             <ul className="flex flex-col divide-y divide-line rounded-lg border border-line bg-surface">
-              {results.map(({ page: p }) => (
-                <li key={p.slug} className="flex flex-col gap-1 px-4 py-3">
+              {results.map((hit) => (
+                <li key={hit.key} className="flex flex-col gap-1 px-4 py-3">
                   <Link
-                    href={`/docs/${p.slug}`}
+                    href={hit.href}
                     onClick={() => setQuery("")}
                     className="font-medium text-accent-fg"
                   >
-                    {p.title}
+                    {hit.title}
                   </Link>
-                  <span className="text-sm text-muted">{p.summary}</span>
+                  <span className="text-sm text-muted">{hit.where}</span>
                 </li>
               ))}
             </ul>
@@ -99,7 +84,8 @@ export function Docs() {
           activeSlug={slug}
           hrefFor={(s) => `/docs/${s}`}
           title="Docs"
-          {...(page ? { markdown: page.markdown } : {})}
+          // The page title is the screen's H1, so the body without its own "# Title" line.
+          {...(page ? { markdown: page.body } : {})}
         >
           {page ? null : (
             <EmptyState action={<Link href={DOCS_HOME}>Open Finding your way</Link>}>

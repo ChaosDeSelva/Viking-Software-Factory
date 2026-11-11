@@ -1,6 +1,6 @@
 import { RAW_PAGES } from "./generated/content.js";
 import { getTerm, glossary, groupApps, statusTermName, termHref } from "./glossary.js";
-import { docHref, headingAnchors, slugify } from "./markdown.js";
+import { docHref, headingAnchors } from "./markdown.js";
 import {
   APP_NAMES,
   NAV,
@@ -16,100 +16,8 @@ import {
   type DocPage,
   type DocsIndex,
   type GlossaryCategory,
-  type ScreenRef,
 } from "./types.js";
-
-export const SECTIONS: readonly {
-  id: string;
-  title: string;
-  pages: readonly { slug: string; title: string; summary: string }[];
-}[] = [
-  {
-    id: "start",
-    title: "Start here",
-    pages: [
-      {
-        slug: "how-the-factory-works",
-        title: "How the factory works",
-        summary: "Which program does what, and how a request becomes a verified change.",
-      },
-      {
-        slug: "ticket-to-delivery",
-        title: "From ticket to delivery",
-        summary: "Every step of one piece of work, with the screen to use at each step.",
-      },
-      {
-        slug: "finding-your-way",
-        title: "Finding your way",
-        summary: "Top bar, bottom bar, every screen, Docs, Ask and shortcuts.",
-      },
-    ],
-  },
-  {
-    id: "screens",
-    title: "Screens",
-    pages: [
-      {
-        slug: "sindri-screens",
-        title: "Sindri screens",
-        summary: "Planning, runs and deliveries.",
-      },
-      {
-        slug: "mimir-screens",
-        title: "Mimir screens",
-        summary: "Missions, tasks, crews and agents.",
-      },
-      {
-        slug: "heimdall-screens",
-        title: "Heimdall screens",
-        summary: "The dashboard over Sindri and Mimir.",
-      },
-      {
-        slug: "skidbladnir-screens",
-        title: "Skidbladnir screens",
-        summary: "Disposable worker machines.",
-      },
-    ],
-  },
-  {
-    id: "operate",
-    title: "Operating",
-    pages: [
-      {
-        slug: "operator-guide",
-        title: "Operator guide",
-        summary: "Sign-in, approvals, escalations, budgets, export, change requests, autonomy.",
-      },
-      {
-        slug: "troubleshooting",
-        title: "Troubleshooting",
-        summary: "Token rejected, reconnecting, budget blocked, merge conflicts, Feedback Graph.",
-      },
-    ],
-  },
-  {
-    id: "reference",
-    title: "Reference",
-    pages: [
-      {
-        slug: "statuses",
-        title: "Statuses",
-        summary: "Every status in every app, in plain words.",
-      },
-      { slug: "glossary", title: "Glossary", summary: "Every term the apps use." },
-    ],
-  },
-];
-
-/** Bottom-bar help items are documented once, on the navigation page. */
-const SHARED_SCREENS: Readonly<Record<string, string>> = {
-  docs: "finding-your-way",
-  ask: "finding-your-way",
-};
-
-export function screenDoc(app: AppId, screen: NavScreen): { slug: string; anchor: string } {
-  return { slug: SHARED_SCREENS[screen.id] ?? `${app}-screens`, anchor: slugify(screen.label) };
-}
+import { SECTIONS, screenDoc, screens } from "./screens.js";
 
 function resolveScreen(ref: string): { app: AppId; screen: NavScreen } {
   const [app, id] = ref.split(".") as [AppId, string];
@@ -253,37 +161,13 @@ export const pages: readonly DocPage[] = SECTIONS.flatMap((section) =>
   section.pages.map((p) => {
     const raw = RAW_PAGES[p.slug];
     if (raw === undefined) throw new Error(`content/${p.slug}.md is missing`);
-    return { ...p, section: section.id, markdown: render(raw) };
+    const markdown = render(raw);
+    return { ...p, section: section.id, markdown, body: markdown.replace(/^\s*#\s.*\n+/, "") };
   }),
 );
 
 export function getPage(slug: string): DocPage | undefined {
   return pages.find((p) => p.slug === slug);
-}
-
-export const screens: readonly ScreenRef[] = APP_IDS.flatMap((app) =>
-  NAV[app].map((s) => {
-    const doc = screenDoc(app, s);
-    return {
-      app,
-      screen: s.id,
-      title: s.label,
-      placement: s.placement,
-      group: s.group,
-      slug: doc.slug,
-      anchor: doc.anchor,
-      href: docHref(doc.slug, doc.anchor),
-    };
-  }),
-);
-
-/**
- * `/docs/<slug>#<anchor>` for a screen's guide, for the PageHeader "Learn more" link. Accepts the
- * aliases in SCREEN_ALIASES; undefined for an unknown id.
- */
-export function screenHref(app: AppId, screenId: string): string | undefined {
-  const id = navScreen(app, screenId)?.id;
-  return id === undefined ? undefined : screens.find((s) => s.app === app && s.screen === id)?.href;
 }
 
 export const docsIndex: DocsIndex = {
@@ -302,3 +186,66 @@ export const docsIndex: DocsIndex = {
   })),
   screens: [...screens],
 };
+
+export interface DocsSearchHit {
+  key: string;
+  title: string;
+  /** The page a heading is on, or a page's summary. */
+  where: string;
+  href: string;
+}
+
+interface SearchEntry {
+  hit: DocsSearchHit;
+  text: string;
+}
+
+let searchIndex:
+  { titles: SearchEntry[]; headings: SearchEntry[]; bodies: SearchEntry[] } | undefined;
+
+/** Lowercased once on first search: the pages never change at run time. */
+function index() {
+  searchIndex ??= {
+    titles: pages.map((p) => ({
+      hit: { key: p.slug, title: p.title, where: p.summary, href: docHref(p.slug) },
+      text: p.title.toLowerCase(),
+    })),
+    headings: pages.flatMap((p) =>
+      headingAnchors(p.markdown)
+        .filter((h) => h.depth > 1)
+        .map((h) => ({
+          hit: {
+            key: `${p.slug}#${h.anchor}`,
+            title: h.text,
+            where: p.title,
+            href: docHref(p.slug, h.anchor),
+          },
+          text: h.text.toLowerCase(),
+        })),
+    ),
+    bodies: pages.map((p) => ({
+      hit: { key: p.slug, title: p.title, where: p.summary, href: docHref(p.slug) },
+      text: `${p.title} ${p.summary} ${p.markdown}`.toLowerCase(),
+    })),
+  };
+  return searchIndex;
+}
+
+/**
+ * Pages whose title matches, then matching headings, then pages that mention every word.
+ * Title matches come first so a page like Statuses is never crowded out by its own headings.
+ */
+export function searchDocs(query: string, limit = 20): DocsSearchHit[] {
+  const words = query.toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  if (words.length === 0) return [];
+  const { titles, headings, bodies } = index();
+  const seen = new Set<string>();
+  const out: DocsSearchHit[] = [];
+  for (const e of [...titles, ...headings, ...bodies]) {
+    if (out.length >= limit) break;
+    if (seen.has(e.hit.key) || !words.every((w) => e.text.includes(w))) continue;
+    seen.add(e.hit.key);
+    out.push(e.hit);
+  }
+  return out;
+}

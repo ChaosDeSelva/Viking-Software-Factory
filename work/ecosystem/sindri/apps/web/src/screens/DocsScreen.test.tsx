@@ -3,7 +3,8 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { mockApi, renderWithStore } from "../test/utils.js";
-import { DEFAULT_DOC, DocsScreen, searchDocs } from "./DocsScreen.js";
+import { searchDocs } from "@factory/docs";
+import { DEFAULT_DOC, DocsScreen } from "./DocsScreen.js";
 
 const render = (docsSlug: string | null, docsSection: string | null = null) =>
   renderWithStore(<DocsScreen />, mockApi(), { view: "docs", docsSlug, docsSection });

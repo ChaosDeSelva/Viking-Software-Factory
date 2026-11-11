@@ -87,7 +87,9 @@ describe("App", () => {
         initialPath="/docs/mimir-screens"
       />,
     );
-    expect(await screen.findByRole("heading", { level: 1, name: "Docs" })).toBeTruthy();
+    // One H1: the page title, not "Docs" plus the document's own title.
+    expect(await screen.findByRole("heading", { level: 1, name: "Mimir screens" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     const toc = screen.getAllByRole("navigation", { name: "Docs contents" })[0]!;
     expect(
       within(toc).getByRole("link", { name: "Mimir screens" }).getAttribute("aria-current"),
@@ -95,7 +97,10 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Mission detail" })).toBeTruthy();
     await user.type(screen.getByRole("searchbox", { name: "Search the docs" }), "budget");
     expect(await screen.findByRole("heading", { name: /results?$/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Troubleshooting" })).toBeTruthy();
+    // Search finds the heading inside a page, not just the page.
+    expect(screen.getByRole("link", { name: "Budget blocked" }).getAttribute("href")).toBe(
+      "/docs/troubleshooting#budget-blocked",
+    );
   });
 
   it("shows a not-found page with a way back", async () => {

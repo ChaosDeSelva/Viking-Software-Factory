@@ -134,6 +134,16 @@ try {
       await submit.click();
       await page.getByRole('heading', { name: 'Synthetic browser test', exact: true }).waitFor();
       assert.match(page.url(), /#\/fleet\/(sim|aws)-/);
+      // On a phone the open worker comes first: the fleet metrics and mode notice step aside.
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.equal(await page.getByText('Active workers', { exact: true }).isVisible(), false);
+      const detailTop = await page
+        .getByRole('heading', { name: 'Synthetic browser test', exact: true })
+        .evaluate((h) => h.getBoundingClientRect().top);
+      if (aws) assert.equal(await page.getByText('Cloud mode', { exact: true }).isVisible(), true);
+      else assert.ok(detailTop < 400, `worker detail starts at ${detailTop}px on a phone`);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      assert.equal(await page.getByText('Active workers', { exact: true }).isVisible(), true);
 
       if (!aws) {
         await launch(page, 'Unscoped worker');
@@ -202,17 +212,17 @@ try {
         );
         await page.keyboard.press('Escape');
         await page.getByRole('link', { name: 'Docs', exact: true }).click();
-        await page
-          .getByRole('heading', { name: 'Skidbladnir screens', level: 1 })
-          .or(page.getByRole('heading', { name: 'Skidbladnir screens' }))
-          .first()
-          .waitFor();
+        await page.getByRole('heading', { name: 'Skidbladnir screens', level: 1 }).waitFor();
+        assert.equal(await page.getByRole('heading', { level: 1 }).count(), 1, 'one H1 on a docs page');
         await page.getByRole('searchbox', { name: 'Search the docs' }).fill('terminated');
         await page
           .getByRole('navigation', { name: 'Search results' })
-          .getByRole('link', { name: /Statuses/ })
+          .getByRole('link', { name: /Terminated \(worker status\)/ })
           .click();
+        // Search finds the heading, not just the page: the link opens Statuses at that status.
         await page.getByRole('heading', { name: 'Statuses' }).first().waitFor();
+        if (!page.url().includes('#terminated-worker-status'))
+          throw new Error('docs search did not link to the heading');
         await noOverflowNoAxe(page);
         const light = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
         await page.emulateMedia({ colorScheme: 'dark' });

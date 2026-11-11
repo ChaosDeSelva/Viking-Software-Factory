@@ -574,3 +574,31 @@ describe.runIf(uiMaps !== undefined)("@factory/ui status map", () => {
     expect(missing).toEqual([]);
   });
 });
+
+describe("search and bundling", () => {
+  it("searchDocs ranks the matching heading before whole pages", async () => {
+    const { searchDocs } = await import("./index.js");
+    const hits = searchDocs("budget");
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]!.href).toMatch(/#/);
+    expect(searchDocs("   ")).toEqual([]);
+    // A page whose title matches is never crowded out by its own many headings.
+    expect(searchDocs("status")[0]!.href).toBe("/docs/statuses");
+    expect(new Set(searchDocs("status").map((h) => h.key)).size).toBe(searchDocs("status").length);
+  });
+
+  it("page bodies drop the leading title line", async () => {
+    const { pages } = await import("./index.js");
+    for (const p of pages) {
+      expect(p.markdown.trimStart().startsWith("# ")).toBe(true);
+      expect(p.body).not.toMatch(/^\s*# /);
+    }
+  });
+
+  it("screen links do not pull in the page text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const source = readFileSync(join(here, "screens.ts"), "utf8");
+    expect(source).not.toMatch(/generated\/content|\.\/pages\.js/);
+  });
+});

@@ -216,6 +216,11 @@ try {
   await page.locator("#pipeline").waitFor();
   await page.getByLabel("Search the docs").fill("pipeline");
   await page.getByRole("list", { name: "Search results" }).getByRole("listitem").first().waitFor();
+  // Shared search: a heading inside a page is a result of its own.
+  await page.getByLabel("Search the docs").fill("budget blocked");
+  const budget = page.getByRole("list", { name: "Search results" }).getByRole("link", { name: /^Budget blocked/ });
+  if ((await budget.getAttribute("href")) !== "/docs/troubleshooting#budget-blocked")
+    throw new Error("docs search did not return the Budget blocked heading");
 
   console.log("Ask drawer");
   const asked = [];
