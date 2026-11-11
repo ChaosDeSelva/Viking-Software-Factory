@@ -114,9 +114,9 @@ describe("web app serving", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  // Regression: files are streamed, so the client has the whole (content-length) body before the
-  // server ends the response. A close() right then missed the connection while it was still
-  // busy, and it stayed open (keep-alive) for the 72 s keep-alive timeout: shutdown hung.
+  // Files are streamed, so the client has the whole (content-length) body before the server ends
+  // the response. A close() right then can miss the still-busy connection, which then stays open
+  // for the 72 s keep-alive timeout and hangs shutdown.
   it("over a real socket: serves the bytes intact and close() right after does not hang", async () => {
     const big = "x".repeat(256 * 1024);
     writeFileSync(join(webRoot, "assets", "big.js"), big);

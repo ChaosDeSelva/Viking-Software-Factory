@@ -135,7 +135,7 @@ describe("$'...' decoding", () => {
 
 describe("$'\\c' before the closing quote", () => {
   it("does not swallow the quote, so the commands after it are seen", () => {
-    // bash and zsh run `rm -rf /` here; swallowing the quote hid it inside one long word.
+    // bash and zsh run `rm -rf /` here; swallowing the quote would hide it inside one long word.
     const src = `echo $'\\c'; rm -rf /; echo "'" # "`;
     expect(parseScript(src)).toEqual({
       commands: [

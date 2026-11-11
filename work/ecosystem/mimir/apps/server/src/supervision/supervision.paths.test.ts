@@ -194,9 +194,9 @@ describe("SupervisorEngine", () => {
     });
   });
 
-  // Regression: an operator message id equal to the next thought id (`think:<actor>:<n>`) made
-  // queueThought's INSERT throw inside scheduleThoughts, so every tick rejected before any actor
-  // was served: one supervisor's collision stalled all of them.
+  // An operator message id equal to the next thought id (`think:<actor>:<n>`) makes
+  // queueThought's INSERT throw inside scheduleThoughts; one supervisor's collision must not
+  // reject the whole tick and stall every other actor.
   it("a thought that cannot be queued for one actor does not stall the others", async () => {
     const f = fixture();
     f.store.configure("primary", policy());

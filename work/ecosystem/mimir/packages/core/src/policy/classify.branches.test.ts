@@ -3,7 +3,7 @@ import type { PrivilegedAction } from "./actions.js";
 import { classifyCommand, type ClassifyOptions } from "./classify.js";
 
 /**
- * One row per handler branch not reached by the earlier rounds: wrappers, builtins, interpreters,
+ * One row per handler branch the other classify tests miss: wrappers, builtins, interpreters,
  * credential CLIs, package managers and git subcommands. Each row runs in `heuristic` mode and
  * again in the default mode, where a non-null result must stay the same.
  */

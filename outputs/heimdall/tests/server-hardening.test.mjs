@@ -1,4 +1,3 @@
-// Each test here was written against a defect and failed before its fix.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";

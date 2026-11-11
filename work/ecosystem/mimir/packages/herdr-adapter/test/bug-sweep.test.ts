@@ -1,4 +1,3 @@
-// Regression tests for defects found in the bug sweep; each failed before its fix.
 import { afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import net from "node:net";

@@ -114,7 +114,6 @@ export function deliveryTitle(row: R, executions: R[], specs: R[]): string | und
   return specs.find((spec) => spec.id === plan?.specId)?.title ?? plan?.title;
 }
 
-/** The name a record is listed under: the first of the fields records of each kind are named by. */
 export const recordLabel = (r: R) =>
   r.title ??
   r.objective ??
@@ -125,7 +124,6 @@ export const recordLabel = (r: R) =>
   r.type ??
   r.id;
 
-/** A run is named by its specification, then its plan, then its own ID. */
 export const runTitle = (e: R, specs: R[]): string =>
   specs.find((spec) => spec.id === e.plan?.specId)?.title ?? e.plan?.title ?? "Run " + e.execution.id;
 

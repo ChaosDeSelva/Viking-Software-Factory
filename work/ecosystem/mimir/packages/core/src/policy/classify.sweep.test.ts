@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PrivilegedAction } from "./actions.js";
 import { classifyCommand, type ClassifyOptions } from "./classify.js";
 
-/** Bug sweep: rows run in `heuristic` mode and again in the default mode, as in round 4. */
+/** Each row runs in `heuristic` mode and again in the default mode. */
 const U = "shell.unclassified" as const;
 const SECRET = "secret.read" as const;
 const BASE: ClassifyOptions = { worktree: "/wt", cwd: "/wt", currentBranch: "feat" };
@@ -33,7 +33,7 @@ describe("a secret path attached to a short option is still a secret read", () =
     [["grep", "-f/etc/shadow", "x"], SECRET],
     [["grep", "-rf~/.aws/credentials", "x"], SECRET],
     [["head", "-n1", "-c5"], null],
-    // Separate and long forms were already caught.
+    // Separate and long forms are secret reads too.
     [["git", "commit", "-F", "/etc/shadow"], SECRET],
     [["grep", "--file=/etc/shadow", "x"], SECRET],
   ]);

@@ -126,7 +126,7 @@ test('launch refuses unapproved templates, exhausted capacity and unsuitable ima
 
 test('a reserved worker expires exactly its lifetime after creation, matching its expiry tag',()=>{
  const {provider}=fixture();
- // Two separate clock reads drift by a millisecond under load; one reservation in a few hundred showed it.
+ // Two separate clock reads drift by a millisecond under load (about one reservation in a few hundred).
  for(let i=0;i<2000;i++){const reserved=provider.prepare({...spec,minutes:7});assert.equal(Date.parse(reserved.expiresAt)-Date.parse(reserved.createdAt),420000);}
 });
 

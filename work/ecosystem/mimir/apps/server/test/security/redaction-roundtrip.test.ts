@@ -53,9 +53,9 @@ describe("security: redactor false positives (coordinator ruling on T14afix, Mse
   );
 });
 
-// Regression: values under secret-looking names (`NPM_TOKEN`) or with `password=`-style text are
-// not credential *shapes*, so they were accepted (201/200, echoed as sent) and then stored, served
-// and handed to agents as `[REDACTED:…]`: the operator's settings were silently rewritten.
+// Values under secret-looking names (`NPM_TOKEN`) or with `password=`-style text have no
+// credential *shape*, yet the event log would store, serve and hand them to agents as
+// `[REDACTED:…]`, silently rewriting the operator's settings.
 describe("security: project fields the event log would rewrite are refused", () => {
   const post = (payload: Record<string, unknown>, key: string) =>
     server!.app.inject({

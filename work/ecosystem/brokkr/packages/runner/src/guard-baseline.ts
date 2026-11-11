@@ -36,7 +36,6 @@ function git(cwd: string, args: string[]): Promise<Buffer | undefined> {
 
 class Unverifiable extends Error {}
 
-/** Tree entry kinds that matter to a guard. */
 type Entry = { kind: "tree" | "file" | "other"; oid: string };
 
 /**

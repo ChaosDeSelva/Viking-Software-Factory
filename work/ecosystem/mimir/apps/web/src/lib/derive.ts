@@ -172,7 +172,9 @@ export function deriveAttention(state: State, now: number): AttentionItem[] {
     seen.add(s.id).add(entityKey(s));
     items.push(s);
   }
-  return items.sort((x, y) => KIND_ORDER[x.kind] - KIND_ORDER[y.kind]);
+  // A newer server can send a kind this build does not know: sort it with the unknowns, last.
+  const rank = (i: AttentionItem) => KIND_ORDER[i.kind] ?? KIND_ORDER.unknown;
+  return items.sort((x, y) => rank(x) - rank(y));
 }
 
 export interface EventFilter {

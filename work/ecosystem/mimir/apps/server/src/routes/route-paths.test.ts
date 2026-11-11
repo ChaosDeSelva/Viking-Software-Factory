@@ -451,9 +451,9 @@ describe("crews routes", () => {
 });
 
 describe("artifact content over a real socket", () => {
-  // Regression: the content is streamed, so the client has the whole (content-length) body
-  // before the server ends the response; a close() in that window missed the socket and waited
-  // for the 72 s keep-alive timeout.
+  // The content is streamed, so the client has the whole (content-length) body before the
+  // server ends the response; a close() in that window can miss the socket and wait for the
+  // 72 s keep-alive timeout.
   it("is served intact and close() right after does not hang", async () => {
     const s = serve();
     const content = "x".repeat(300_000);

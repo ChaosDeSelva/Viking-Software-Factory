@@ -28,8 +28,8 @@ describe("migrateLegacyProjects", () => {
     store.close();
   });
 
-  // Regression: one unparseable row (JSON.parse threw) made every boot fail; a row that parses
-  // but fails the schema was already skipped. Both are now skipped and the rest migrated.
+  // An unparseable row (JSON.parse throws) must not fail every boot: it is skipped like a row
+  // that fails the schema, and the rest are migrated.
   it("skips unreadable rows instead of failing the boot", () => {
     const store = openEventStore(":memory:");
     const db = store.connection();

@@ -95,9 +95,9 @@ describe("security: large and hostile payloads are bounded", () => {
   });
 });
 
-// Regression: a body under the 1 MiB request limit but over the store's 256 KiB event payload
-// bound was stored as a truncation marker, which the read model skips: the API answered 201/200
-// for a project, mission, task or crew (or a settings change) that then did not exist.
+// A body under the 1 MiB request limit but over the store's 256 KiB event payload bound is
+// stored as a truncation marker, which the read model skips: accepted, it would answer 201/200
+// for a project, mission, task or crew (or a settings change) that then does not exist.
 describe("security: a command whose event would be truncated is refused, not half-applied", () => {
   const huge = "h".repeat(300 * 1024);
   const call = (method: "POST" | "PATCH", url: string, payload: unknown, key: string) =>

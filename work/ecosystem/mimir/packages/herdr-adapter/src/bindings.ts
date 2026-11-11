@@ -108,7 +108,7 @@ export class JsonFileBindingStore implements BindingStore {
     this.writing = this.writing
       .catch(() => undefined)
       .then(async () => {
-        // The data dir also holds the operator token: never create it world-readable (audit L6).
+        // The data dir also holds the operator token: never create it world-readable.
         await fs.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
         const tmp = `${this.filePath}.${process.pid}.tmp`;
         await fs.writeFile(tmp, body, { mode: 0o600 });

@@ -43,7 +43,7 @@ describe("acceptance criterion ids that are also Object.prototype member names",
   it.each(["constructor", "hasOwnProperty", "__defineGetter__"])(
     "requires provenance for a criterion named %s",
     (id) => {
-      // `{}[id]` is an inherited function with a non-zero `length`, which used to pass for a
+      // `{}[id]` is an inherited function with a non-zero `length`, which would pass for a
       // non-empty list of sources.
       const create = () =>
         specs.createDraft({

@@ -101,7 +101,7 @@ describe("error mapping", () => {
     expect(res.body).not.toContain("secret");
   });
 
-  // Regression: Fastify answered a malformed percent-encoding itself, with its own body shape
+  // Fastify answers a malformed percent-encoding itself, with its own body shape
   // ({error:"Bad Request",code:"FST_ERR_BAD_URL"}), not ApiErrorBody as docs/api.md promises.
   it.each(["/v1/missions/%zz", "/v1/tasks/%E0%A4%A", "/%ff"])(
     "maps a malformed URL (%s) to 422 validation_failed in the ApiErrorBody shape",

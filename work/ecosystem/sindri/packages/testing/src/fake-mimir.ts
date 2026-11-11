@@ -502,7 +502,7 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
     }
   }
 
-  /** Creates a checked task (see `checkTask`). */
+  /** `req` must already have passed `checkTask`. */
   function addTask(mission: Mission, req: TaskRequest): Task {
     const maxAttempts = req.crewId
       ? (need(crews, req.crewId, "crew").crew.limits.maxAttemptsPerTask ?? 1)

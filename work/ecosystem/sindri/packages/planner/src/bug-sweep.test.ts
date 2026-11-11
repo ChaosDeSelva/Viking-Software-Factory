@@ -48,7 +48,7 @@ describe("a dependency listed twice is one dependency, not a cycle", () => {
 
 describe("dryRun with duplicate task ids", () => {
   it("fails instead of looping forever", () => {
-    // Both entries share one id, so "every id done" was never reached and steps grew unbounded.
+    // Both entries share one id, so "every id done" is never reached and steps grow unbounded.
     const plan = { tasks: [t("a"), t("a")] };
     expect(() => dryRun(plan)).toThrow(PlanValidationError);
     expect(() => dryRun(plan)).toThrow("duplicate task id a");
