@@ -313,8 +313,13 @@ export class SupervisorStore {
     });
   }
   scheduleThoughts() {
-    for (const actor of this.list())
-      this.queueThought(actor.id, "Periodic mission supervision", true);
+    for (const actor of this.list()) {
+      try {
+        this.queueThought(actor.id, "Periodic mission supervision", true);
+      } catch {
+        /* One actor's failure (e.g. its next thought id is taken) must not stall the others. */
+      }
+    }
   }
   close() {
     this.db.close();

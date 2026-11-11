@@ -19,7 +19,7 @@ import {
 import { resolveCommit } from "@mimir/git";
 import type { FastifyInstance } from "fastify";
 import type { ServerContext } from "../context.js";
-import { emit } from "../emit.js";
+import { emitProjected } from "../emit.js";
 import { parseWith } from "../errors.js";
 import { idempotent } from "../idempotency.js";
 import { memberOf } from "../orchestrator/commands.js";
@@ -159,7 +159,7 @@ export function createTasks(
   );
   inputs.forEach((t, i) => {
     const taskId = ids[i] as string;
-    emit(ctx.store, at, {
+    emitProjected(ctx.store, at, {
       type: "task.created",
       streamId: `task:${taskId}`,
       taskId,
@@ -237,7 +237,7 @@ export function missionRoutes(app: FastifyInstance): void {
       const at = ctx.now();
       const missionId = newId("msn");
       const taskIds = ctx.store.withTransaction(() => {
-        emit(ctx.store, at, {
+        emitProjected(ctx.store, at, {
           type: "mission.created",
           streamId: `mission:${missionId}`,
           missionId,

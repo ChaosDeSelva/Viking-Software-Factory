@@ -101,6 +101,21 @@ describe("error mapping", () => {
     expect(res.body).not.toContain("secret");
   });
 
+  // Regression: Fastify answered a malformed percent-encoding itself, with its own body shape
+  // ({error:"Bad Request",code:"FST_ERR_BAD_URL"}), not ApiErrorBody as docs/api.md promises.
+  it.each(["/v1/missions/%zz", "/v1/tasks/%E0%A4%A", "/%ff"])(
+    "maps a malformed URL (%s) to 422 validation_failed in the ApiErrorBody shape",
+    async (url) => {
+      const { app } = track(makeServer());
+      for (const headers of [AUTH, {}]) {
+        const res = await app.inject({ method: "GET", url, headers });
+        expect(res.statusCode).toBe(422);
+        expect(ApiErrorBodySchema.parse(res.json()).error.code).toBe("validation_failed");
+        expect(res.body).not.toContain("FST_ERR");
+      }
+    },
+  );
+
   it("maps malformed JSON bodies to 422 validation_failed", async () => {
     const { app } = track(makeServer());
     const res = await app.inject({
@@ -115,6 +130,36 @@ describe("error mapping", () => {
 });
 
 describe("logging", () => {
+  it("defaults to level info (stdout) and redacts cookies and proxy credentials", () => {
+    expect(createLogger().level).toBe("info");
+    let out = "";
+    const sink = new Writable({
+      write(chunk: Buffer, _enc, cb) {
+        out += chunk.toString();
+        cb();
+      },
+    });
+    const logger = createLogger({ stream: sink });
+    expect(logger.level).toBe("info");
+    logger.info(
+      {
+        req: {
+          method: "GET",
+          url: "/v1/x",
+          ip: "127.0.0.1",
+          headers: { cookie: "sid=abc", "proxy-authorization": "Basic Zm9v", accept: "*/*" },
+        },
+      },
+      "request",
+    );
+    expect(JSON.parse(out).req).toEqual({
+      method: "GET",
+      url: "/v1/x",
+      remoteAddress: "127.0.0.1",
+      headers: { cookie: "[Redacted]", "proxy-authorization": "[Redacted]", accept: "*/*" },
+    });
+  });
+
   it("redacts the authorization header", async () => {
     let out = "";
     const sink = new Writable({

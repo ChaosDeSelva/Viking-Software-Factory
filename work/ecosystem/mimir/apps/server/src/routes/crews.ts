@@ -11,7 +11,7 @@ import {
   type ListCrewsResponse,
 } from "@mimir/protocol";
 import type { FastifyInstance } from "fastify";
-import { emit } from "../emit.js";
+import { emit, emitProjected } from "../emit.js";
 import { parseWith } from "../errors.js";
 import { idempotent } from "../idempotency.js";
 import { AGENT_ARGV_TEMPLATES } from "../templates.js";
@@ -126,7 +126,7 @@ export function crewRoutes(app: FastifyInstance): void {
         updatedAt: iso,
         version: 0,
       }));
-      emit(ctx.store, at, {
+      emitProjected(ctx.store, at, {
         type: "crew.created",
         streamId: `crew:${crewId}`,
         crewId,

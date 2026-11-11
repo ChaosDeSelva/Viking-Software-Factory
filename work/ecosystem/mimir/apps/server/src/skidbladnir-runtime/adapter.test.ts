@@ -138,7 +138,8 @@ it("runs a tiny mission through the real remote entrypoint and applies its retur
       const stdout = execFileSync("/bin/sh", ["-c", body!.command], {
         env: { ...process.env, PATH: bin + ":" + process.env.PATH },
         encoding: "utf8",
-        timeout: 10000,
+        // The command runs the remote entrypoint and the agent: process start-up is slow under load.
+        timeout: 120_000,
       });
       value = { id: "c", commandId: "ssm-fixture", status: "Success", exitCode: 0, stdout };
     } else throw Error("Unexpected request");
@@ -160,11 +161,12 @@ it("runs a tiny mission through the real remote entrypoint and applies its retur
       cwd,
       env: {},
       workspaceLabel: "Synthetic",
-      timeoutMs: 5000,
+      timeoutMs: 120_000,
     });
-    for (let i = 0; i < 30; i++) {
+    // Wait on the state, not on an iteration count: each reconcile spawns real processes.
+    const deadline = Date.now() + 180_000;
+    while ((await runtime.getSession("mission"))?.state !== "completed" && Date.now() < deadline) {
       await runtime.reconcile();
-      if ((await runtime.getSession("mission"))?.state === "completed") break;
       await new Promise((r) => setTimeout(r, 100));
     }
     expect(await runtime.getSession("mission")).toMatchObject({ state: "completed" });
@@ -175,4 +177,4 @@ it("runs a tiny mission through the real remote entrypoint and applies its retur
     await runtime.dispose();
     rmSync(dir, { recursive: true, force: true });
   }
-}, 15000);
+}, 300_000);

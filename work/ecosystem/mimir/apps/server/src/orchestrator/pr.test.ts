@@ -86,4 +86,17 @@ describe("GhPrRunner hardening", () => {
     dirs.push(bare);
     expect(await new GhPrRunner({ exec: recorder("origin\n").exec }).available(bare)).toBe(false);
   });
+
+  it("by default runs the real tools, and is unavailable when gh cannot be started", async () => {
+    // An empty PATH: gh cannot be found, so nothing is run and delivery stays local.
+    const empty = realpathSync(mkdtempSync(join(tmpdir(), "mimir-pr-path-")));
+    dirs.push(empty);
+    const path = process.env["PATH"];
+    process.env["PATH"] = empty;
+    try {
+      expect(await new GhPrRunner().available(repo())).toBe(false);
+    } finally {
+      process.env["PATH"] = path;
+    }
+  });
 });

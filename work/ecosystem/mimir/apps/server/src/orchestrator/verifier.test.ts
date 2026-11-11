@@ -69,6 +69,17 @@ describe("TestCommandVerifier", () => {
     expect(r.checks[0]!.output).toMatch(/\n\[\.\.\. \d+ bytes omitted \.\.\.\]\n/);
   });
 
+  it("says so when the command printed more than could be captured", async () => {
+    const r = await new TestCommandVerifier().verify({
+      ...bind(tmp()),
+      // More than @mimir/git's capture limit (1 MiB): the rest is gone, not just omitted.
+      testCommand: ["sh", "-c", "head -c 2097152 /dev/zero | tr '\\0' x"],
+      signal: signal(),
+    });
+    expect(r.checks[0]!.output.endsWith("\n[truncated]")).toBe(true);
+    expect(r.checks[0]!.output.length).toBeLessThanOrEqual(MAX_CHECK_OUTPUT + 128);
+  });
+
   it("keeps the start and the end of an output over the cap", () => {
     expect(headAndTail("short", 100)).toBe("short");
     const text = `START${"é".repeat(5000)}END`;

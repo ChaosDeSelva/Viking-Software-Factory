@@ -25,11 +25,12 @@ function shutdown(code: number) {
   process.exitCode = code;
   process.stdin.pause();
   const signal = (name: NodeJS.Signals) => {
-    if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+    if (!child.pid) return;
+    // The group outlives an agent that exits on its own; its tools may still hold the pipes.
     try {
       process.kill(-child.pid, name);
     } catch {
-      child.kill(name);
+      if (child.exitCode === null && child.signalCode === null) child.kill(name);
     }
   };
   signal("SIGTERM");
@@ -75,6 +76,8 @@ process.on("SIGTERM", () => {
   client.cancel();
   shutdown(0);
 });
+// The detached agent has no terminal; a hangup reaches only this process, so end the agent here.
+process.on("SIGHUP", () => shutdown(129));
 let buffer = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk: string) => {

@@ -16,7 +16,13 @@ type RecordValue = {
     sessionId?: string;
     options?: PermissionOption[];
     toolCall?: { title?: string; toolCallId?: string };
-    update?: { sessionUpdate?: string; content?: { type?: string; text?: string }; title?: string; toolCallId?: string; status?: string };
+    update?: {
+      sessionUpdate?: string;
+      content?: { type?: string; text?: string };
+      title?: string;
+      toolCallId?: string;
+      status?: string;
+    };
   };
 };
 type Permission = { id: string | number; options: PermissionOption[] };
@@ -88,6 +94,10 @@ export class AcpClient {
       try {
         this.send({ id, method, params });
       } catch (error) {
+        // fail() is a no-op once closed, so settle this request here or it never settles.
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error as Error);
         this.fail(error as Error);
       }
     });

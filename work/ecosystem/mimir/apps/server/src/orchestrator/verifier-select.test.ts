@@ -56,6 +56,19 @@ describe("selectVerifier", () => {
     expect((await v.verify(input())).passed).toBe(true);
   });
 
+  it("applies the configured time limit to test-command verification", async () => {
+    const { log } = recordingLog();
+    const v = await selectVerifier({
+      log,
+      dataDir: tmp(),
+      timeoutMs: 200,
+      load: () => Promise.resolve(null),
+    });
+    const r = await v.verify(input({ testCommand: ["sleep", "30"] }));
+    expect(r.passed).toBe(false);
+    expect(r.checks[0]).toMatchObject({ timedOut: true, passed: false });
+  }, 60_000);
+
   it("uses Brokkr when the vendored @brokkr/sdk loads", async () => {
     const { lines, log } = recordingLog();
     const v = await selectVerifier({ log, dataDir: tmp(), brokkr: { homeDir: tmp() } });

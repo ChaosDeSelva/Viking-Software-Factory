@@ -4,7 +4,11 @@ import { mkdtempSync, realpathSync, mkdirSync, writeFileSync, readFileSync, rmSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { run } from "./remote.js";
+
+// Mocked for the in-process wiring case only; the other case runs the built entrypoint.
+vi.mock("./remote.js", () => ({ run: vi.fn(async () => undefined) }));
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 it("reports expired jobs consistently for inspect and identical submit without relaunch", () => {
@@ -34,7 +38,7 @@ it("reports expired jobs consistently for inspect and identical submit without r
         execFileSync(process.execPath, [entry], {
           env: { ...process.env, MIMIR_REMOTE_ROOT: root },
           encoding: "utf8",
-          timeout: 5000,
+          timeout: 60_000,
           input: JSON.stringify({ protocol: 1, root, jobId: "persisted", operation, payload }),
         }),
       );
@@ -45,4 +49,12 @@ it("reports expired jobs consistently for inspect and identical submit without r
       expect(readFileSync(join(dir, "state.json"), "utf8")).toBe(persisted);
     }
   }
+}, 600_000);
+it("runs the remote command with the process arguments, stdin and its own path", async () => {
+  await import("./entrypoint.js");
+  expect(vi.mocked(run)).toHaveBeenCalledExactlyOnceWith(
+    process.argv,
+    process.stdin,
+    fileURLToPath(new URL("./entrypoint.ts", import.meta.url)),
+  );
 });

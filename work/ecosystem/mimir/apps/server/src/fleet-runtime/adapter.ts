@@ -112,7 +112,12 @@ export class FleetRuntime implements RuntimeAdapter, CapacityAware {
             for (const handler of this.listeners) handler(event);
           }),
         );
-    })();
+    })().catch((error: unknown) => {
+      // A failed connect must not stay memoized: close partial subscriptions and retry next call.
+      for (const sub of this.subscriptions.splice(0)) sub.close();
+      this.ready = undefined;
+      throw error;
+    });
     await this.ready;
   }
   private async capabilitiesOf(node: FleetNode): Promise<RuntimeCapabilities> {

@@ -1,6 +1,8 @@
 import { afterEach, expect, it } from "vitest";
 import { AUTH, makeServer, tempGitRepo, type TestServer } from "../test-helpers.js";
 import { randomUUID } from "node:crypto";
+import { dirname, join } from "node:path";
+import { SupervisorStore } from "../supervision/store.js";
 const servers: TestServer[] = [];
 afterEach(async () => {
   for (const s of servers.splice(0)) await s.close();
@@ -156,5 +158,81 @@ it("configures bounded policy only against an existing mission and returns it fo
     });
   } finally {
     repo.cleanup();
+  }
+});
+it("lists supervisors, 404s an unknown one, and authorizes/resolves only messages in the right state", async () => {
+  const app = server();
+  const post = (url: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "POST", url, headers: headers(), payload });
+  expect((await post("/v1/supervisors", { id: "ops" })).statusCode).toBe(201);
+  const list = await app.inject({ method: "GET", url: "/v1/supervisors", headers: AUTH });
+  expect(list.json().supervisors.map((s: { id: string }) => s.id)).toEqual(["ops"]);
+  expect(
+    (await app.inject({ method: "GET", url: "/v1/supervisors/ghost", headers: AUTH })).statusCode,
+  ).toBe(404);
+  expect(
+    (await app.inject({ method: "GET", url: "/v1/supervisors/a%20b", headers: AUTH })).statusCode,
+  ).toBe(422);
+  // Nothing awaits approval or is uncertain: both answer 409 and change nothing.
+  const authorize = await post("/v1/supervisors/ops/authorize", {
+    messageId: "nope",
+    approved: true,
+    reason: "looked at it",
+  });
+  expect(authorize.statusCode).toBe(409);
+  expect(
+    (await post("/v1/supervisors/ops/authorize", { messageId: "m", approved: true })).statusCode,
+  ).toBe(422);
+  const resolve = await post("/v1/supervisors/ops/resolve", {
+    messageId: "nope",
+    outcome: "done",
+    reason: "checked the session",
+  });
+  expect(resolve.statusCode).toBe(409);
+  expect(
+    (await post("/v1/supervisors/ops/resolve", { messageId: "m", outcome: "maybe", reason: "r" }))
+      .statusCode,
+  ).toBe(422);
+  const detail = (
+    await app.inject({ method: "GET", url: "/v1/supervisors/ops", headers: AUTH })
+  ).json();
+  expect(detail.messages).toEqual([]);
+});
+it("authorizes a parked proposal and resolves an uncertain message with operator evidence", async () => {
+  const s = makeServer();
+  servers.push(s);
+  const app = s.app;
+  const post = (url: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "POST", url, headers: headers(), payload });
+  expect((await post("/v1/supervisors", { id: "ops" })).statusCode).toBe(201);
+  // A second handle on the server's supervisor db stands in for the brain's proposals.
+  const sup = new SupervisorStore(join(dirname(app.mimir.artifacts.dir), "supervisors.sqlite"));
+  try {
+    sup.enqueue("proposal", "ops", "input", { sessionId: "s", text: "go on" }, true);
+    sup.enqueue("unsure", "ops", "stop", { sessionId: "s", mode: "soft" }, true);
+    (sup as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
+      .prepare("UPDATE inbox SET state='uncertain' WHERE id=?")
+      .run("unsure");
+    const authorized = await post("/v1/supervisors/ops/authorize", {
+      messageId: "proposal",
+      approved: false,
+      reason: "wrong session",
+    });
+    expect(authorized.statusCode).toBe(200);
+    expect(authorized.json()).toEqual({ authorized: false });
+    const resolved = await post("/v1/supervisors/ops/resolve", {
+      messageId: "unsure",
+      outcome: "done",
+      reason: "the session had already stopped",
+    });
+    expect(resolved.json()).toEqual({ resolved: true });
+    const byId = new Map(sup.messages("ops").map((m) => [m.id, m]));
+    expect(byId.get("proposal")).toMatchObject({ state: "failed", result: "wrong session" });
+    expect(byId.get("unsure")).toMatchObject({
+      state: "done",
+      result: "the session had already stopped",
+    });
+  } finally {
+    sup.close();
   }
 });

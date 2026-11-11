@@ -244,3 +244,60 @@ describe("ensureAuthToken", () => {
     }
   });
 });
+
+describe("ensureAuthToken: refused locations", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "mimir-cfg-"));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  // These point at root-owned system paths; as root they would be accepted and chmod-ed.
+  const asRoot = process.getuid?.() === 0;
+
+  it("rethrows a data dir that cannot be created (a parent is a file)", () => {
+    writeFileSync(join(dir, "file"), "x");
+    const c = loadConfig({ MIMIR_DATA_DIR: join(dir, "file", "data") }, "/h");
+    expect(() => ensureAuthToken(c)).toThrow(/ENOTDIR/);
+  });
+
+  it.skipIf(asRoot)("refuses a data dir owned by another user", () => {
+    const c = loadConfig({ MIMIR_DATA_DIR: "/private/tmp" }, "/h");
+    const before = statSync("/private/tmp").mode;
+    expect(() => ensureAuthToken(c)).toThrow(/owned by uid 0/);
+    expect(statSync("/private/tmp").mode).toBe(before);
+  });
+
+  it.skipIf(asRoot)("refuses a token file owned by another user, without chmod-ing it", () => {
+    const c = { ...loadConfig({ MIMIR_DATA_DIR: dir }, "/h"), authTokenPath: "/etc/hosts" };
+    const before = statSync("/etc/hosts").mode;
+    expect(() => ensureAuthToken(c)).toThrow(/owned by uid 0/);
+    expect(statSync("/etc/hosts").mode).toBe(before);
+  });
+
+  it("refuses a token path that is a directory", () => {
+    const c = loadConfig({ MIMIR_DATA_DIR: dir }, "/h");
+    mkdirSync(c.authTokenPath);
+    expect(() => ensureAuthToken(c)).toThrow(/must be a regular file/);
+  });
+
+  it("rethrows other errors opening the token file", () => {
+    const c = { ...loadConfig({ MIMIR_DATA_DIR: dir }, "/h"), authTokenPath: join(dir, "f", "t") };
+    writeFileSync(join(dir, "f"), "x");
+    expect(() => ensureAuthToken(c)).toThrow(/ENOTDIR/);
+  });
+});
+
+describe("loadConfig: public origins of a remote IPv6 bind", () => {
+  it("brackets the address in the derived origin", () => {
+    const c = loadConfig(
+      {
+        MIMIR_HOST: "2001:db8::10",
+        MIMIR_ALLOW_REMOTE: "1",
+        MIMIR_TLS_CERT: "/etc/mimir/cert.pem",
+        MIMIR_TLS_KEY: "/etc/mimir/key.pem",
+      },
+      "/h",
+    );
+    expect(c.publicOrigins).toEqual(["https://[2001:db8::10]:7700"]);
+  });
+});

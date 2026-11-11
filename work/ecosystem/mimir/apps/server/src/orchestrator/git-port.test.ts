@@ -81,4 +81,40 @@ describe("GitWorktreePort.restore", () => {
     expect(result.rejected[0]?.reason).toMatch(/\S/);
     expect(after.has(worktree.id)).toBe(false);
   }, 120_000);
+
+  it("restores nothing from no records, and rejects only the records of an unregistrable project", async () => {
+    const root = tempDir("mimir-port-root-");
+    const port = new GitWorktreePort(new GitManager({ worktreeRoot: root }));
+    expect(await port.restore([])).toEqual({ restored: 0, rejected: [] });
+
+    const repo = makeRepo();
+    const projectId = newId("prj") as ProjectId;
+    const worktree = await new GitWorktreePort(new GitManager({ worktreeRoot: root })).create({
+      projectId,
+      repoPath: repo,
+      taskId: newId("tsk") as TaskId,
+      crewSlug: "core",
+      taskSlug: "kept",
+    });
+    const missing = tempDir("mimir-port-norepo-");
+    const lostProject = newId("prj") as ProjectId;
+    const orphan = (n: string) => ({
+      worktree: { ...worktree, id: `${worktree.id}${n}` as never },
+      projectId: lostProject,
+      repoPath: join(missing, "not-a-repo"),
+    });
+    const after = new GitWorktreePort(new GitManager({ worktreeRoot: root }));
+    const result = await after.restore([
+      orphan("a"),
+      { worktree, projectId, repoPath: repo },
+      orphan("b"),
+    ]);
+    expect(result.restored).toBe(1);
+    expect(result.rejected.map((r) => r.worktreeId)).toEqual([
+      `${worktree.id}a`,
+      `${worktree.id}b`,
+    ]);
+    for (const r of result.rejected) expect(r.reason).toMatch(/^project not registrable: \S/);
+    expect(after.has(worktree.id)).toBe(true);
+  }, 120_000);
 });

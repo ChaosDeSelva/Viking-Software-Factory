@@ -19,7 +19,13 @@ export function migrateLegacyProjects(store: EventStore, readModel: ReadModel, n
   }[];
   let migrated = 0;
   for (const row of rows) {
-    const parsed = ProjectSchema.safeParse(JSON.parse(row.data));
+    let data: unknown;
+    try {
+      data = JSON.parse(row.data);
+    } catch {
+      continue; // unreadable, like a row that fails the schema: never block the boot
+    }
+    const parsed = ProjectSchema.safeParse(data);
     if (!parsed.success || readModel.projects.has(parsed.data.id)) continue;
     emit(store, now, {
       type: "project.created",

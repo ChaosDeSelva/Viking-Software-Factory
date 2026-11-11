@@ -94,3 +94,67 @@ describe("security: large and hostile payloads are bounded", () => {
     expect(res.status).toBe(431);
   });
 });
+
+// Regression: a body under the 1 MiB request limit but over the store's 256 KiB event payload
+// bound was stored as a truncation marker, which the read model skips: the API answered 201/200
+// for a project, mission, task or crew (or a settings change) that then did not exist.
+describe("security: a command whose event would be truncated is refused, not half-applied", () => {
+  const huge = "h".repeat(300 * 1024);
+  const call = (method: "POST" | "PATCH", url: string, payload: unknown, key: string) =>
+    server.app.inject({
+      method,
+      url,
+      headers: { ...AUTH, "idempotency-key": key },
+      payload: payload as Record<string, unknown>,
+    });
+  const eventCount = () => server.store.read({ limit: 1000 }).events.length;
+
+  it("project create and settings change", async () => {
+    const big = await call("POST", "/v1/projects", { name: huge, repoPath: repo.repo }, "p1");
+    expect(big.statusCode).toBe(422);
+    expect(big.json()).toMatchObject({ error: { details: { reason: "payload_too_large" } } });
+    expect(big.body.length).toBeLessThan(4096);
+    expect(eventCount()).toBe(0);
+    const ok = await call("POST", "/v1/projects", { name: "p", repoPath: repo.repo }, "p2");
+    const id = ok.json().project.id as string;
+    const before = eventCount();
+    const patch = await call("PATCH", `/v1/projects/${id}`, { settings: { note: huge } }, "p3");
+    expect(patch.statusCode).toBe(422);
+    expect(eventCount()).toBe(before);
+    expect(server.app.mimir.readModel.projects.get(id)?.settings).toEqual({});
+  });
+
+  it("mission, task and crew create", async () => {
+    const projectId = (
+      await call("POST", "/v1/projects", { name: "p", repoPath: repo.repo }, "a")
+    ).json().project.id as string;
+    const before = eventCount();
+    const mission = await call("POST", "/v1/missions", { projectId, objective: huge }, "b");
+    expect(mission.statusCode).toBe(422);
+    // A big task inside the mission request rolls the whole mission back.
+    const withTask = await call(
+      "POST",
+      "/v1/missions",
+      { projectId, objective: "o", tasks: [{ title: "t", brief: huge }] },
+      "c",
+    );
+    expect(withTask.statusCode).toBe(422);
+    expect(eventCount()).toBe(before);
+    expect(server.app.mimir.readModel.missions.size).toBe(0);
+    const missionId = (
+      await call("POST", "/v1/missions", { projectId, objective: "o" }, "d")
+    ).json().mission.id as string;
+    const task = await call("POST", "/v1/tasks", { missionId, title: "t", brief: huge }, "e");
+    expect(task.statusCode).toBe(422);
+    const crew = await call(
+      "POST",
+      "/v1/crews",
+      { missionId, template: huge, members: [{ role: "implementer", agentKind: "shell" }] },
+      "f",
+    );
+    expect(crew.statusCode).toBe(422);
+    expect(server.app.mimir.readModel.tasks.size).toBe(0);
+    expect(server.app.mimir.readModel.crews.size).toBe(0);
+    await stillServing();
+  });
+});

@@ -126,3 +126,34 @@ it("Devin preserves user hooks in a private snapshot and reports task boundaries
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it("Devin works without a user configuration and refuses malformed hook tables", () => {
+  const root = mkdtempSync(join(tmpdir(), "devin-hook-"));
+  const prior = process.env.MIMIR_DEVIN_CONFIG;
+  try {
+    const source = join(root, "config.json"),
+      file = join(root, "observation.json");
+    process.env.MIMIR_DEVIN_CONFIG = source;
+    const argv = ["devin", "prompt"];
+    wireHarnessHooks("devin", argv, "/node", "/hook.js", file);
+    expect(argv).toEqual(["devin", "--config", file + ".devin.json", "prompt"]);
+    const settings = JSON.parse(readFileSync(file + ".devin.json", "utf8"));
+    expect(Object.keys(settings.hooks)).toEqual(["UserPromptSubmit", "Stop", "SessionEnd"]);
+    expect(settings.read_config_from).toEqual({ claude: false });
+    for (const [config, message] of [
+      [{ hooks: [] }, "Devin hooks must be an object"],
+      [{ hooks: "Stop" }, "Devin hooks must be an object"],
+      [{ hooks: false }, "Devin hooks must be an object"],
+      [{ hooks: { Stop: { command: "x" } } }, "Devin Stop hooks must be an array"],
+    ] as const) {
+      writeFileSync(source, JSON.stringify(config));
+      expect(() => wireHarnessHooks("devin", ["devin"], "/node", "/hook.js", file)).toThrow(
+        message,
+      );
+    }
+  } finally {
+    if (prior === undefined) delete process.env.MIMIR_DEVIN_CONFIG;
+    else process.env.MIMIR_DEVIN_CONFIG = prior;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

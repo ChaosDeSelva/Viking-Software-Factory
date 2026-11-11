@@ -32,6 +32,8 @@ type Requester = (route: SshRoute, request: RemoteRequest) => Promise<TransportR
 export class SshRuntime implements RuntimeAdapter {
   private readonly bindings = new Map<string, Binding>();
   private readonly listeners = new Set<(e: RuntimeEvent) => void>();
+  /** Jobs whose submission has not returned: the worker cannot answer for them yet. */
+  private readonly submitting = new Set<string>();
   private polling = false;
   private timer: ReturnType<typeof setInterval> | undefined;
   constructor(
@@ -138,18 +140,35 @@ export class SshRuntime implements RuntimeAdapter {
     };
     this.bindings.set(spec.sessionId, entry);
     this.save();
-    const result = await this.request(this.route, {
-      operation: "submit",
-      jobId,
-      payload: {
-        backend: this.route.backend ?? "cli",
-        agentKind: spec.agentKind,
-        argv: spec.argv,
-        taskEnv: spec.env,
-        timeoutMs: spec.timeoutMs ?? 1200000,
-        files,
-      },
-    });
+    let result: TransportResult;
+    this.submitting.add(jobId);
+    try {
+      result = await this.request(this.route, {
+        operation: "submit",
+        jobId,
+        payload: {
+          backend: this.route.backend ?? "cli",
+          agentKind: spec.agentKind,
+          argv: spec.argv,
+          taskEnv: spec.env,
+          timeoutMs: spec.timeoutMs ?? 1200000,
+          files,
+        },
+      });
+    } catch (error) {
+      // The transport refuses before starting SSH, so the job was never submitted: a replay must
+      // report this failure rather than a launch that will never be found.
+      this.change(
+        entry,
+        "failed",
+        error instanceof Error ? error.message : "remote_request_refused",
+      );
+      entry.delivered = true;
+      this.save();
+      throw error;
+    } finally {
+      this.submitting.delete(jobId);
+    }
     if (result.state === "confirmed" && result.response.ok === false) {
       this.change(entry, "failed", String(result.response.error ?? "remote_rejected"));
       entry.delivered = true;
@@ -177,7 +196,7 @@ export class SshRuntime implements RuntimeAdapter {
     this.polling = true;
     try {
       for (const entry of this.bindings.values()) {
-        if (entry.delivered) continue;
+        if (entry.delivered || this.submitting.has(entry.jobId)) continue;
         let result: TransportResult;
         try {
           result = await this.request(this.route, { operation: "inspect", jobId: entry.jobId });

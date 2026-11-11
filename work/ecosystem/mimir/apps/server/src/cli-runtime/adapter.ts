@@ -197,8 +197,21 @@ export class CliRuntime implements RuntimeAdapter {
       }
       finish();
     });
+    // `exit` may never follow `error` (spawn failure): end the session here, and close a watchdog
+    // that is still connected so it kills its agent rather than leaving it unsupervised.
     worker.on("error", () => {
       entry.failure = "worker_unavailable";
+      if (entry.session.state === "running") {
+        entry.session.state = "failed";
+        this.emit({
+          kind: "session.state_changed",
+          sessionId: spec.sessionId,
+          state: "failed",
+          runtimeStatus: entry.failure,
+          observedAt: new Date().toISOString(),
+        });
+      }
+      if (worker.connected) worker.disconnect();
       finish();
     });
     worker.send({

@@ -52,3 +52,38 @@ it("refuses missing credentials before network access", async () => {
   ).rejects.toThrow("credentials");
   expect(request).not.toHaveBeenCalled();
 });
+it("refuses unusable request keys and records unconfirmed outcomes without trusting them", async () => {
+  const request = vi.fn<typeof fetch>();
+  const provider = new ExeProvider("test-token", file(), request);
+  for (const key of ["", "k".repeat(201)])
+    await expect(provider.create({ name: "worker-one" }, key)).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+  expect(request).not.toHaveBeenCalled();
+  // The provider answered for another VM, an HTTP error, an oversized body, or an unsafe host.
+  const answers = [
+    () => Response.json({ vm_name: "someone-else", ssh_host: "x.exe.xyz" }),
+    () => new Response("down", { status: 502 }),
+    () => new Response("x".repeat(1024 * 1024 + 1)),
+    () => Response.json({ vm_name: "worker-one", ssh_host: "-oProxyCommand=x" }),
+  ];
+  for (const [i, answer] of answers.entries()) {
+    request.mockImplementationOnce(async () => answer());
+    expect(await provider.create({ name: "worker-one" }, `request-${i}`)).toEqual({
+      fingerprint: expect.any(String),
+      state: "unknown",
+      vmName: "worker-one",
+    });
+  }
+});
+it("reads the provider's inventory and surfaces its errors", async () => {
+  const request = vi.fn<typeof fetch>(async () => Response.json([{ vm_name: "worker-one" }]));
+  const provider = new ExeProvider("test-token", file(), request);
+  expect(await provider.inventory()).toEqual([{ vm_name: "worker-one" }]);
+  expect(request.mock.calls[0]![1]!.body).toBe("ls");
+  request.mockResolvedValueOnce(new Response("no", { status: 401 }));
+  await expect(provider.inventory()).rejects.toThrow("exe.dev returned HTTP 401");
+  await expect(new ExeProvider("", file(), request).inventory()).rejects.toMatchObject({
+    code: "capability_unavailable",
+  });
+});

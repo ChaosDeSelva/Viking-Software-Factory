@@ -97,9 +97,11 @@ if (process.argv[2] === "--pane") {
         process.stdout.write(data.subarray(offset));
         offset = data.length;
       }
-      if (existsSync(join(dir, "exit"))) {
+      // The pane creates the file before writing the code: an empty read is not exit code 0.
+      const exit = existsSync(join(dir, "exit")) ? readFileSync(join(dir, "exit"), "utf8") : "";
+      if (/^-?\d+$/.test(exit)) {
         clearInterval(timer);
-        const code = Number(readFileSync(join(dir, "exit"), "utf8"));
+        const code = Number(exit);
         rmSync(dir, { recursive: true, force: true });
         process.exitCode = code;
       }

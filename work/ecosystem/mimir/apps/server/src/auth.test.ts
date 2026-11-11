@@ -2,6 +2,8 @@ import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { ApiErrorBodySchema } from "@mimir/protocol";
 import { afterEach, describe, expect, it } from "vitest";
+import Fastify from "fastify";
+import { registeredRoutes } from "./auth.js";
 import { AUTH, makeServer, type TestServer } from "./test-helpers.js";
 
 const servers: TestServer[] = [];
@@ -101,5 +103,13 @@ describe("Host validation", () => {
     expect(JSON.parse(spoofed.body)).toMatchObject({ error: { code: "policy_denied" } });
     const wrongPort = await rawGet(port, "/v1/health", { host: `127.0.0.1:${port + 1}` });
     expect(wrongPort.status).toBe(403);
+  });
+});
+
+describe("registeredRoutes", () => {
+  it("lists the routes of a secured server and nothing for an app without the security hook", () => {
+    expect(registeredRoutes(Fastify())).toEqual([]);
+    const s = track(makeServer());
+    expect(registeredRoutes(s.app)).toContainEqual({ method: "PATCH", url: "/v1/projects/:id" });
   });
 });

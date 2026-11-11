@@ -402,13 +402,15 @@ describe(
       const until = Date.now() + 30_000;
       while (!created && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
       expect(h.task(t).status).toBe("leased");
-      // crash between createSession returning and task.started
-      const closing = h.app.close();
+      // crash between createSession returning and task.started: the server is gone before
+      // createSession returns, so only boot recovery can record the session's start.
+      await h.app.close();
       (release as (() => void) | null)?.();
-      await closing;
+      expect(h.events(["session.started", "task.started"])).toEqual([]);
       await h.restart();
       expect(h.task(t).status).toBe("running");
       expect(h.events(["session.started"])).toHaveLength(1);
+      expect(h.events(["task.started"])).toHaveLength(1);
     });
   },
 );

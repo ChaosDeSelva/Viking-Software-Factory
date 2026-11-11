@@ -337,3 +337,50 @@ describe("GET /v1/events/stream (SSE)", () => {
     expect(TOKEN).toBeTruthy();
   });
 });
+
+describe("GET /v1/events/stream (SSE) while a replay is paced by the socket", () => {
+  const big = "z".repeat(100_000);
+  const lost = () => eventInput({ type: "session.lost", payload: { reason: big } });
+
+  it("drops the client with a gap when live events queued during the replay exceed the bound", async () => {
+    const s = track(makeServer({ sseMaxBufferBytes: 150_000, sseReplayPageSize: 10 }));
+    const base = await listen(s);
+    for (let i = 0; i < 300; i++) s.store.append(lost());
+    const before = s.store.subscriberCount();
+    const c = await sse(`${base}/v1/events/stream?cursor=${encodeCursor(0)}`);
+    c.pause(); // the replay waits for 'drain'; live events now queue
+    await waitFor(() => s.store.subscriberCount() === before + 1, 20_000);
+    await new Promise((r) => setTimeout(r, 50));
+    for (let i = 0; i < 3; i++) s.store.append(lost());
+    c.resume();
+    await c.ended;
+    const last = c.messages.at(-1);
+    expect(last).toMatchObject({ event: "gap" });
+    expect(JSON.parse(last?.data as string)).toMatchObject({ reason: "slow_consumer" });
+    // Everything delivered before the gap is in order, without the live tail.
+    const ids = c.messages.filter((m) => m.event === "session.lost").map((m) => m.id);
+    expect(ids).toEqual(Array.from({ length: ids.length }, (_, i) => encodeCursor(i + 1)));
+    expect(ids.length).toBeLessThan(303);
+    expect(s.store.subscriberCount()).toBe(before);
+  }, 30_000);
+
+  it("stops replaying and unsubscribes when the client disconnects mid-replay", async () => {
+    const s = track(makeServer({ sseReplayPageSize: 10 }));
+    const base = await listen(s);
+    for (let i = 0; i < 300; i++) s.store.append(lost());
+    const before = s.store.subscriberCount();
+    const read = vi.spyOn(s.store, "read");
+    const c = await sse(`${base}/v1/events/stream?cursor=${encodeCursor(0)}`);
+    c.pause();
+    await waitFor(() => s.store.subscriberCount() === before + 1, 20_000);
+    await new Promise((r) => setTimeout(r, 50));
+    const readsWhilePaced = read.mock.calls.length;
+    c.close();
+    await waitFor(() => s.store.subscriberCount() === before, 20_000);
+    await new Promise((r) => setTimeout(r, 50));
+    // The replay did not go on reading the rest of the log for a client that is gone.
+    expect(read.mock.calls.length).toBe(readsWhilePaced);
+    expect(readsWhilePaced).toBeLessThan(30);
+    read.mockRestore();
+  }, 30_000);
+});

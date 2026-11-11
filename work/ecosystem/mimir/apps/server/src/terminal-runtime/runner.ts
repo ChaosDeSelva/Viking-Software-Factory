@@ -47,6 +47,8 @@ const deadline = setTimeout(() => {
     child.kill("SIGTERM");
   }
   setTimeout(() => {
+    // The group kill ends this process too: record the outcome while it still can.
+    finish("failed", 124);
     try {
       process.kill(-process.pid, "SIGKILL");
     } catch {
@@ -59,4 +61,6 @@ child.once("exit", (code) =>
   finish(!timedOut && code === 0 ? "completed" : "failed", timedOut ? 124 : (code ?? 1)),
 );
 process.on("SIGTERM", () => child.kill("SIGTERM"));
+// A closed terminal hangs up the whole group; stay alive to record how the agent ended.
+process.on("SIGHUP", () => child.kill("SIGHUP"));
 process.on("SIGINT", () => {}); // Terminal forwards Ctrl-C to the foreground agent too.

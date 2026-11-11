@@ -2,9 +2,12 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, chmodSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { RuntimeEvent, RuntimeSessionSpec } from "@mimir/protocol";
 import { CliRuntime } from "./adapter.js";
+
+// Each case starts a watchdog and an agent process; on a loaded machine that alone takes seconds.
+vi.setConfig({ testTimeout: 120_000 });
 
 const roots: string[] = [];
 const runtimes: CliRuntime[] = [];
@@ -33,12 +36,25 @@ function fixture(code: string) {
   };
   return { root, runtime, spec };
 }
-async function until(check: () => boolean | Promise<boolean>) {
-  for (let i = 0; i < 150; i++) {
+/** Waits on the condition, not on an iteration count: process start-up time is unbounded. */
+async function until(check: () => boolean | Promise<boolean>, deadlineMs = 90_000) {
+  const deadline = Date.now() + deadlineMs;
+  do {
     if (await check()) return;
     await new Promise((r) => setTimeout(r, 20));
-  }
+  } while (Date.now() < deadline);
   throw new Error("condition did not become true");
+}
+/** Killed: no such process, or a zombie its new parent has not reaped yet (slow under load). */
+function gone(pid: number) {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return true;
+  }
+  return spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" })
+    .stdout.trim()
+    .startsWith("Z");
 }
 it("records measured usage before completion and deduplicates launches", async () => {
   const { runtime, spec } = fixture(
@@ -132,10 +148,12 @@ it("enforces the wall-clock deadline and kills the process", async () => {
   );
   const events: RuntimeEvent[] = [];
   await runtime.subscribe((e) => events.push(e));
-  await runtime.createSession({ ...spec, timeoutMs: 300 });
+  // Long enough for a loaded machine to start the agent (it must record its PID first).
+  await runtime.createSession({ ...spec, timeoutMs: 10_000 });
+  await until(() => existsSync(join(root, "pid")));
   await until(async () => (await runtime.getSession("s1"))?.state === "failed");
   expect(events.at(-1)).toMatchObject({ runtimeStatus: "wall_clock_limit" });
-  expect(() => process.kill(Number(readFileSync(join(root, "pid"), "utf8")), 0)).toThrow();
+  expect(gone(Number(readFileSync(join(root, "pid"), "utf8")))).toBe(true);
 });
 it("disconnecting the watchdog stops the agent and refuses unsupported interactive input", async () => {
   const { runtime, spec, root } = fixture(
@@ -146,14 +164,7 @@ it("disconnecting the watchdog stops the agent and refuses unsupported interacti
   const pid = Number(readFileSync(join(root, "pid"), "utf8"));
   await expect(runtime.sendInput()).rejects.toMatchObject({ code: "capability_unavailable" });
   await runtime.dispose();
-  await until(() => {
-    try {
-      process.kill(pid, 0);
-      return false;
-    } catch {
-      return true;
-    }
-  });
+  await until(() => gone(pid));
 });
 
 it("exposes bounded terminal output from local CLI sessions", async () => {

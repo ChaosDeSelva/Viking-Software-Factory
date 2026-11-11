@@ -1,9 +1,18 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
-import type { RuntimeSessionSpec } from "@mimir/protocol";
+import type { RuntimeEvent, RuntimeSessionSpec } from "@mimir/protocol";
 import { TerminalRuntime, INTERACTIVE_HARNESSES, interactiveArgv } from "./adapter.js";
 import { NativeTerminalBackend, type TerminalBackend } from "./backend.js";
 const roots: string[] = [],
@@ -225,5 +234,311 @@ it("invalidates idle evidence before ambiguous input dispatch and never sends in
   const resumed = new TerminalRuntime(backend, home);
   runtimes.push(resumed);
   await resumed.reconcile();
+  expect((await resumed.getSession("test"))?.state).toBe("running");
+});
+
+function launchOf(home: string) {
+  const name = readdirSync(home).find((n) => n.endsWith(".launch.json"))!;
+  return JSON.parse(readFileSync(join(home, name), "utf8"));
+}
+const heartbeat = (resultFile: string, observedAt = new Date().toISOString()) =>
+  writeFileSync(resultFile, JSON.stringify({ state: "running", pid: 1, observedAt }));
+
+it("reports its capabilities and refuses unknown harnesses, reused ids and an unhealthy backend", async () => {
+  const { home, backend, runtime } = fixture();
+  expect(() => interactiveArgv("unknown-agent", "prompt")).toThrow("Unknown interactive harness");
+  const capabilities = await runtime.capabilities();
+  expect(capabilities).toMatchObject({ runtime: "fixture", agentKinds: INTERACTIVE_HARNESSES });
+  expect(capabilities.features).toMatchObject({
+    sendInput: true,
+    pause: false,
+    processInfo: false,
+  });
+  expect(await runtime.health()).toEqual({ ok: true });
+  await expect(runtime.createSession({ ...spec(), agentKind: "unknown-agent" })).rejects.toThrow(
+    "Unknown interactive harness",
+  );
+  await runtime.createSession(spec());
+  await expect(runtime.createSession({ ...spec(), idempotencyKey: "other" })).rejects.toMatchObject(
+    {
+      code: "conflict",
+    },
+  );
+  // Persisted sessions belong to the backend that launched them.
+  expect(() => new TerminalRuntime({ ...backend, name: "another" }, home)).toThrow(
+    "Terminal backend identity changed",
+  );
+  const down = fixture();
+  down.backend.health = async () => false;
+  expect(await down.runtime.health()).toEqual({ ok: false });
+  await expect(down.runtime.createSession(spec())).rejects.toMatchObject({
+    code: "runtime_unavailable",
+  });
+  expect(await down.runtime.listSessions()).toEqual([]);
+  expect(down.backend.create).not.toHaveBeenCalled();
+});
+it("treats a replay with reordered environment as the same launch", async () => {
+  const { backend, runtime } = fixture();
+  const first = await runtime.createSession({ ...spec(), env: { B_VAR: "2", A_VAR: "1" } });
+  const replay = await runtime.createSession({ ...spec(), env: { A_VAR: "1", B_VAR: "2" } });
+  expect(replay).toEqual(first);
+  expect(backend.create).toHaveBeenCalledTimes(1);
+  await expect(
+    runtime.createSession({ ...spec(), env: { A_VAR: "1", B_VAR: "changed" } }),
+  ).rejects.toMatchObject({ code: "idempotency_replay_mismatch" });
+});
+it("launches ACP agents with the prompt in the launch file and wraps operator text as data", async () => {
+  const { home, backend, runtime } = fixture();
+  const kimi: RuntimeSessionSpec = { ...spec(), agentKind: "kimi" };
+  delete kimi.timeoutMs;
+  await runtime.createSession(kimi);
+  const launch = launchOf(home);
+  expect(launch).toMatchObject({
+    agentKind: "kimi",
+    prompt: "a prompt; $(do-not-execute)",
+    args: ["acp"],
+    timeoutMs: 1200000,
+  });
+  expect(launch.env.MIMIR_HOOK_FILE).toMatch(/\.hook\.json$/);
+  const sent = () =>
+    vi
+      .mocked(backend.send)
+      .mock.calls.slice(1)
+      .map((call) => call[1]);
+  for (const text of ["next step; $(x)", "/quit now", "/permit nonce 1", "/cancel", "/quit"])
+    await runtime.sendInput("test", { text });
+  expect(sent()).toEqual([
+    '/prompt "next step; $(x)"',
+    '/prompt "/quit now"',
+    "/permit nonce 1",
+    "/cancel",
+    "/quit",
+  ]);
+});
+it("validates operator input and sessions before touching the terminal", async () => {
+  const { backend, runtime } = fixture();
+  await expect(runtime.sendInput("missing", { text: "x" })).rejects.toMatchObject({
+    code: "not_found",
+  });
+  expect(await runtime.getSession("missing")).toBeNull();
+  await runtime.createSession(spec());
+  for (const text of ["bell\u0007", "escape\u001b[2J", "delete\u007f", "x".repeat(65537)])
+    await expect(runtime.sendInput("test", { text })).rejects.toMatchObject({
+      code: "validation_failed",
+    });
+  // Tabs and newlines are ordinary text; an empty request sends nothing at all.
+  await runtime.sendInput("test", {});
+  await runtime.sendInput("test", { text: "a\tb\nc" });
+  expect(
+    vi
+      .mocked(backend.send)
+      .mock.calls.map((call) => call[1])
+      .slice(1),
+  ).toEqual(["a\tb\nc"]);
+  await runtime.sendInput("test", { keys: ["Escape", "Tab"] });
+  expect(vi.mocked(backend.key).mock.calls.map((call) => call[1])).toEqual(["Escape", "Tab"]);
+});
+it("soft-stops with Ctrl-C, reports the stop as stopped once the runner exits, then goes quiet", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const { home, backend, runtime } = fixture();
+    const events: { kind: string; state?: string; exitCode?: number; text?: string }[] = [];
+    const subscription = await runtime.subscribe((event) => events.push(event));
+    await runtime.subscribe(() => {});
+    await runtime.createSession(spec());
+    const { resultFile } = launchOf(home);
+    heartbeat(resultFile);
+    await runtime.requestStop("test", "soft");
+    expect(backend.key).toHaveBeenCalledWith("target", "C-c", expect.any(String));
+    expect(events.at(-1)).toMatchObject({ kind: "session.state_changed", state: "stopping" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(events.filter((e) => e.kind === "session.output")).toEqual([
+      expect.objectContaining({ text: "visible output" }),
+    ]);
+    expect(events.at(-1)).toMatchObject({ state: "stopping" });
+    writeFileSync(
+      resultFile,
+      JSON.stringify({ state: "completed", exitCode: 0, observedAt: new Date().toISOString() }),
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(events.slice(-2)).toMatchObject([
+      { kind: "session.exited", exitCode: 0 },
+      { kind: "session.state_changed", state: "stopped" },
+    ]);
+    // A delivered session is neither observed nor stopped again.
+    const seen = events.length;
+    await vi.advanceTimersByTimeAsync(1000);
+    await runtime.requestStop("test", "force");
+    expect(backend.close).not.toHaveBeenCalled();
+    expect(events).toHaveLength(seen);
+    subscription.close();
+    await runtime.dispose();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(events).toHaveLength(seen);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("never trusts a stale heartbeat or an unreadable result as a live or finished agent", async () => {
+  const { home, runtime } = fixture();
+  await runtime.createSession(spec());
+  const { resultFile } = launchOf(home);
+  heartbeat(resultFile, new Date(Date.now() - 60000).toISOString());
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("unknown");
+  writeFileSync(resultFile, '{"state":"compl');
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("unknown");
+  writeFileSync(resultFile, JSON.stringify({ state: "completed", exitCode: "0" }));
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("unknown");
+  writeFileSync(resultFile, JSON.stringify({ state: "failed", exitCode: 124 }));
+  const { sessions } = await runtime.reconcile();
+  expect(sessions).toMatchObject([{ sessionId: "test", state: "failed" }]);
+});
+it("cannot stop or read a launch whose terminal was never created", async () => {
+  const { backend, runtime } = fixture();
+  vi.mocked(backend.create).mockRejectedValue(new Error("no terminal"));
+  expect((await runtime.createSession(spec())).state).toBe("unknown");
+  await expect(runtime.requestStop("test", "soft")).rejects.toMatchObject({
+    code: "capability_unavailable",
+  });
+  await expect(runtime.readTerminal("test")).rejects.toMatchObject({
+    code: "capability_unavailable",
+  });
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("unknown");
+  expect(backend.send).not.toHaveBeenCalled();
+  expect(backend.capture).not.toHaveBeenCalled();
+});
+it("bounds terminal reads", async () => {
+  const { backend, runtime } = fixture();
+  await runtime.createSession(spec());
+  await runtime.readTerminal("test", 100000);
+  await runtime.readTerminal("test", -5);
+  await runtime.readTerminal("test");
+  expect(vi.mocked(backend.capture).mock.calls.map((call) => call[1])).toEqual([5000, 1, 200]);
+});
+it("wires Rovo and AGY hooks per launch and removes the AGY workspace hook once the agent exits", async () => {
+  const { home, runtime } = fixture();
+  const workspace = mkdtempSync(join(tmpdir(), "mimir-agy-"));
+  roots.push(workspace);
+  spawnSync("git", ["init", "--quiet", workspace]);
+  vi.stubEnv("MIMIR_ROVO_CONFIG", join(workspace, "absent-rovo.yml"));
+  await runtime.createSession({
+    ...spec(),
+    sessionId: "rovo",
+    idempotencyKey: "rovo",
+    agentKind: "rovo",
+  });
+  const rovo = launchOf(home);
+  expect(rovo.args).toEqual([
+    "rovodev",
+    "run",
+    "--config-file",
+    expect.stringMatching(/\.rovo\.yml$/),
+    rovo.prompt,
+  ]);
+  await runtime.createSession({
+    ...spec(),
+    sessionId: "agy",
+    idempotencyKey: "agy",
+    agentKind: "agy",
+    cwd: workspace,
+  });
+  const hooks = join(workspace, ".agents", "hooks.json");
+  expect(Object.keys(JSON.parse(readFileSync(hooks, "utf8")))).toHaveLength(1);
+  const agy = readdirSync(home)
+    .filter((n) => n.endsWith(".launch.json"))
+    .map((n) => JSON.parse(readFileSync(join(home, n), "utf8")))
+    .find((launch) => launch.agentKind === "agy");
+  writeFileSync(agy.resultFile, JSON.stringify({ state: "completed", exitCode: 0 }));
+  await runtime.reconcile();
+  expect((await runtime.getSession("agy"))?.state).toBe("completed");
+  expect(existsSync(hooks)).toBe(false);
+});
+it("derives Cursor idle from a new transcript and forgets it once the operator types again", async () => {
+  const { home, runtime } = fixture();
+  const projects = mkdtempSync(join(tmpdir(), "mimir-cursor-"));
+  roots.push(projects);
+  const project = join(projects, "slug");
+  mkdirSync(project);
+  writeFileSync(join(project, ".workspace-trusted"), JSON.stringify({ workspacePath: "/task" }));
+  await runtime.createSession({
+    ...spec(),
+    agentKind: "cursor",
+    cwd: "/task",
+    env: { MIMIR_CURSOR_PROJECTS_ROOT: projects },
+  });
+  const { resultFile } = launchOf(home);
+  heartbeat(resultFile);
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("running");
+  // Input before the conversation exists has no earlier idle evidence to discard.
+  await runtime.sendInput("test", { text: "start" });
+  const dir = join(project, "agent-transcripts", "conversation");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "conversation.jsonl"),
+    JSON.stringify({ role: "user" }) + "\n" + JSON.stringify({ type: "turn_ended" }) + "\n",
+  );
+  const events: RuntimeEvent[] = [];
+  await runtime.subscribe((event) => events.push(event));
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("waiting");
+  expect(events.at(-1)).toMatchObject({
+    state: "waiting",
+    runtimeStatus: "cursor_session_transcript",
+  });
+  await runtime.sendInput("test", { text: "continue" });
+  heartbeat(resultFile);
+  await runtime.reconcile();
+  expect((await runtime.getSession("test"))?.state).toBe("running");
+});
+it("keeps polling after a failed observation and stops when disposed", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const { home, backend, runtime } = fixture();
+    await runtime.createSession(spec());
+    await runtime.subscribe(() => {});
+    vi.mocked(backend.capture).mockClear();
+    // The state file cannot be written while the home is gone; the poll fails without escaping.
+    const moved = home + ".moved";
+    renameSync(home, moved);
+    try {
+      await vi.advanceTimersByTimeAsync(1000);
+    } finally {
+      renameSync(moved, home);
+    }
+    expect(backend.capture).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(backend.capture).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(readFileSync(join(home, "sessions.json"), "utf8")).bindings).toHaveLength(1);
+    await runtime.dispose();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(backend.capture).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it("launches with an empty prompt when the request carries no arguments", async () => {
+  const { home, runtime } = fixture();
+  await runtime.createSession({ ...spec(), argv: [] });
+  const launch = launchOf(home);
+  expect(launch.prompt).toBe("");
+  expect(launch.args.at(-1)).toBe("");
+});
+it("accepts input for a session persisted before hook evidence existed", async () => {
+  const { home, backend, runtime } = fixture();
+  await runtime.createSession(spec());
+  await runtime.dispose();
+  const file = join(home, "sessions.json");
+  const stored = JSON.parse(readFileSync(file, "utf8"));
+  delete stored.bindings[0][1].hookFile;
+  writeFileSync(file, JSON.stringify(stored));
+  const resumed = new TerminalRuntime(backend, home);
+  runtimes.push(resumed);
+  await resumed.sendInput("test", { text: "continue" });
+  expect(vi.mocked(backend.send).mock.calls.at(-1)?.[1]).toBe("continue");
   expect((await resumed.getSession("test"))?.state).toBe("running");
 });

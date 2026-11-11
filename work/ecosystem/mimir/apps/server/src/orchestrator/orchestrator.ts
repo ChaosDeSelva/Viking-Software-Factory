@@ -1341,6 +1341,13 @@ export class Orchestrator {
       this.log.warn({ taskId }, "cannot start the next attempt: crew or project missing");
       return;
     }
+    if (!this.mayStart(task.missionId, crew)) {
+      // Paused mission or crew, or a budget with no room: the failed verification costs this
+      // attempt, and the scheduler starts the next one when it may (as after any failure).
+      this.taskEvent(now, task, { type: "verification_errored" }, { reason });
+      this.renewals.delete(task.id);
+      return;
+    }
     const member = this.memberFor(crew);
     const { argv, classify } = this.commandFor(task, member, project);
     if (
@@ -1372,6 +1379,26 @@ export class Orchestrator {
       expect: "verifying",
       event: { type: "verification_failed" },
     });
+  }
+
+  /**
+   * Whether the scheduler would start work for `crew` in this mission now: the mission is
+   * active, the crew is scheduled and every budget that applies has room (see core `schedule`).
+   */
+  private mayStart(missionId: string, crew: Crew): boolean {
+    if (this.rm.missions.get(missionId)?.status !== "active") return false;
+    if (crew.schedulingPaused || !["configured", "running"].includes(crew.status)) return false;
+    const usage = [...this.rm.usageSamples.values()];
+    const attribution = {
+      agents: [...this.rm.agents.values()].map((a) => ({ id: a.id, crewId: a.crewId })),
+      crews: [...this.rm.crews.values()],
+    };
+    return [...this.rm.budgets.values()]
+      .map(toBudgetPolicy)
+      .filter((b) => budgetGuard.appliesTo(b, { crewId: crew.id, missionId: crew.missionId }))
+      .every(
+        (b) => budgetGuard.enforce(b, budgetGuard.evaluate(b, usage, attribution)) === "allow",
+      );
   }
 
   private verificationSettings(project: Project | undefined): {
@@ -1427,13 +1454,22 @@ export class Orchestrator {
   private async recover(mode: "boot" | "gap" | "periodic"): Promise<void> {
     const now = this.now();
     if (mode === "boot") await this.restoreWorktrees();
-    if (!this.runtime) return;
+    // A verification runs in this process, not in the runtime: one cut off by the restart is
+    // run again whatever the runtime answers below (also when it is down or not configured).
+    const reverify = () => {
+      if (mode !== "boot") return;
+      for (const task of this.rm.tasks.values()) {
+        if (task.status === "verifying" && !this.verifications.has(task.id))
+          this.startVerification(task.id);
+      }
+    };
+    if (!this.runtime) return reverify();
     let reconciled: { sessions: RuntimeSession[]; lost: string[] };
     try {
       reconciled = await this.runtime.reconcile();
     } catch (err) {
       this.log.error({ err: message(err) }, "runtime reconcile failed");
-      return;
+      return reverify();
     }
     const present = new Map(reconciled.sessions.map((s) => [s.sessionId, s]));
     for (const id of present.keys()) this.heartbeats.set(id, now.getTime());
@@ -1516,11 +1552,8 @@ export class Orchestrator {
       if (mode !== "boot") this.onSessionLost(sessionId, `session_lost: ${reason}`, now);
       else if (recoverable) this.markUnknown(now, this.task(task.id), sessionId);
     }
-    if (mode === "boot") {
-      for (const task of this.rm.tasks.values()) {
-        if (task.status === "verifying") this.startVerification(task.id);
-      }
-    }
+    // Not the ones a session state above just started (its task completed while Mimir was down).
+    reverify();
     // Nothing to report: no summary (fresh store; a periodic pass that found nothing).
     if (this.rm.sessions.size === 0 && reconciled.sessions.length === 0) return;
     if (mode === "periodic" && lostIds.length === 0) return;

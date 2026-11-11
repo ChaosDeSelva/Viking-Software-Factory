@@ -15,9 +15,14 @@ import {
   type UpdateProjectResponse,
 } from "@mimir/protocol";
 import { z } from "zod";
-import { classifyCommand, findCredentialShapes, type CredentialShape } from "@mimir/core";
+import {
+  classifyCommand,
+  findCredentialShapes,
+  redactPayload,
+  type CredentialShape,
+} from "@mimir/core";
 import type { FastifyInstance } from "fastify";
-import { emit } from "../emit.js";
+import { emitProjected } from "../emit.js";
 import { classifyOptions } from "../orchestrator/commands.js";
 import { parseWith } from "../errors.js";
 import { idempotent } from "../idempotency.js";
@@ -89,7 +94,8 @@ export async function resolveRepoPath(
 export interface CredentialField {
   /** Dotted path, e.g. `name`, `settings.nested.auth`, `settings.keys[1]`. */
   field: string;
-  kind: CredentialShape;
+  /** The credential shape, or `redacted`: the event log would store it rewritten. */
+  kind: CredentialShape | "redacted";
 }
 
 /**
@@ -123,11 +129,41 @@ export function credentialFields(name: string, settings: unknown): CredentialFie
 }
 
 /**
+ * Fields the event log's redactor would rewrite (a secret-looking key such as `NPM_TOKEN`, or
+ * text such as `password=…`) although they have no credential shape. Stored, they would be
+ * served and handed to agents as `[REDACTED:…]` instead of what the operator sent.
+ */
+export function redactedFields(name: string, settings: unknown): CredentialField[] {
+  const out: CredentialField[] = [];
+  const diff = (value: unknown, stored: unknown, path: string) => {
+    if (typeof value === "string") {
+      if (value !== stored) out.push({ field: path, kind: "redacted" });
+    } else if (Array.isArray(value)) {
+      const s = stored as unknown[];
+      value.forEach((v, i) => diff(v, s[i], `${path}[${i}]`));
+    } else if (value !== null && typeof value === "object") {
+      const s = stored as Record<string, unknown>;
+      for (const [key, child] of Object.entries(value)) {
+        // A rewritten key is reported at its parent path, so it is never echoed.
+        if (!(key in s)) out.push({ field: path, kind: "redacted" });
+        else diff(child, s[key], `${path}.${key}`);
+      }
+    }
+  };
+  const value = JSON.parse(JSON.stringify({ name, settings })) as Record<string, unknown>;
+  const stored = redactPayload(value) as Record<string, unknown>;
+  diff(value["name"], stored["name"], "name");
+  diff(value["settings"], stored["settings"], "settings");
+  return out;
+}
+
+/**
  * Project name and settings are stored verbatim (the event log) and returned by the API, so
  * credentials are refused (422) rather than silently rewritten. Values are never echoed.
  */
 function assertNoCredentials(name: string, settings: unknown): void {
   const fields = credentialFields(name, settings);
+  if (fields.length === 0) fields.push(...redactedFields(name, settings));
   if (fields.length === 0) return;
   throw new MimirError(
     "validation_failed",
@@ -191,7 +227,7 @@ export function projectRoutes(app: FastifyInstance): void {
         updatedAt: now,
         version: 0,
       };
-      emit(ctx.store, at, {
+      emitProjected(ctx.store, at, {
         type: "project.created",
         streamId: `project:${project.id}`,
         payload: { project },
@@ -225,7 +261,7 @@ export function projectRoutes(app: FastifyInstance): void {
         updatedAt: at.toISOString(),
         version: current.version + 1,
       };
-      emit(ctx.store, at, {
+      emitProjected(ctx.store, at, {
         type: "project.updated",
         streamId: `project:${id}`,
         payload: { project },

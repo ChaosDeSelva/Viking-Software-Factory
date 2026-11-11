@@ -100,6 +100,23 @@ describe("taskTransition", () => {
     expect(blocked.emit.payload).toMatchObject({ reason: APPROVAL_REQUIRED });
   });
 
+  it("refuses to build an event that lacks the agent or session it must name", () => {
+    expect(() =>
+      taskTransition(task({ status: "ready" }), {
+        type: "lease_granted",
+        crewId: null,
+        leaseExpiresAt: T0,
+      }),
+    ).toThrow(/task.leased needs agentId/);
+    expect(() =>
+      taskTransition(
+        task({ status: "leased" }),
+        { type: "session_started", agentId: null },
+        { agentId: newId("agt") },
+      ),
+    ).toThrow(/task.started needs sessionId/);
+  });
+
   it("refuses an illegal edge before anything is emitted", () => {
     expect(() => taskTransition(task(), { type: "verification_passed" })).toThrow(MimirError);
   });

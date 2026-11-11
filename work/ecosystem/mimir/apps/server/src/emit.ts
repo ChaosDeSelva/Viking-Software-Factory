@@ -1,5 +1,6 @@
 import type { AppendInput, EventStore } from "@mimir/core";
 import {
+  MimirError,
   payloadSchemaFor,
   type EventEnvelope,
   type EventPayloadMap,
@@ -61,4 +62,27 @@ export function emit<T extends EventType>(
     if (value !== undefined) (event as Record<string, unknown>)[key] = value;
   }
   return store.append(event);
+}
+
+/**
+ * `emit` for an event the read model must project (what a command creates or changes). The
+ * store keeps a payload over its byte bound only as a truncation marker, which the read model
+ * skips: the command would succeed for an entity that never exists. Such a request is refused
+ * (422) and the append rolled back, with the caller's transaction if there is one.
+ */
+export function emitProjected<T extends EventType>(
+  store: EventStore,
+  now: Date,
+  input: EmitInput<T>,
+): EventEnvelope {
+  return store.withTransaction(() => {
+    const event = emit(store, now, input);
+    if (!payloadSchemaFor(input.type).safeParse(event.payload).success) {
+      throw new MimirError("validation_failed", "the request is too large to store", {
+        reason: "payload_too_large",
+        type: input.type,
+      });
+    }
+    return event;
+  });
 }

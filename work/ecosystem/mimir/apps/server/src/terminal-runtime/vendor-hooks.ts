@@ -29,7 +29,8 @@ export function wireRovo(
 ) {
   const raw = existsSync(source) ? readFileSync(source, "utf8") : "{}";
   if (Buffer.byteLength(raw) > 1024 * 1024) throw Error("Rovo configuration exceeds 1 MiB");
-  const settings = object(parse(raw, { maxAliasCount: 100 }));
+  // An empty or comment-only YAML document is a valid empty configuration.
+  const settings = object(parse(raw, { maxAliasCount: 100 }) ?? {});
   const hookSettings = settings.eventHooks === undefined ? {} : object(settings.eventHooks);
   const previous = hookSettings.events ?? [];
   if (!Array.isArray(previous)) throw Error("Rovo eventHooks.events must be an array");

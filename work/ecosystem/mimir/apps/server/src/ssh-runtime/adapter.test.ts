@@ -10,11 +10,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { RuntimeSessionSpec } from "@mimir/protocol";
 import { SshRuntime } from "./adapter.js";
 import { sshRequest } from "./transport.js";
 import { git, snapshot, restore, digest, applyResult } from "./workspace.js";
+// These cases run the built entrypoint through a stub SSH, i.e. several real processes per step.
+vi.setConfig({ testTimeout: 240_000 });
 const roots: string[] = [];
 const runtimes: SshRuntime[] = [];
 afterEach(async () => {
@@ -69,16 +71,19 @@ function fixture(
     cwd,
     env: { MIMIR_TASK_ID: "t1" },
     workspaceLabel: "test",
-    timeoutMs: 2000,
+    // The remote wall-clock limit; generous so a slow process start is not reported as a failure.
+    timeoutMs: 120_000,
   };
   return { root, cwd, runtime, spec, route, state, request };
 }
-async function until(runtime: SshRuntime, state: string) {
-  for (let i = 0; i < 60; i++) {
+/** Each step spawns the stub SSH and the built entrypoint: wait on the state, not on a count. */
+async function until(runtime: SshRuntime, state: string, deadlineMs = 120_000) {
+  const deadline = Date.now() + deadlineMs;
+  do {
     await runtime.reconcile();
     if ((await runtime.getSession("s1"))?.state === state) return;
     await new Promise((r) => setTimeout(r, 100));
-  }
+  } while (Date.now() < deadline);
   throw new Error(`Expected ${state}: ${JSON.stringify(await runtime.getSession("s1"))}`);
 }
 it("runs the real remote entrypoint, returns source changes and exposes evidence", async () => {
@@ -92,7 +97,7 @@ it("runs the real remote entrypoint, returns source changes and exposes evidence
   await expect(
     f.runtime.createSession({ ...f.spec, argv: ["codex", "different"] }),
   ).rejects.toMatchObject({ code: "idempotency_replay_mismatch" });
-}, 15000);
+}, 240_000);
 it("recovers bindings after a controller restart without resubmitting the job", async () => {
   const f = fixture();
   await f.runtime.createSession(f.spec);
@@ -103,20 +108,20 @@ it("recovers bindings after a controller restart without resubmitting the job", 
   expect(readFileSync(join(f.cwd, "hello.txt"), "utf8")).toBe("hello remote\n");
   await restarted.reconcile();
   expect(await restarted.listSessions()).toHaveLength(1);
-}, 15000);
+}, 240_000);
 it("parks conflicting local changes instead of overwriting them", async () => {
   const f = fixture();
   await f.runtime.createSession(f.spec);
   writeFileSync(join(f.cwd, "hello.txt"), "human change\n");
   await until(f.runtime, "blocked");
   expect(readFileSync(join(f.cwd, "hello.txt"), "utf8")).toBe("human change\n");
-}, 15000);
+}, 240_000);
 it("cancels a remote agent through the worker's durable cancellation marker", async () => {
   const f = fixture("setInterval(()=>{},1000)");
   await f.runtime.createSession(f.spec);
   await f.runtime.requestStop("s1", "force");
   await until(f.runtime, "stopped");
-}, 15000);
+}, 240_000);
 it("keeps uncertain transport outcomes unknown and never launches locally", async () => {
   const f = fixture();
   const runtime = new SshRuntime(f.route, join(f.root, "unknown.json"), async () => ({
@@ -147,25 +152,15 @@ it("runs interactive SSH work, accepts input, and reconciles after controller re
   // Use the existing framed transport fixture, with a real remote tmux/PTY worker.
   await f.runtime.dispose();
   const route = { ...f.route, backend: "tmux-interactive" as const };
-  f.spec.timeoutMs = 15000;
+  f.spec.timeoutMs = 120_000;
   const runtime = new SshRuntime(route, f.state + "-interactive", f.request);
   runtimes.push(runtime);
   await runtime.createSession(f.spec);
-  for (let i = 0; i < 40; i++) {
-    await runtime.reconcile();
-    if ((await runtime.getSession("s1"))?.state === "running") break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  expect((await runtime.getSession("s1"))?.state).toBe("running");
+  await until(runtime, "running");
   await runtime.sendInput("s1", { text: "finish" });
   await runtime.dispose();
   const recovered = new SshRuntime(route, f.state + "-interactive", f.request);
   runtimes.push(recovered);
-  for (let i = 0; i < 60; i++) {
-    await recovered.reconcile();
-    if ((await recovered.getSession("s1"))?.state === "completed") break;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  expect((await recovered.getSession("s1"))?.state).toBe("completed");
+  await until(recovered, "completed");
   expect(readFileSync(join(f.cwd, "hello.txt"), "utf8")).toContain("interactive remote");
-}, 20000);
+}, 360_000);

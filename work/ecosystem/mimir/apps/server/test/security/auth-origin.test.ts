@@ -122,3 +122,69 @@ describe("security: Origin and Host spoofing", () => {
     expect(dev.statusCode).toBe(200);
   });
 });
+
+describe("security: Host and Origin edge cases", () => {
+  /** One raw HTTP request over a socket (no client adds a Host header for us). */
+  async function raw(port: number, text: string): Promise<string> {
+    const { connect } = await import("node:net");
+    return new Promise((resolve, reject) => {
+      let out = "";
+      const socket = connect(port, "127.0.0.1", () => socket.end(text));
+      socket.on("data", (d: Buffer) => (out += d.toString()));
+      socket.on("end", () => resolve(out));
+      socket.on("error", reject);
+    });
+  }
+
+  it("a request without any Host header is refused (403) even with the token", async () => {
+    await server.app.listen({ host: "127.0.0.1", port: 0 });
+    const { port } = server.app.server.address() as { port: number };
+    const res = await raw(
+      port,
+      `GET /v1/projects HTTP/1.0\r\nAuthorization: Bearer ${TOKEN}\r\nConnection: close\r\n\r\n`,
+    );
+    expect(res).toMatch(/^HTTP\/1\.[01] 403/);
+    expect(res).toContain('"host":null');
+    expect(res).not.toContain(TOKEN);
+  });
+
+  it("a configured allowlist replaces the default dev origins", async () => {
+    const custom = makeServer({ allowedOrigins: ["https://ui.example"] });
+    try {
+      const ok = await custom.app.inject({
+        url: "/v1/events",
+        headers: { ...AUTH, origin: "https://ui.example" },
+      });
+      expect(ok.statusCode).toBe(200);
+      const dev = await custom.app.inject({
+        url: "/v1/events",
+        headers: { ...AUTH, origin: "http://localhost:5173" },
+      });
+      expect(dev.statusCode).toBe(403);
+      const opaque = await custom.app.inject({
+        url: "/v1/events",
+        headers: { ...AUTH, origin: "null" },
+      });
+      expect(opaque.statusCode).toBe(403);
+    } finally {
+      await custom.close();
+    }
+  });
+
+  it("listening on the IPv4-mapped loopback address accepts the loopback Host names", async () => {
+    const mapped = makeServer({ publicOrigins: [] });
+    try {
+      await mapped.app.listen({ host: "::ffff:127.0.0.1", port: 0 });
+      const { port } = mapped.app.server.address() as { port: number };
+      const ok = await fetch(`http://127.0.0.1:${port}/v1/events`, { headers: AUTH });
+      expect(ok.status).toBe(200);
+      const res = await raw(
+        port,
+        `GET /v1/events HTTP/1.1\r\nHost: evil.example:${port}\r\nAuthorization: Bearer ${TOKEN}\r\nConnection: close\r\n\r\n`,
+      );
+      expect(res).toMatch(/^HTTP\/1\.1 403/);
+    } finally {
+      await mapped.close();
+    }
+  });
+});

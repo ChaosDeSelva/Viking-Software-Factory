@@ -601,3 +601,100 @@ describe("ReadModel with a store", () => {
     rm.detach();
   });
 });
+
+describe("ReadModel edge folds", () => {
+  it("keeps verification failures without exit code or output, and ignores passes", () => {
+    const { taskId } = ids();
+    const rm = new ReadModel();
+    expect(rm.taskSpec(taskId)).toEqual({});
+    rm.apply(ev("test.run_completed", { command: "npm test", passed: true }, { taskId }));
+    expect(rm.verificationFailure(taskId)).toEqual([]);
+    rm.apply(ev("test.run_completed", { command: "npm test", passed: false }, { taskId }));
+    expect(rm.verificationFailure(taskId)).toEqual([
+      { command: "npm test", exitCode: null, outputTail: "" },
+    ]);
+    // Without a task the failure belongs to nothing.
+    rm.apply(ev("test.run_completed", { command: "x", passed: false }));
+    expect(rm.verificationFailure(taskId)).toHaveLength(1);
+  });
+
+  it("ignores state changes for crews, approvals and sessions it does not know", () => {
+    const { crewId, approvalId, sessionId } = ids();
+    const skipped: string[] = [];
+    const rm = new ReadModel({ onSkip: (e) => skipped.push(e.type) });
+    expect(rm.apply(ev("crew.scheduling_changed", { crewId, paused: true }))).toBe(true);
+    expect(rm.crews.size).toBe(0);
+    expect(rm.apply(ev("approval.consumed", { approvalId }))).toBe(true);
+    expect(rm.approvalMeta.size).toBe(0);
+    expect(rm.apply(ev("session.exited", {}, { sessionId }))).toBe(false);
+    expect(skipped).toEqual(["session.exited"]);
+  });
+
+  it("projects an approval without reason or requester and a session exit without a code", () => {
+    const { approvalId, sessionId, crewId, taskId } = ids();
+    const rm = new ReadModel();
+    rm.apply(ev("approval.requested", { approvalId, action: "pr.create", expiry: null }));
+    expect(rm.approvals.get(approvalId)).toMatchObject({
+      reason: null,
+      missionId: null,
+      taskId: null,
+    });
+    expect(rm.approvalMeta.get(approvalId)).toMatchObject({
+      requestedBy: null,
+      payloadSummary: "pr.create",
+      sessionId: null,
+      subject: null,
+    });
+    rm.apply(
+      ev(
+        "session.requested",
+        { agentKind: "codex", crewId, taskId, workspaceLabel: "w" },
+        { sessionId },
+      ),
+    );
+    rm.apply(ev("session.exited", { exitCode: 3 }, { sessionId, occurredAt: T1 }));
+    rm.apply(ev("session.exited", {}, { sessionId, occurredAt: T1 }));
+    expect(rm.sessions.get(sessionId)?.exitCode).toBeNull();
+  });
+
+  it("an agent started on a session the model never saw is attributed to the task's crew", () => {
+    const { missionId, crewId, taskId, agentId, sessionId } = ids();
+    const rm = new ReadModel();
+    rm.apply(
+      ev(
+        "task.created",
+        { missionId, crewId, title: "t", acceptance: "", dependsOn: [] },
+        { taskId },
+      ),
+    );
+    rm.apply(ev("task.started", { from: "leased", to: "running", agentId, sessionId }, { taskId }));
+    expect(rm.agents.get(agentId)).toMatchObject({
+      crewId,
+      agentKind: "unknown",
+      status: "starting",
+      role: "implementer",
+      runtimeSessionId: sessionId,
+    });
+  });
+
+  it("orders entities created at the same instant by id", () => {
+    const rm = new ReadModel();
+    const projectIds = [newId("prj"), newId("prj"), newId("prj")];
+    for (const id of [...projectIds].reverse()) {
+      rm.apply(
+        ev("project.created", {
+          project: {
+            id,
+            name: "p",
+            repoPath: `/r/${id}`,
+            settings: {},
+            createdAt: T0,
+            updatedAt: T0,
+            version: 0,
+          },
+        } as EventPayloadMap["project.created"]),
+      );
+    }
+    expect(rm.snapshot().projects.map((p) => p.id)).toEqual(projectIds);
+  });
+});

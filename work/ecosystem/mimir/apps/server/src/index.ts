@@ -4,13 +4,13 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import type { AuditLog, CommandLedger, EventStore, PolicyRule } from "@mimir/core";
 import { GitManager } from "@mimir/git";
 import type { RuntimeAdapter } from "@mimir/protocol";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { Logger } from "pino";
 import { registerSecurity } from "./auth.js";
 import { registerBodyDepthGuard } from "./body-depth.js";
 import { DEFAULT_ALLOWED_ORIGINS } from "./config.js";
 import type { ServerContext } from "./context.js";
-import { registerErrorHandling } from "./errors.js";
+import { registerErrorHandling, toMimirError } from "./errors.js";
 import { failInterruptedCommands, registerIdempotencyGuard } from "./idempotency.js";
 import { migrateLegacyProjects } from "./legacy-projects.js";
 import { ReadModel } from "./readmodel.js";
@@ -130,6 +130,11 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   const app = Fastify({
     ...(opts.logger ? { loggerInstance: opts.logger } : { logger: false }),
     ...(opts.https ? { https: opts.https } : {}),
+    // Errors Fastify raises before routing (a malformed URL) bypass the error handler.
+    frameworkErrors: (err, _request, reply) => {
+      const mimir = toMimirError(err);
+      void (reply as FastifyReply).code(mimir.status).send(mimir.toBody());
+    },
   }) as unknown as FastifyInstance;
 
   const readModel = ReadModel.load(opts.store, {
@@ -245,6 +250,17 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     supervisors.close();
     await orchestrator.stop();
     readModel.detach();
+  });
+
+  // close() drops idle keep-alive sockets once, before it waits for the rest. A streamed body
+  // (artifact content, web files) can reach the client before its response ends, so that socket
+  // goes idle only after the sweep and would hold close() for the keep-alive timeout (72 s).
+  let closing = false;
+  app.addHook("preClose", async () => {
+    closing = true;
+  });
+  app.addHook("onResponse", async () => {
+    if (closing) setImmediate(() => app.server.closeIdleConnections());
   });
 
   registerErrorHandling(app);

@@ -27,3 +27,20 @@ it("quotes paths in hook commands and never grants permissions", () => {
 it.each([null, [], 1, "Stop"])("ignores malformed hook envelopes: %j", (value) => {
   expect(normalizeHook(value as unknown as Record<string, unknown>)).toBeNull();
 });
+it("maps notifications, errors and quota waits to their lifecycle facts", () => {
+  const fact = (event: Record<string, unknown>) => {
+    const observation = normalizeHook(event);
+    return observation && [observation.state, observation.reason];
+  };
+  expect(fact({ hook_event_name: "Notification", notification_type: "permission_prompt" })).toEqual(
+    ["waiting", "harness_permission_request"],
+  );
+  expect(fact({ hook_event_name: "Notification", notification_type: "idle_prompt" })).toEqual([
+    "waiting",
+    "harness_awaiting_input",
+  ]);
+  expect(fact({ hook_event_name: "Notification", notification_type: "auth_success" })).toBeNull();
+  expect(fact({ type: "agent.error" })).toEqual(["blocked", "harness_error"]);
+  expect(fact({ type: "quota.wait" })).toEqual(["blocked", "harness_quota_wait"]);
+  expect(fact({ type: "turn.start" })).toEqual(["running", "harness_working"]);
+});

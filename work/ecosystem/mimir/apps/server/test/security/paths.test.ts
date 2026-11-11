@@ -91,3 +91,33 @@ describe("security: repoPath traversal and symlinks", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe("security: allowed roots that do not exist", () => {
+  it("a missing root allows nothing by itself and does not hide the other roots", async () => {
+    const missing = join(tmp.dir, "not-created-yet");
+    const only = makeServer({ allowedRoots: [missing] });
+    try {
+      const denied = await only.app.inject({
+        method: "POST",
+        url: "/v1/projects",
+        headers: { ...AUTH, "idempotency-key": "missing-root" },
+        payload: { name: "p", repoPath: inside },
+      });
+      expect(denied.statusCode).toBe(403);
+    } finally {
+      await only.close();
+    }
+    const both = makeServer({ allowedRoots: [missing, allowed] });
+    try {
+      const ok = await both.app.inject({
+        method: "POST",
+        url: "/v1/projects",
+        headers: { ...AUTH, "idempotency-key": "two-roots" },
+        payload: { name: "p", repoPath: inside },
+      });
+      expect(ok.statusCode).toBe(201);
+    } finally {
+      await both.close();
+    }
+  });
+});

@@ -1,8 +1,11 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
-import { sshArguments, sshRequest } from "./transport.js";
+import { afterEach, expect, it, vi } from "vitest";
+import { sshArguments, sshRequest, type RemoteRequest } from "./transport.js";
+
+// Every request spawns a real process; starting one can take seconds on a loaded machine.
+vi.setConfig({ testTimeout: 120_000 });
 
 const roots: string[] = [];
 afterEach(() => {
@@ -84,4 +87,84 @@ it("distinguishes a missing local executable and refuses missing mutation identi
     await sshRequest(route, { operation: "health" }, { executable: "/nonexistent/mimir-ssh" }),
   ).toMatchObject({ state: "unavailable" });
   await expect(sshRequest(route, { operation: "submit" })).rejects.toThrow("job ID");
+});
+it("refuses unknown operations and unusable bounds before starting SSH", async () => {
+  const marker = join(mkdtempSync(join(tmpdir(), "mimir-ssh-")), "started");
+  roots.push(join(marker, ".."));
+  const ssh = executable(`require("node:fs").writeFileSync(${JSON.stringify(marker)},"1")`);
+  await expect(
+    sshRequest(route, { operation: "exec", jobId: "job-1" } as unknown as RemoteRequest, {
+      executable: ssh,
+    }),
+  ).rejects.toThrow("Unsupported remote operation");
+  for (const options of [
+    { timeoutMs: 0 },
+    { timeoutMs: 1.5 },
+    { maxBytes: 0 },
+    { maxBytes: Number.POSITIVE_INFINITY },
+  ])
+    await expect(
+      sshRequest(route, { operation: "health" }, { executable: ssh, ...options }),
+    ).rejects.toThrow("Transport bounds must be positive integers");
+  await expect(
+    sshRequest(route, { operation: "inspect", jobId: "../escape" }, { executable: ssh }),
+  ).rejects.toThrow("job ID");
+  await expect(
+    sshRequest(
+      route,
+      { operation: "submit", jobId: "job-1", payload: { blob: "x".repeat(16 * 1024 * 1024) } },
+      { executable: ssh },
+    ),
+  ).rejects.toThrow("exceeds 16 MiB");
+  await expect(
+    sshRequest({ ...route, host: "user@host" }, { operation: "health" }, { executable: ssh }),
+  ).rejects.toThrow(/SSH configuration alias/);
+  expect(existsSync(marker)).toBe(false);
+});
+it("counts diagnostics toward the output limit and ignores a peer that never reads stdin", async () => {
+  expect(
+    await sshRequest(
+      route,
+      { operation: "health" },
+      { executable: executable('console.error("x".repeat(10000))'), maxBytes: 100 },
+    ),
+  ).toMatchObject({ state: "unknown", reason: expect.stringContaining("output limit") });
+  // The peer answers and exits without consuming a large request: EPIPE must not mask its reply.
+  expect(
+    await sshRequest(
+      route,
+      { operation: "submit", jobId: "job-1", payload: { blob: "x".repeat(4 * 1024 * 1024) } },
+      { executable: executable("console.log(JSON.stringify({protocol:1,ok:true}))") },
+    ),
+  ).toEqual({ state: "confirmed", response: { protocol: 1, ok: true } });
+  for (const body of ['console.log("[1]")', 'console.log("null")', 'console.log("{}")'])
+    expect(
+      await sshRequest(route, { operation: "health" }, { executable: executable(body) }),
+    ).toEqual({ state: "unknown", reason: "Remote response was not a valid protocol envelope" });
+});
+it("runs the ssh found on PATH by default, ignores diagnostics and reports a signal exit", async () => {
+  // A stub named ssh first on PATH: the default executable, never the real client.
+  const ssh = executable(
+    'console.error("Warning: diagnostics");console.log(JSON.stringify({protocol:1,ok:true,argv:process.argv.slice(2)}))',
+  );
+  const dir = join(ssh, "..");
+  const named = join(dir, "ssh");
+  writeFileSync(named, readFileSync(ssh));
+  chmodSync(named, 0o700);
+  vi.stubEnv("PATH", dir);
+  try {
+    expect(await sshRequest(route, { operation: "health" })).toEqual({
+      state: "confirmed",
+      response: { protocol: 1, ok: true, argv: sshArguments(route) },
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+  expect(
+    await sshRequest(
+      route,
+      { operation: "health" },
+      { executable: executable('process.kill(process.pid,"SIGKILL")') },
+    ),
+  ).toEqual({ state: "unknown", reason: "SSH exited by signal; reconcile the same remote job" });
 });
