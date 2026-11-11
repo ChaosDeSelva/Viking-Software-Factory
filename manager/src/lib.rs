@@ -395,17 +395,22 @@ impl Manager {
             copy_tree(&self.root.join("data"), &backup)?;
         }
         fs::rename(stage, &dest)?;
+        // The rollback target this install replaces; a restored transaction puts it back.
+        let previous_pointer = match self.root.join("previous.json") {
+            p if p.exists() => read_json::<Value>(&p)?,
+            _ => Value::Null,
+        };
+        // Journal precedes both pointer changes, so an interrupted activation can be recovered.
+        write_json(
+            &self.root.join("transaction.json"),
+            &json!({"previous":current,"next":receipt,"backup":backup,"previous_pointer":previous_pointer}),
+        )?;
         if let Some(c) = &current {
             write_json(
                 &self.root.join("previous.json"),
                 &json!({"receipt":c,"backup":backup}),
             )?;
         }
-        // Journal precedes the pointer change, so an interrupted activation can be recovered.
-        write_json(
-            &self.root.join("transaction.json"),
-            &json!({"previous":current,"next":receipt,"backup":backup}),
-        )?;
         write_json(&self.root.join("current.json"), &receipt)?;
         if was_running {
             if let Err(e) = self.start_impl() {
@@ -445,11 +450,24 @@ impl Manager {
         } else {
             fs::remove_file(self.root.join("current.json"))?;
         }
+        // An install journal records the rollback target it replaced; a rollback journal does not.
+        match transaction.get("previous_pointer") {
+            Some(Value::Null) => {
+                let p = self.root.join("previous.json");
+                if p.exists() {
+                    fs::remove_file(p)?;
+                }
+            }
+            Some(pointer) => write_json(&self.root.join("previous.json"), pointer)?,
+            None => {}
+        }
         fs::remove_file(self.root.join("transaction.json"))?;
         Ok(())
     }
     fn restore_data(&self, backup: &Path) -> Result<()> {
-        if !backup.starts_with(self.root.join("backups")) || !backup.is_dir() {
+        // Compared after resolution: `backups/../elsewhere` starts with `backups` but is outside it.
+        let backups = fs::canonicalize(self.root.join("backups"))?;
+        if !backup.is_dir() || fs::canonicalize(backup)?.parent() != Some(backups.as_path()) {
             return Err("Invalid recovery backup".into());
         }
         let saved = self.root.join("backups").join(format!(
@@ -473,6 +491,10 @@ impl Manager {
         self.idle()?;
         let previous: Value = read_json(&self.root.join("previous.json"))?;
         let receipt: Receipt = serde_json::from_value(previous["receipt"].clone())?;
+        // Preflight executes the release's bundled node, so the version must name a directory in releases.
+        if !safe_name(&receipt.version) {
+            return Err("Invalid rollback receipt".into());
+        }
         preflight(&self.root.join("releases").join(&receipt.version))?;
         self.stop()?;
         write_json(
@@ -716,15 +738,10 @@ impl Manager {
             ("claude", vec!["auth", "status"]),
         ] {
             let executable=if name=="codex" && Path::new("/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex").exists(){"/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"}else{name};
-            let result = run(Command::new(executable).args(args).env("PATH", &cfg.path));
-            let ok = result
-                .map(|o| {
-                    name != "claude"
-                        || serde_json::from_str::<Value>(&o)
-                            .map(|v| v["loggedIn"] == true)
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false);
+            let ok = check_passed(
+                name,
+                run(Command::new(executable).args(args).env("PATH", &cfg.path)),
+            );
             checks.push(json!({"name":name,"ok":ok,"action":match name{"codex"=>"Install Codex and run codex login","claude"=>"Install Claude Code and run claude auth login",_=>"Install Git with Apple Command Line Tools"}}));
         }
         if let Ok(dir) = self.release() {
@@ -752,8 +769,11 @@ impl Manager {
     pub fn update_check(&self, force: bool) -> Result<Value> {
         let cache = self.root.join("updates.json");
         if !force && cache.exists() {
-            let v: Value = read_json(&cache)?;
+            let mut v: Value = read_json(&cache)?;
             if now().saturating_sub(v["checked_at"].as_u64().unwrap_or(0)) < 86400 {
+                // The installation may have changed since the check (update apply, rollback).
+                let installed = self.current()?.map(|r| r.version);
+                v["available"] = json!(newer(v.get("candidate"), installed.as_deref()));
                 return Ok(v);
             }
         }
@@ -800,18 +820,7 @@ impl Manager {
             .and_then(|r| r["release"].as_object())
             .map(|r| Value::Object(r.clone()));
         let installed = self.current()?.map(|r| r.version);
-        let available = candidate
-            .as_ref()
-            .and_then(|r| r["tag_name"].as_str())
-            .and_then(|s| semver::Version::parse(s.trim_start_matches('v')).ok())
-            .map(|v| {
-                installed
-                    .as_ref()
-                    .and_then(|s| semver::Version::parse(s).ok())
-                    .map(|i| v > i)
-                    .unwrap_or(true)
-            })
-            .unwrap_or(false);
+        let available = newer(candidate.as_ref(), installed.as_deref());
         let installable = candidate
             .as_ref()
             .and_then(|r| r["assets"].as_array())
@@ -863,6 +872,30 @@ impl Manager {
         }
         self.install(&dir.join("factory-manifest.json"), &selected)
     }
+}
+/// A doctor check passes when its command succeeds; Claude must also report that it is signed in.
+pub fn check_passed(name: &str, result: Result<String>) -> bool {
+    result
+        .map(|o| {
+            name != "claude"
+                || serde_json::from_str::<Value>(&o)
+                    .map(|v| v["loggedIn"] == true)
+                    .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+/// Whether a release candidate is newer than the installed version (anything is newer than nothing).
+pub fn newer(candidate: Option<&Value>, installed: Option<&str>) -> bool {
+    candidate
+        .and_then(|r| r["tag_name"].as_str())
+        .and_then(|s| semver::Version::parse(s.trim_start_matches('v')).ok())
+        .map(|v| {
+            installed
+                .and_then(|s| semver::Version::parse(s).ok())
+                .map(|i| v > i)
+                .unwrap_or(true)
+        })
+        .unwrap_or(false)
 }
 pub fn select_release(list: &[Value], channel: &str) -> Option<Value> {
     list.iter()

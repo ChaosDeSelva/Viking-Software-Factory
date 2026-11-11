@@ -100,8 +100,38 @@ export function projectAliases(p: R, sindri: R[]): string[] {
   ];
 }
 
+/**
+ * The request text a specification is drafted from when it starts from a saved intake. Sindri
+ * stores an empty body for a ticket without a description and refuses an empty request.
+ */
+export function intakeRequest(intake: R): string {
+  return intake.body?.trim() ? intake.body : intake.title;
+}
+
 /** A delivery row is an execution; its plan or specification names what was delivered. */
 export function deliveryTitle(row: R, executions: R[], specs: R[]): string | undefined {
   const plan = executions.find((e) => e.execution?.id === (row.executionId ?? row.id))?.plan;
   return specs.find((spec) => spec.id === plan?.specId)?.title ?? plan?.title;
 }
+
+/** The name a record is listed under: the first of the fields records of each kind are named by. */
+export const recordLabel = (r: R) =>
+  r.title ??
+  r.objective ??
+  r.name ??
+  r.template ??
+  r.action ??
+  (r.agentKind ? `${r.agentKind} · ${r.role}` : null) ??
+  r.type ??
+  r.id;
+
+/** A run is named by its specification, then its plan, then its own ID. */
+export const runTitle = (e: R, specs: R[]): string =>
+  specs.find((spec) => spec.id === e.plan?.specId)?.title ?? e.plan?.title ?? "Run " + e.execution.id;
+
+/** The specification behind the run that created a Mimir mission, when Sindri started it. */
+export const missionSpecTitle = (mission: R, executions: R[], specs: R[]): string | undefined =>
+  specs.find(
+    (spec) =>
+      spec.id === executions.find((e) => e.execution.mimirMissionId === mission.id)?.plan?.specId,
+  )?.title;

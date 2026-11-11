@@ -105,6 +105,9 @@ export function Fleet({
       clearInterval(timer);
     };
   }, [api, selected, version]);
+  // Until the selected supervisor's own record arrives, the previous one's is not shown: its
+  // messages and controls would act on the newly selected supervisor.
+  const shown = detail?.supervisor.id === selected ? detail : null;
   return (
     <div className="grid gap-6 min-w-0 fleet-page">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -221,17 +224,17 @@ export function Fleet({
           ))}
         </div>
       </Card>
-      {detail && (
+      {shown && (
         <Card>
-          <h2>{detail.supervisor.id}</h2>
-          <p>{detail.supervisor.reason ?? "Ready to receive controls"}</p>
+          <h2>{shown.supervisor.id}</h2>
+          <p>{shown.supervisor.reason ?? "Ready to receive controls"}</p>
           <p className="muted">
-            Lease generation {detail.supervisor.epoch} ·{" "}
-            {detail.supervisor.expires > Date.now()
+            Lease generation {shown.supervisor.epoch} ·{" "}
+            {shown.supervisor.expires > Date.now()
               ? "owner heartbeat current"
               : "owner lease expired or not acquired"}
           </p>
-          <SupervisorPolicy key={selected} policy={detail.policy} enabled={enabled} onSave={(policy) => propose("supervisor.policy", selected, policy)} />
+          <SupervisorPolicy key={selected} policy={shown.policy} enabled={enabled} onSave={(policy) => propose("supervisor.policy", selected, policy)} />
           <Field>Hold or reconciliation reason
             <Textarea
               value={reason}
@@ -308,7 +311,7 @@ export function Fleet({
               Queue graceful stop
             </Button>
           </div>
-          {detail.messages.map((m) => (
+          {shown.messages.map((m) => (
             <article
               key={m.id}
               className="border-t border-[var(--line)] py-4 min-w-0"
@@ -356,7 +359,7 @@ export function Fleet({
           <Disclosure>
             <DisclosureTrigger>Ownership and control history</DisclosureTrigger>
             <CodeBlock>
-              {JSON.stringify(detail.observations, null, 2)}
+              {JSON.stringify(shown.observations, null, 2)}
             </CodeBlock>
           </Disclosure>
         </Card>

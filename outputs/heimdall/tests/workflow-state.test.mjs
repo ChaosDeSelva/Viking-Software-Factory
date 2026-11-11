@@ -11,6 +11,10 @@ import {
   mergeProjects,
   projectAliases,
   deliveryTitle,
+  intakeRequest,
+  recordLabel,
+  runTitle,
+  missionSpecTitle,
 } from "../apps/web/src/features/workflowState.ts";
 
 test("only the highest version of each lineage is listed", () => {
@@ -62,6 +66,7 @@ test("Sindri actions need the unlock, the pairing and a status the backend accep
   assert.equal(actionBlock("execution.export", "verified_pending_review", ready), "");
   assert.notEqual(actionBlock("execution.export", "running", ready), "");
   assert.equal(actionBlock("delivery.rework", undefined, ready), "");
+  assert.match(actionBlock("plan.propose", undefined, ready), /status is not reported/);
 });
 
 test("a specification revision carries only the changed fields", () => {
@@ -76,6 +81,12 @@ test("a specification revision carries only the changed fields", () => {
   });
   assert.deepEqual(specRevision(spec, { ...same, problem: "New" }), {
     body: { problem: "New" },
+  });
+  // A body without goals reads as an empty list, so an empty goals box changes nothing.
+  const bare = { title: "T", body: { problem: "P" } };
+  assert.equal(specRevision(bare, { title: "T", problem: "P", goals: "" }), null);
+  assert.deepEqual(specRevision(bare, { title: "T", problem: "P", goals: "g" }), {
+    body: { goals: ["g"] },
   });
 });
 
@@ -102,6 +113,13 @@ test("a project keeps its filter key and archive state when Mimir takes it over"
   assert.deepEqual(projectAliases(after[0], sindri), ["prj_9", "sp_1"]);
   assert.equal(projectKey({ id: "prj_bare" }), "prj_bare");
   assert.deepEqual(projectAliases({ id: "prj_bare" }, [{ id: "sp_2" }]), ["prj_bare"]);
+  // Mimir's own name stays when Sindri has no record of the repository, or Mimir has no path.
+  assert.deepEqual(
+    mergeProjects([{ id: "prj_x", name: "x", repoPath: "/repo/x" }, { id: "prj_y", name: "y" }], sindri).map(
+      (p) => [p.id, p.name],
+    ),
+    [["prj_x", "x"], ["prj_y", "y"], ["sp_1", "Invoices"]],
+  );
 });
 
 test("a delivery is titled by its specification rather than its execution ID", () => {
@@ -109,4 +127,36 @@ test("a delivery is titled by its specification rather than its execution ID", (
   const specs = [{ id: "spc_1", title: "Exact invoice totals" }];
   assert.equal(deliveryTitle({ id: "exe_1" }, executions, specs), "Exact invoice totals");
   assert.equal(deliveryTitle({ id: "exe_2" }, executions, specs), undefined);
+  // A delivery row names its run by executionId; a plan unknown to the specs gives its own title.
+  const planOnly = [{ execution: { id: "exe_3" }, plan: { specId: "spc_gone", title: "Plan title" } }];
+  assert.equal(deliveryTitle({ id: "dlv", executionId: "exe_3" }, planOnly, specs), "Plan title");
+});
+
+test("an intake without a description is drafted from its title", () => {
+  assert.equal(intakeRequest({ title: "Fix totals", body: "Use integer cents" }), "Use integer cents");
+  // Sindri stores an empty body for a ticket without a description and refuses an empty request.
+  assert.equal(intakeRequest({ title: "Fix totals", body: "" }), "Fix totals");
+  assert.equal(intakeRequest({ title: "Fix totals", body: " \n " }), "Fix totals");
+  assert.equal(intakeRequest({ title: "Fix totals" }), "Fix totals");
+});
+
+test("records are listed under the field their kind is named by", () => {
+  assert.equal(recordLabel({ id: "t", title: "Title", objective: "o" }), "Title");
+  assert.equal(recordLabel({ id: "m", objective: "Ship it" }), "Ship it");
+  assert.equal(recordLabel({ id: "p", name: "Invoices" }), "Invoices");
+  assert.equal(recordLabel({ id: "c", template: "Implementation crew" }), "Implementation crew");
+  assert.equal(recordLabel({ id: "a", action: "runtime.command" }), "runtime.command");
+  assert.equal(recordLabel({ id: "g", agentKind: "codex", role: "implementer" }), "codex · implementer");
+  assert.equal(recordLabel({ id: "e", type: "task.output" }), "task.output");
+  assert.equal(recordLabel({ id: "only-id" }), "only-id");
+});
+
+test("runs and missions are titled by the specification they deliver", () => {
+  const specs = [{ id: "spc_1", title: "Exact invoice totals" }];
+  const run = { execution: { id: "exe_1", mimirMissionId: "msn_1" }, plan: { specId: "spc_1", title: "Plan" } };
+  assert.equal(runTitle(run, specs), "Exact invoice totals");
+  assert.equal(runTitle({ ...run, plan: { specId: "spc_9", title: "Plan" } }, specs), "Plan");
+  assert.equal(runTitle({ execution: { id: "exe_2" } }, specs), "Run exe_2");
+  assert.equal(missionSpecTitle({ id: "msn_1" }, [run], specs), "Exact invoice totals");
+  assert.equal(missionSpecTitle({ id: "msn_2" }, [run], specs), undefined);
 });

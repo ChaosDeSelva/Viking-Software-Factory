@@ -59,8 +59,8 @@ export class AwsProvider {
   prepare(input) {
     input=workerInput(input);
     if(!this.config.templates[input.template])throw Error('This template is not approved for AWS.');
-    const id=randomUUID();
-    return {id:'aws-'+id,provider:'aws',requestId:id,...input,state:'provisioning',createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+input.minutes*60000).toISOString(),accountId:this.config.accountId,region:this.config.region,fleetId:this.config.fleetId};
+    const id=randomUUID(),now=Date.now();
+    return {id:'aws-'+id,provider:'aws',requestId:id,...input,state:'provisioning',createdAt:new Date(now).toISOString(),expiresAt:new Date(now+input.minutes*60000).toISOString(),accountId:this.config.accountId,region:this.config.region,fleetId:this.config.fleetId};
   }
   owned(instance,worker) {
     const tags=Object.fromEntries((instance.Tags??[]).map(t=>[t.Key,t.Value]));
@@ -101,8 +101,10 @@ export class AwsProvider {
   async inspect(worker) {
     if(worker.fleetId!==this.config.fleetId || worker.accountId!==this.config.accountId || worker.region!==this.config.region)throw Error('Worker belongs to another AWS configuration.');
     const instances=await this.inventory();
-    const instance=instances.find(i=>i.InstanceId===worker.instanceId || i.ClientToken===worker.requestId || (i.Tags??[]).some(t=>t.Key==='skidbladnir:worker'&&t.Value===worker.id));
-    if(!instance)return {...worker,ownershipConfirmed:false,state:worker.state==='terminated'?'terminated':'unknown'};
+    const instance=instances.find(i=>i.InstanceId===worker.instanceId || (worker.requestId && i.ClientToken===worker.requestId) || (i.Tags??[]).some(t=>t.Key==='skidbladnir:worker'&&t.Value===worker.id));
+    // Past its lifetime and absent from the fleet inventory, the instance is gone (AWS stops listing
+    // terminated instances); settling it frees the local slot. Launch capacity is still checked against AWS.
+    if(!instance)return {...worker,ownershipConfirmed:false,state:worker.state==='terminated'||Date.parse(worker.expiresAt)<=Date.now()?'terminated':'unknown'};
     this.owned(instance,worker);
     const state=({'pending':'starting','shutting-down':'terminating'})[instance.State?.Name]??instance.State?.Name??'unknown';
     return {...worker,instanceId:instance.InstanceId,ownershipConfirmed:true,state};

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Intake, IntakeComment } from "../api/types.js";
 import { Badge, Button, Card, Empty, Field, LoadState, inputClass } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
@@ -21,6 +21,7 @@ export function InboxScreen() {
   const [selected, setSelected] = useState<{ intake: Intake; comments: IntakeComment[] } | null>(
     null,
   );
+  const wanted = useRef<string | null>(null);
 
   if (!projectId)
     return (
@@ -40,7 +41,14 @@ export function InboxScreen() {
     }
   };
 
-  const open = (id: string) => run(async () => setSelected(await api.getIntake(id)));
+  // The item clicked last wins, whichever answer arrives last.
+  const open = (id: string) => {
+    wanted.current = id;
+    return run(async () => {
+      const detail = await api.getIntake(id);
+      if (wanted.current === id) setSelected(detail);
+    });
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">

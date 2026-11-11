@@ -96,7 +96,13 @@ export function reducer(state: State, action: Action): State {
     case "navigate":
       return { ...state, view: action.view, notice: keepErrors(state.notice) };
     case "route":
-      return { ...state, ...action.route, notice: keepErrors(state.notice) };
+      // A hash that names no project (`#/plans`) changes the view, not the project.
+      return {
+        ...state,
+        ...action.route,
+        projectId: action.route.projectId ?? state.projectId,
+        notice: keepErrors(state.notice),
+      };
     case "project/select":
       return {
         ...state,

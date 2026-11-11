@@ -107,4 +107,36 @@ describe("profile form conversion", () => {
     expect(p.count).toBe(5);
     expect(problemsOf(toForm({})).count).toBe(0);
   });
+
+  it("checks a row's quotes, working directory and timeout", () => {
+    const form = toForm({ checks: [{ id: "lint", command: ["make"] }] });
+    const key = form.checks[0]!.key;
+    const row = (patch: Partial<(typeof form.checks)[number]>) =>
+      problemsOf({ ...form, checks: [{ ...form.checks[0]!, ...patch }] }).checks[key];
+    expect(row({ command: `make "lint` })).toEqual({ command: "A quote is not closed." });
+    expect(row({ cwd: " /abs" })?.cwd).toMatch(/relative to the repository root/);
+    for (const t of ["0", "-5", "1.5", "ten"])
+      expect(row({ timeoutSeconds: t })?.timeout, t).toBe("Enter a whole number of seconds.");
+    expect(row({ timeoutSeconds: " 600 ", cwd: "src" })).toBeUndefined();
+  });
+
+  it("asks for a variable name only when a value was typed, and refuses a name used twice", () => {
+    const form = toForm({ env: { A: "1" } });
+    const [a] = form.env;
+    const p = problemsOf({
+      ...form,
+      env: [
+        a!,
+        { key: 9001, name: "", value: "" },
+        { key: 9002, name: "  ", value: "x" },
+        { key: 9003, name: " A ", value: "2" },
+      ],
+    });
+    expect(p.env).toEqual({ 9002: "Give the variable a name.", 9003: "A is set twice." });
+    expect(p.count).toBe(2);
+  });
+
+  it("keeps a backslash at the end of a double-quoted argument", () => {
+    expect(parseArgv(`echo "a\\`)).toEqual({ argv: ["echo", "a\\"], unclosed: true });
+  });
 });

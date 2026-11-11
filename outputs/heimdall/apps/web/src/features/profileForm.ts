@@ -222,3 +222,24 @@ export function sindriProjectOf(project: R, sindri: R[]): R | undefined {
 export const FINAL_EXECUTION_STATUSES = ["verified_pending_review", "cancelled", "failed"];
 export const isFinalExecution = (status: unknown): boolean =>
   FINAL_EXECUTION_STATUSES.includes(String(status)) || String(status).startsWith("delivered");
+
+/**
+ * The tasks of a Sindri execution view that still wait for an operator's escalation decision. A
+ * finished run keeps the record on its tasks, but Sindri refuses to resolve it.
+ */
+export function openEscalations(view: R): R[] {
+  if (isFinalExecution(view.execution?.status)) return [];
+  return (view.tasks ?? []).filter((t: R) => t.escalation);
+}
+
+/** Why an escalation shown in the inspector cannot be resolved now; empty when it can. */
+export function escalationBlock(view: R | undefined, planTaskId: string): string {
+  // A run missing from the snapshot is left to Sindri to judge.
+  if (!view) return "";
+  const status = view.execution?.status;
+  if (isFinalExecution(status))
+    return `This run has ended (status is ${status}); its escalations can no longer be resolved.`;
+  if (!openEscalations(view).some((t) => t.planTaskId === planTaskId))
+    return "This escalation is no longer open.";
+  return "";
+}

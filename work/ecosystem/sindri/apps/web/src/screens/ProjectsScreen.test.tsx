@@ -40,7 +40,10 @@ describe("ProjectsScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create project" }));
     expect(api.createProject).toHaveBeenCalledWith({ name: "New", repoPath: "/repo/new" });
     expect(await screen.findByText("/repo/new")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toMatch(/Created project New/);
+    // The new project's profile card can still be loading (a second status) under load.
+    expect(
+      screen.getAllByRole("status").some((s) => /Created project New/.test(s.textContent)),
+    ).toBe(true);
   });
 
   it("bootstraps and summarises the result", async () => {

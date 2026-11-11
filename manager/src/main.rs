@@ -22,17 +22,22 @@ fn main() -> ExitCode {
 }
 fn execute() -> Result<serde_json::Value> {
     let mut args: Vec<String> = env::args().skip(1).filter(|a| a != "--json").collect();
-    let mut root = PathBuf::from(env::var("VIKING_HOME").unwrap_or(format!(
-        "{}/Library/Application Support/Viking Factory",
-        env::var("HOME")?
-    )));
+    let mut home = None;
     if let Some(i) = args.iter().position(|s| s == "--home") {
         if i + 1 >= args.len() {
             return Err("--home needs a directory".into());
         }
-        root = PathBuf::from(args.remove(i + 1));
+        home = Some(args.remove(i + 1));
         args.remove(i);
     }
+    // HOME is needed only for the default root, so --home and VIKING_HOME work without it.
+    let root = PathBuf::from(match home.or_else(|| env::var("VIKING_HOME").ok()) {
+        Some(root) => root,
+        None => format!(
+            "{}/Library/Application Support/Viking Factory",
+            env::var("HOME").map_err(|_| "Set HOME, VIKING_HOME or --home")?
+        ),
+    });
     let command = args.first().map(String::as_str).unwrap_or("help");
     if command == "help" || command == "--help" {
         return Ok(

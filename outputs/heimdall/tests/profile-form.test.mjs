@@ -7,6 +7,9 @@ import {
   formToProfile,
   sindriProjectOf,
   isFinalExecution,
+  emptyCheck,
+  openEscalations,
+  escalationBlock,
 } from "../apps/web/src/features/profileForm.ts";
 
 test("a command line is split into argv on whitespace, honouring quotes", () => {
@@ -145,4 +148,52 @@ test("failed and cancelled runs are final, like verified and delivered ones", ()
     assert.equal(isFinalExecution(status), true, status);
   for (const status of ["running", "blocked", "awaiting_approval", undefined])
     assert.equal(isFinalExecution(status), false, String(status));
+});
+
+test("a new check row is empty and required, and saving it untouched is refused", () => {
+  assert.deepEqual(emptyCheck(), { id: "", title: "", command: "", cwd: "", timeoutSeconds: "", required: true });
+  assert.notEqual(emptyCheck(), emptyCheck(), "each row is its own object");
+  const { errors } = formToProfile({ ...profileToForm({}), checks: [emptyCheck()] });
+  assert.match(errors[0], /^Check 1: the ID needs/);
+  assert.match(errors[1], /^Check 1: enter the command/);
+});
+
+test("a stored profile with missing fields and a null profile load as empty values", () => {
+  assert.deepEqual(profileToForm(null), profileToForm({}));
+  assert.deepEqual(profileToForm({ checks: [{}] }).checks, [emptyCheck()]);
+});
+
+test("the limits Sindri enforces on parts, variables and directories are reported", () => {
+  const base = profileToForm({});
+  const check = { ...emptyCheck(), id: "big" };
+  const errorsOf = (patch) => formToProfile({ ...base, ...patch }).errors.join("\n");
+  assert.equal(errorsOf({ checks: [{ ...check, command: Array(64).fill("a").join(" ") }] }), "");
+  assert.match(errorsOf({ checks: [{ ...check, command: Array(65).fill("a").join(" ") }] }), /at most 64 parts/);
+  const env = (n) => Array.from({ length: n }, (_, i) => ({ name: "V" + i, value: "x" }));
+  assert.equal(errorsOf({ env: env(64) }), "");
+  assert.match(errorsOf({ env: env(65) }), /At most 64 environment variables/);
+  const dirs = (n) => Array.from({ length: n }, (_, i) => "/d" + i).join("\n");
+  assert.equal(errorsOf({ pathPrepend: dirs(16), writableRoots: dirs(16) }), "");
+  assert.match(errorsOf({ pathPrepend: dirs(17) }), /PATH additions: at most 16 directories/);
+  assert.match(errorsOf({ writableRoots: dirs(17) }), /Agent writable directories: at most 16 directories/);
+});
+
+test("escalations of a finished run are no longer offered for a decision", () => {
+  const tasks = [
+    { planTaskId: "build", escalation: { kind: "gate_failed" } },
+    { planTaskId: "docs" },
+  ];
+  const open = { execution: { id: "exe_1", status: "running" }, tasks };
+  assert.deepEqual(openEscalations(open).map((t) => t.planTaskId), ["build"]);
+  assert.deepEqual(openEscalations({ execution: { status: "running" } }), []);
+  // Sindri keeps the record on the tasks of a finished run but refuses to resolve it.
+  for (const status of ["failed", "cancelled", "verified_pending_review"])
+    assert.deepEqual(openEscalations({ ...open, execution: { status } }), [], status);
+  assert.equal(escalationBlock(open, "build"), "");
+  assert.match(escalationBlock(open, "docs"), /no longer open/);
+  assert.match(
+    escalationBlock({ ...open, execution: { status: "failed" } }, "build"),
+    /run has ended \(status is failed\)/,
+  );
+  assert.equal(escalationBlock(undefined, "build"), "", "a run missing from the snapshot is left to Sindri");
 });

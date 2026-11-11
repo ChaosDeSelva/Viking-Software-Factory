@@ -139,3 +139,7 @@ test("preferences validate layouts and notification revisions survive restart", 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+test("a command without a resource ID is refused before routing", () => {
+  assert.throws(() => commandRoute({ action: "mission.pause" }), /Invalid resource ID/);
+  assert.throws(() => commandRoute({ action: "mission.pause", id: null }), /Invalid resource ID/);
+});

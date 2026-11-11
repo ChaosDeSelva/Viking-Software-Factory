@@ -59,7 +59,8 @@ export function KnowledgeScreen() {
     }
   };
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
-  const conf = Number(confidence);
+  // An empty field is not 0: Number("") would be.
+  const conf = confidence.trim() === "" ? NaN : Number(confidence);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">

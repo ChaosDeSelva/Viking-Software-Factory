@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HarnessSummary } from "../api/delivery-types.js";
 import {
   Badge,
@@ -152,6 +152,13 @@ function ExplainForm({ projectId }: { projectId: string | null }) {
   const [types, setTypes] = useState("");
   const [lines, setLines] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
+  // An explanation depends on the project's repository; it does not describe another project,
+  // even when it answers after the switch.
+  const current = useRef(projectId);
+  useEffect(() => {
+    current.current = projectId;
+    setLines(null);
+  }, [projectId]);
   return (
     <Card title="Why this harness?">
       <form
@@ -174,7 +181,9 @@ function ExplainForm({ projectId }: { projectId: string | null }) {
                 ...(taskTypes.length ? { taskTypes } : {}),
               },
             })
-            .then((r) => setLines(r.explanation), report)
+            .then((r) => {
+              if (current.current === projectId) setLines(r.explanation);
+            }, report)
             .finally(() => setBusy(false));
         }}
       >

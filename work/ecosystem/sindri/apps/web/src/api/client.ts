@@ -61,8 +61,6 @@ const enc = encodeURIComponent;
  */
 const APPROVAL_ROUTE =
   /^\/v1\/(?:(?:specs|plans)\/[^/]+\/approve|executions\/[^/]+\/(?:pr|approvals\/[^/]+)|projects\/[^/]+\/(?:data|profile)|deliveries\/[^/]+\/proposals(?:\/[^/]+\/decision)?)$/;
-/** Only writing a profile is gated; reading it must not carry the secret. */
-const APPROVAL_ON_WRITE_ONLY = /^\/v1\/projects\/[^/]+\/profile$/;
 const APPROVAL_HEADER = "x-sindri-approval";
 const qs = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
@@ -79,8 +77,9 @@ export function createApiClient(opts: ClientOptions) {
     const token = opts.getToken();
     if (token) headers.set("authorization", `Bearer ${token}`);
     const route = path.split("?")[0] ?? "";
-    const approvalRoute =
-      APPROVAL_ROUTE.test(route) && !(method === "GET" && APPROVAL_ON_WRITE_ONLY.test(route));
+    // No read is gated (a profile and a delivery's proposals are read on gated paths), so a GET
+    // never carries the secret.
+    const approvalRoute = method !== "GET" && APPROVAL_ROUTE.test(route);
     if (approvalRoute && approvalSecret) headers.set(APPROVAL_HEADER, approvalSecret);
     const init: RequestInit = { method, headers };
     if (method !== "GET") {

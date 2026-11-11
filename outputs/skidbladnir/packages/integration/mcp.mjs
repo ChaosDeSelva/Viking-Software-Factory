@@ -19,9 +19,10 @@ export function toolList(env=process.env){const {controls}=configuration(env);re
 async function json(response){if(!response.ok)throw Error(`Skidbladnir returned HTTP ${response.status}`);let size=0;const parts=[];for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)throw Error('Result exceeds context limit');parts.push(chunk);}return JSON.parse(Buffer.concat(parts).toString());}
 export async function callTool(name,args={},env=process.env,request=fetch){
  const config=configuration(env),tool=toolList(env).find(t=>t.name===name);if(!tool)throw Error('Unknown tool or controls are disabled.');
+ if(!args||typeof args!=='object'||Array.isArray(args))throw Error('Arguments must be an object.');
  for(const key of tool.inputSchema.required)if(args[key]===undefined)throw Error('Missing '+key);
  for(const key of Object.keys(args))if(!Object.hasOwn(tool.inputSchema.properties,key))throw Error('Unexpected argument '+key);
- for(const key of ['workerId','commandId','requestKey'])if(args[key]!==undefined&&!/^[A-Za-z0-9-]{1,100}$/.test(args[key]))throw Error('Invalid identity');
+ for(const key of ['workerId','commandId','requestKey'])if(args[key]!==undefined&&(typeof args[key]!=='string'||!/^[A-Za-z0-9-]{1,100}$/.test(args[key])))throw Error('Invalid identity');
  let path='/api/snapshot',body={},method='GET';
  if(name==='skidbladnir_launch'){path='/api/workers';body={name:args.name,template:args.template,minutes:args.minutes};method='POST';}
  if(name==='skidbladnir_control'){if(!['start','stop','reboot','terminate'].includes(args.action))throw Error('Invalid action');path=`/api/workers/${args.workerId}/${args.action}`;method='POST';}

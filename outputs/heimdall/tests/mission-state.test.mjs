@@ -14,3 +14,8 @@ test("mission controls match the scheduling lifecycle", () => {
   assert.equal(canControlMission("draft", "cancel"), true);
   assert.equal(canControlMission("draft", "pause"), false);
 });
+test("actions other than pause, resume and cancel are never offered", () => {
+  for (const status of ["draft", "active", "paused"])
+    for (const action of ["start", "retry", "", "mission.pause"])
+      assert.equal(canControlMission(status, action), false);
+});

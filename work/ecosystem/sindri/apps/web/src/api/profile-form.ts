@@ -191,11 +191,19 @@ export function problemsOf(f: ProfileForm): ProfileProblems {
       out.count += n;
     }
   }
-  for (const row of f.env)
-    if (!row.name.trim() && row.value !== "") {
+  // `toProfile` makes the rows an object, so a repeated name would silently keep only the last.
+  const names = new Set<string>();
+  for (const row of f.env) {
+    const name = row.name.trim();
+    if (!name && row.value !== "") {
       out.env[row.key] = "Give the variable a name.";
       out.count += 1;
+    } else if (name && names.has(name)) {
+      out.env[row.key] = `${name} is set twice.`;
+      out.count += 1;
     }
+    names.add(name);
+  }
   const describe = (bad: string[]) => `Not an absolute path: ${bad.join(", ")}`;
   const badPath = notAbsolute(f.pathPrepend);
   if (badPath.length > 0) {

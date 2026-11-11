@@ -72,4 +72,63 @@ describe("HarnessesScreen", () => {
     renderWithStore(<HarnessesScreen />, api);
     expect(await screen.findByText(/Could not load harnesses: Brokkr is enabled/)).toBeTruthy();
   });
+
+  it("names Brokkr as the source and shows a sparse manifest", async () => {
+    const bare = {
+      name: "plain",
+      version: "0.1.0",
+      description: "Nothing declared",
+      taskTypes: [],
+      skills: { required: [], optional: [] },
+      checks: [{ id: "lint", required: false }],
+    };
+    const api = mockApi({
+      listHarnesses: { source: "brokkr", harnesses: [bare] },
+      repoSignals: {
+        ...signals,
+        packageManager: null,
+        frameworks: [],
+        scripts: [],
+        testRunners: [],
+      },
+    });
+    renderWithStore(<HarnessesScreen />, api);
+    expect(await screen.findByText(/Harnesses resolved by Brokkr/)).toBeTruthy();
+    expect(screen.queryByText(/Fixture harnesses/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "plain@0.1.0" }));
+    const manifest = screen.getByRole("region", { name: "Manifest plain@0.1.0" });
+    expect(manifest.textContent).toContain("Task types: none");
+    expect(manifest.textContent).toContain("Required skills: none");
+    expect(manifest.textContent).toContain("Optional skills: none");
+    expect(manifest.textContent).toContain("lint (optional)");
+    const repo = await screen.findByLabelText("Repository signals");
+    expect(repo.textContent).toBe(
+      "Package managerunknownFrameworksnoneTest runnersnoneScriptsnone",
+    );
+  });
+
+  it("lists no harnesses, and explains without a project or task types", async () => {
+    const api = mockApi({
+      listHarnesses: { source: "fake", harnesses: [] },
+      explainHarness: {
+        source: "fake",
+        selection: { harnesses: [], skills: [], lock: { digest: "sha256:x" }, rationale: [] },
+        explanation: ["no harness matched"],
+      },
+    });
+    renderWithStore(<HarnessesScreen />, api, { projectId: null });
+    expect(await screen.findByText("No harnesses installed.")).toBeTruthy();
+    expect(screen.getByText("Select a project to inspect its repository.")).toBeTruthy();
+    expect(api.repoSignals).not.toHaveBeenCalled();
+    await userEvent.type(screen.getByLabelText("Task title"), "T");
+    await userEvent.type(screen.getByLabelText("Task description"), "D");
+    await userEvent.type(screen.getByLabelText("Task types (comma separated)"), " , ");
+    await userEvent.click(screen.getByRole("button", { name: "Explain selection" }));
+    expect(api.explainHarness).toHaveBeenCalledWith({
+      task: { id: "explain", title: "T", description: "D" },
+    });
+    expect((await screen.findByRole("list", { name: "Explanation" })).textContent).toBe(
+      "no harness matched",
+    );
+  });
 });

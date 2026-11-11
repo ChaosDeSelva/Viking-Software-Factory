@@ -139,12 +139,21 @@ export async function fixture() {
     if (req.url.startsWith("/v1/executions?"))
       return res.end(
         JSON.stringify({
-          executions:
-            flow && !req.url.endsWith("=prj_demo") ? [] : [{ id: "exe_demo" }],
+          executions: [
+            ...(flow && !req.url.endsWith("=prj_demo") ? [] : [{ id: "exe_demo" }]),
+            // Runs started while `workflow.authoring` is set, listed under their project.
+            ...(flow?.authoring ? flow.runs ?? [] : [])
+              .filter((r) => req.url.endsWith("=" + encodeURIComponent(r.projectId)))
+              .map((r) => ({ id: r.view.execution.id })),
+          ],
         }),
       );
     if (req.url === "/v1/executions/exe_demo")
       return res.end(JSON.stringify(api.execution));
+    const tracked =
+      flow?.authoring &&
+      (flow.runs ?? []).find((r) => req.url === "/v1/executions/" + r.view.execution.id);
+    if (tracked && req.method === "GET") return res.end(JSON.stringify(tracked.view));
     const profile = /^\/v1\/projects\/([\w-]+)\/profile$/.exec(req.url);
     if (profile && req.method === "GET")
       return res.end(JSON.stringify({ profile: api.profiles[profile[1]] ?? {} }));
@@ -201,7 +210,13 @@ export async function fixture() {
         ),
       );
     }
-    if (req.url === "/v1/executions/exe_demo/events") {
+    if (
+      req.url === "/v1/executions/exe_demo/events" ||
+      (flow?.authoring &&
+        (flow.runs ?? []).some(
+          (r) => req.url === `/v1/executions/${r.view.execution.id}/events`,
+        ))
+    ) {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(": connected\n\n");
       streams.add(res);
@@ -270,6 +285,118 @@ export async function fixture() {
           return res.end(JSON.stringify({ spec: revised, meta: flow.meta?.[revised.lineageId] ?? {} }));
         }
         return res.end(JSON.stringify({ [kind.slice(0, -1)]: target }));
+      }
+      // `workflow.authoring` makes the fixture answer the authoring steps like Sindri: saving an
+      // intake, drafting and answering specifications, proposing plans, starting, cancelling and
+      // reworking runs. Without it these requests keep their earlier answers.
+      if (flow?.authoring) {
+        const input = JSON.parse(b || "{}");
+        const refuse = (status, code, message) => {
+          res.writeHead(status);
+          res.end(JSON.stringify({ error: { code, message } }));
+          return true;
+        };
+        const created = (value) => {
+          res.writeHead(201);
+          res.end(JSON.stringify(value));
+          return true;
+        };
+        const n = () => String(++flow.authored).padStart(2, "0");
+        flow.authored ??= 0;
+        flow.runs ??= [];
+        const draft = (projectId, intakeId, request) => {
+          const id = "spc_new" + n();
+          const spec = {
+            id,
+            projectId,
+            ...(intakeId ? { intakeId } : {}),
+            lineageId: "ln_" + id,
+            version: 1,
+            status: "draft",
+            title: "Drafted: " + request.trim().slice(0, 40),
+            body: {
+              problem: request.trim(),
+              goals: [],
+              acceptanceCriteria: [{ id: "AC1", text: "It works", verification: "test" }],
+              openQuestions: [
+                {
+                  id: "q-scope",
+                  text: "Which modules are in scope?",
+                  blocking: true,
+                  recommendation: "Only the totals module",
+                  rationale: "The request names totals only.",
+                },
+              ],
+            },
+          };
+          flow.specs.push(spec);
+          return spec;
+        };
+        if (req.url === "/v1/intakes") {
+          if (!String(input.title ?? "").trim())
+            return refuse(422, "validation_failed", "title is required");
+          const intake = { id: "int_new" + n(), projectId: input.projectId, title: input.title, body: input.body };
+          flow.intakes.push(intake);
+          return created({ intake });
+        }
+        if (req.url === "/v1/director/draft") {
+          // Sindri trims the request and refuses an empty one.
+          if (!String(input.request ?? "").trim())
+            return refuse(422, "validation_failed", "request: must not be empty");
+          if (input.intakeId && !flow.intakes.some((i) => i.id === input.intakeId))
+            return refuse(404, "not_found", "intake not found");
+          return created({ spec: draft(input.projectId, input.intakeId, input.request), meta: {} });
+        }
+        if (req.url === "/v1/plans/propose") {
+          const spec = flow.specs.find((s) => s.id === input.specId);
+          if (!spec) return refuse(404, "not_found", "specification not found");
+          if (spec.status !== "approved")
+            return refuse(409, "invalid_state", "only an approved specification can be planned");
+          const id = "pln_new" + n();
+          const plan = {
+            id,
+            projectId: spec.projectId,
+            lineageId: "lp_" + id,
+            version: 1,
+            status: "draft",
+            specId: spec.id,
+            tasks: [
+              { id: "build", objective: "Build it", budget: { wallClockMinutes: 10 }, maxRetries: 1, dependsOn: [], inputs: [], outputs: [], acceptanceCriteria: ["AC1"] },
+            ],
+          };
+          flow.plans.push(plan);
+          return created({ plan, versions: [] });
+        }
+        const rework = /^\/v1\/deliveries\/([\w-]+)\/rework$/.exec(req.url);
+        if (rework) {
+          const delivery = flow.deliveries.find((d) => d.id === rework[1]);
+          if (!delivery) return refuse(404, "not_found", "delivery not found");
+          if (!String(input.feedback ?? "").trim())
+            return refuse(422, "validation_failed", "feedback is required");
+          return created({ rework: { id: "rwk_" + n() }, spec: draft(delivery.projectId, undefined, input.feedback) });
+        }
+        if (req.url === "/v1/executions") {
+          const plan = flow.plans.find((r) => r.id === input.planId);
+          if (!plan) return refuse(404, "not_found", "plan not found");
+          if (plan.status !== "approved")
+            return refuse(409, "invalid_state", "only an approved plan can be started");
+          const view = {
+            execution: { id: "exe_new" + n(), planId: plan.id, projectId: plan.projectId, status: "running" },
+            plan,
+            tasks: [],
+            gates: [],
+          };
+          flow.runs.push({ projectId: plan.projectId, view });
+          return created(view);
+        }
+        const cancel = /^\/v1\/executions\/([\w-]+)\/cancel$/.exec(req.url);
+        const run = cancel && flow.runs.find((r) => r.view.execution.id === cancel[1]);
+        if (run) {
+          if (["verified_pending_review", "cancelled", "failed"].includes(run.view.execution.status))
+            return refuse(409, "invalid_state", "the execution has finished; there is nothing to cancel");
+          run.view.execution.status = "cancelled";
+          return res.end(JSON.stringify(run.view));
+        }
       }
       if (flow && req.url === "/v1/executions") {
         const plan = flow.plans.find((r) => r.id === JSON.parse(b).planId);

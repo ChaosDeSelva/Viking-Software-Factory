@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import {
   readFileSync,
   existsSync,
+  statSync,
   mkdirSync,
   writeFileSync,
   renameSync,
@@ -15,8 +16,10 @@ import { Store } from "./storage.mjs";
 import { Hub, localUrl, request } from "./connectors.mjs";
 import { commandRoute, commandTimeout } from "./commands.mjs";
 const hash = (v) => createHash("sha256").update(v).digest("hex");
+// Anything but text can never match; an empty secret is replaced at start-up.
 const equals = (a, b) =>
-  timingSafeEqual(Buffer.from(hash(a ?? "")), Buffer.from(hash(b ?? "")));
+  typeof a === "string" &&
+  timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 const json = (res, status, data) => {
   res.writeHead(status, {
     "content-type": "application/json",
@@ -31,7 +34,10 @@ async function body(req) {
     if (text.length > 524288)
       throw Object.assign(Error("Request too large"), { status: 413 });
   }
-  return JSON.parse(text || "{}");
+  const value = JSON.parse(text || "{}");
+  if (!value || typeof value !== "object")
+    throw Error("The request body must be a JSON object");
+  return value;
 }
 export async function startHeimdall(options = {}) {
   const env = options.env ?? process.env,
@@ -65,11 +71,12 @@ export async function startHeimdall(options = {}) {
       else delete connections[name];
     }
   const store = new Store(dataDir),
-    clients = new Set(),
+    clients = new Map(),
     sessions = new Map(),
     inFlight = new Set();
-  const token = env.HEIMDALL_TOKEN ?? randomBytes(24).toString("base64url"),
-    operatorCode = options.operatorCode ?? randomBytes(8).toString("hex");
+  // An empty value would match an empty submission, so it counts as not set.
+  const token = env.HEIMDALL_TOKEN || randomBytes(24).toString("base64url"),
+    operatorCode = options.operatorCode || randomBytes(8).toString("hex");
   let timer;
   let closing = false;
   const broadcast = () => {
@@ -77,8 +84,14 @@ export async function startHeimdall(options = {}) {
     clearTimeout(timer);
     timer = setTimeout(() => {
       if (closing) return;
-      const data = JSON.stringify(hub.snapshot());
-      for (const res of clients) {
+      let data;
+      // A throw in a timer would end the process; the next change sends a fresh snapshot.
+      try {
+        data = JSON.stringify(hub.snapshot());
+      } catch {
+        return;
+      }
+      for (const res of clients.keys()) {
         if (res.writableLength > 2 * 1024 * 1024) {
           res.destroy();
           clients.delete(res);
@@ -87,7 +100,12 @@ export async function startHeimdall(options = {}) {
     }, 100);
   };
   let hub = new Hub(connections, store, broadcast);
-  const web = resolve(fileURLToPath(new URL("../../dist/", import.meta.url)));
+  const web = resolve(
+    options.webDir ??
+      process.env.HEIMDALL_WEB_DIR ??
+      fileURLToPath(new URL("../../dist/", import.meta.url)),
+  );
+  const heartbeatMs = options.heartbeatMs ?? 15000;
   let boundPort = port;
   // Separate counts: a token holder must not be able to reset the operator-code lockout.
   const attempts = { login: { failures: 0, lockedUntil: 0 }, unlock: { failures: 0, lockedUntil: 0 } };
@@ -104,6 +122,8 @@ export async function startHeimdall(options = {}) {
     );
     try {
       const hosts = [`127.0.0.1:${boundPort}`, `localhost:${boundPort}`];
+      // Browsers share cookies between ports of one host, so each instance names its own.
+      const cookieName = "heimdall_" + boundPort;
       if (!hosts.includes(req.headers.host))
         throw Object.assign(Error("Invalid host"), { status: 403 });
       if (
@@ -121,7 +141,11 @@ export async function startHeimdall(options = {}) {
         const asset =
           path === "/" ? "index.html" : decodeURIComponent(path).slice(1);
         const file = resolve(web, asset);
-        if (!file.startsWith(web + "/") || !existsSync(file))
+        if (
+          !file.startsWith(web + "/") ||
+          !existsSync(file) ||
+          !statSync(file).isFile()
+        )
           throw Object.assign(Error("Not found"), { status: 404 });
         res.setHeader(
           "content-type",
@@ -159,11 +183,13 @@ export async function startHeimdall(options = {}) {
         });
         res.setHeader(
           "set-cookie",
-          `heimdall=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`,
+          `${cookieName}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`,
         );
         return json(res, 200, { ok: true });
       }
-      const sid = /\bheimdall=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
+      const sid = new RegExp(`(?:^|;\\s*)${cookieName}=([^;]+)`).exec(
+        req.headers.cookie ?? "",
+      )?.[1];
       const session = sessions.get(sid);
       if (!session || session.expires < Date.now())
         throw Object.assign(
@@ -172,9 +198,11 @@ export async function startHeimdall(options = {}) {
         );
       if (path === "/api/logout" && req.method === "POST") {
         sessions.delete(sid);
+        for (const [stream, owner] of clients)
+          if (owner === sid) stream.end();
         res.setHeader(
           "set-cookie",
-          "heimdall=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
+          `${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
         );
         return json(res, 200, { ok: true });
       }
@@ -303,10 +331,13 @@ export async function startHeimdall(options = {}) {
         if (next && !next.token) throw Error("A source token is required");
         if (next) {
           try {
-            await request(
+            const answer = await request(
               next,
               b.source === "mimir" ? "/v1/snapshot" : "/v1/projects",
             );
+            // Any 200 is not enough: a different local service, or the other source, would pass.
+            if (!Array.isArray(answer[b.source === "mimir" ? "missions" : "projects"]))
+              throw Error("Not this source");
           } catch (e) {
             throw Object.assign(
               Error(
@@ -406,20 +437,20 @@ export async function startHeimdall(options = {}) {
           events: store.events(Object.fromEntries(url.searchParams)),
         });
       if (path === "/api/stream") {
+        // Built before the headers go out, so a failure here is still an ordinary error answer.
+        const first = JSON.stringify(hub.snapshot());
         res.writeHead(200, {
           "content-type": "text/event-stream",
           "cache-control": "no-store",
           connection: "keep-alive",
         });
-        res.write(
-          `event: snapshot\ndata: ${JSON.stringify(hub.snapshot())}\n\n`,
-        );
-        clients.add(res);
+        res.write(`event: snapshot\ndata: ${first}\n\n`);
+        clients.set(res, sid);
         const ping = setInterval(() => {
           if (!sessions.has(sid) || session.expires < Date.now())
             return res.end();
           res.write(": heartbeat\n\n");
-        }, 15000);
+        }, heartbeatMs);
         req.on("close", () => {
           clearInterval(ping);
           clients.delete(res);
@@ -526,7 +557,7 @@ export async function startHeimdall(options = {}) {
             Error(
               "Pair with Sindri in Connections before issuing its controls",
             ),
-            { status: 403 },
+            { status: 403, code: "pairing_required" },
           );
         // Only final outcomes get a receipt. A resend after a timeout or source error is
         // forwarded with the same key, and the source's own idempotency answers it.
@@ -538,16 +569,17 @@ export async function startHeimdall(options = {}) {
             { status: 409 },
           );
         inFlight.add(key);
-        store.audit({
-          actor: "local operator",
-          action: c.action,
-          id: c.id,
-          reason: c.reason,
-          key,
-          outcome: "requested",
-        });
         const timeoutMs = options.commandTimeout?.(c.action) ?? commandTimeout(c.action);
+        // Everything after the key is taken sits inside the try, so the key is always released.
         try {
+          store.audit({
+            actor: "local operator",
+            action: c.action,
+            id: c.id,
+            reason: c.reason,
+            key,
+            outcome: "requested",
+          });
           const result = await request(connections[route.source], route.path, {
             method: route.method,
             headers: {
@@ -613,7 +645,12 @@ export async function startHeimdall(options = {}) {
       }
       throw Object.assign(Error("Not found"), { status: 404 });
     } catch (e) {
-      json(res, e.status ?? 400, { message: hub.clean(e.message) });
+      // After the headers went out there is no status left to send; a second one would throw.
+      if (res.headersSent) return void res.destroy();
+      json(res, e.status ?? 400, {
+        message: hub.clean(String(e?.message ?? e)),
+        ...(e?.code === "pairing_required" ? { code: e.code } : {}),
+      });
     }
   });
   await new Promise((ok, fail) => {
@@ -635,7 +672,7 @@ export async function startHeimdall(options = {}) {
       closing = true;
       hub.stop();
       clearTimeout(timer);
-      for (const r of clients) r.end();
+      for (const r of clients.keys()) r.end();
       await new Promise((r) => server.close(r));
       store.close();
     },

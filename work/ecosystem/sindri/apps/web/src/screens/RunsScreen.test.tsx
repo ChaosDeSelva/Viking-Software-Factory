@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client.js";
 import type { ExecutionStreamMessage } from "../api/delivery-types.js";
 import { NoticeRegion } from "../components/Layout.js";
@@ -26,6 +26,20 @@ const summary = {
   finishedAt: null,
 };
 const idleStream = () => new Promise<void>(() => undefined);
+/**
+ * The reconnect tests run on a fake clock so they can say exactly when a retry happens. Testing
+ * Library's `findBy`/`waitFor` wait on real timers, so those tests use `settle()` and `advance()`
+ * with plain queries instead.
+ */
+const fakeReconnectTimer = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+const advance = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
+/** Lets resolved requests and the renders they cause finish, without moving the clock. */
+const settle = async () => {
+  await advance(0);
+  await advance(0);
+};
+
+afterEach(() => vi.useRealTimers());
 /** Where the store says the app is, so a test can assert navigation. */
 function Where() {
   const { state } = useStore();
@@ -181,13 +195,20 @@ describe("RunsScreen", () => {
         push = on;
         return new Promise<void>(() => undefined);
       });
+    fakeReconnectTimer();
     const { unmount } = renderWithStore(ui, api, { executionId: "e1" });
-    const note = await screen.findByRole("note", { name: "Live updates" });
+    await settle();
+    const note = screen.getByRole("note", { name: "Live updates" });
     expect(note.textContent).toMatch(/Live updates disconnected — retrying/);
-    await waitFor(() => expect(api.streamExecution).toHaveBeenCalledTimes(2), { timeout: 5000 });
-    await waitFor(() => expect(push).toBeDefined());
+    // The first retry waits one second, no less.
+    await advance(999);
+    expect(api.streamExecution).toHaveBeenCalledTimes(1);
+    await advance(1);
+    expect(api.streamExecution).toHaveBeenCalledTimes(2);
+    expect(push).toBeDefined();
     act(() => push?.({ kind: "notice", data: { type: "status", executionId: "e1" } }));
-    await waitFor(() => expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull());
+    await settle();
+    expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull();
     unmount();
 
     // A stream that errors is retried too, and unmounting cancels the pending retry.
@@ -197,12 +218,15 @@ describe("RunsScreen", () => {
       streamExecution: () => Promise.reject(new Error("network down")),
     });
     const second = renderWithStore(ui, failing, { executionId: "e1" });
-    await screen.findByRole("note", { name: "Live updates" });
+    await settle();
+    expect(screen.getByRole("note", { name: "Live updates" })).toBeTruthy();
     expect(failing.streamExecution).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
     second.unmount();
-    await new Promise((r) => setTimeout(r, 1300));
+    expect(vi.getTimerCount()).toBe(0);
+    await advance(60_000);
     expect(failing.streamExecution).toHaveBeenCalledTimes(1);
-  }, 20_000);
+  });
 
   it("does not reconnect or warn once the run is final", async () => {
     const verified = executionDetail({
@@ -215,13 +239,17 @@ describe("RunsScreen", () => {
     });
     let end: () => void = () => undefined;
     api.streamExecution.mockImplementation(() => new Promise<void>((r) => (end = r)));
+    fakeReconnectTimer();
     renderWithStore(ui, api, { executionId: "e1" });
-    await screen.findByRole("button", { name: "Open delivery" });
+    await settle();
+    expect(screen.getByRole("button", { name: "Open delivery" })).toBeTruthy();
     await act(async () => end());
-    await new Promise((r) => setTimeout(r, 1300));
+    // No retry is even scheduled, however long the screen stays open.
+    expect(vi.getTimerCount()).toBe(0);
+    await advance(60_000);
     expect(api.streamExecution).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull();
-  }, 20_000);
+  });
 
   it("points to Reviews when a task is escalated (M8)", async () => {
     const api = mockApi({
@@ -364,17 +392,21 @@ describe("RunsScreen", () => {
     });
     let end: () => void = () => undefined;
     api.streamExecution.mockImplementation(() => new Promise<void>((r) => (end = r)));
+    fakeReconnectTimer();
     renderWithStore(withWhere, api, { executionId: "e1" });
-    const note = await screen.findByRole("note", { name: "Run failed" });
+    await settle();
+    const note = screen.getByRole("note", { name: "Run failed" });
     expect(note.textContent).toBe(
       "This run failed and will not continue. Revise the plan or execute it again.Open plan",
     );
     // Final: a closed stream is not reopened and no disconnect warning appears.
     await act(async () => end());
-    await new Promise((r) => setTimeout(r, 1300));
+    expect(vi.getTimerCount()).toBe(0);
+    await advance(60_000);
     expect(api.streamExecution).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull();
+    vi.useRealTimers();
     await userEvent.click(within(note).getByRole("button", { name: "Open plan" }));
     expect(screen.getByTestId("where").textContent).toBe("plans:pl1");
-  }, 20_000);
+  });
 });

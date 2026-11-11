@@ -97,4 +97,23 @@ describe("approval session in the web client (audit M9)", () => {
     await api.approveSpec("s1");
     expect(sent()[1]!.approval).toBeNull();
   });
+
+  it("does not send the secret when only reading a delivery's knowledge proposals", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/v1/approval-session")
+        ? json(201, { approvalSecret: SECRET, principal: "p", expiresAt: "x" })
+        : json(200, { proposals: [{ id: "kp1" }] }),
+    );
+    const api = createApiClient({ baseUrl: "", getToken: () => "tok", fetch });
+    await api.unlockApprovals("ABCDE-FGH23");
+    await expect(api.listProposals("e 1")).resolves.toEqual([{ id: "kp1" }]);
+    await expect(api.proposeKnowledge("e 1")).resolves.toEqual([{ id: "kp1" }]);
+    const [, read, write] = fetch.mock.calls as unknown as [string, RequestInit][];
+    expect(read![0]).toBe("/v1/deliveries/e%201/proposals");
+    expect(read![1].method).toBe("GET");
+    // The server gates only the POST; a read must not carry the approval factor.
+    expect(new Headers(read![1].headers).get("x-sindri-approval")).toBeNull();
+    expect(write![1].method).toBe("POST");
+    expect(new Headers(write![1].headers).get("x-sindri-approval")).toBe(SECRET);
+  });
 });

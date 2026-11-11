@@ -43,6 +43,7 @@ describe("store reducer", () => {
     let s = reducer(base(), { type: "projects/loaded", projects: [p1] });
     expect(s.projects).toEqual([p1]);
     expect(s.projectId).toBe("p1");
+    expect(reducer(base(), { type: "projects/upsert", project: p2 }).projectId).toBe("p2");
     s = reducer(s, { type: "projects/upsert", project: p2 });
     expect(s.projects).toEqual([p1, p2]);
     s = reducer(s, { type: "projects/upsert", project: { ...p1, name: "A2" } });
@@ -72,5 +73,23 @@ describe("store reducer", () => {
     const s = reducer(base({ token: "old" }), { type: "auth/rejected" });
     expect(s.token).toBeNull();
     expect(s.notice?.kind).toBe("error");
+  });
+
+  it("keeps the selected project and its selections when another project is added or removed", () => {
+    const p1 = { id: "p1", name: "A", repoPath: "/a" };
+    const p2 = { id: "p2", name: "B", repoPath: "/b" };
+    const s = base({ projects: [p1], projectId: "p1", specId: "s1", planId: "pl1" });
+    const added = reducer(s, { type: "projects/upsert", project: p2 });
+    expect(added).toMatchObject({ projectId: "p1", specId: "s1", planId: "pl1" });
+    const removed = reducer(added, { type: "projects/remove", projectId: "p2" });
+    expect(removed.projects).toEqual([p1]);
+    expect(removed).toMatchObject({ projectId: "p1", specId: "s1", planId: "pl1" });
+    // Removing the last project leaves none selected.
+    expect(reducer(removed, { type: "projects/remove", projectId: "p1" })).toMatchObject({
+      projects: [],
+      projectId: null,
+      specId: null,
+      planId: null,
+    });
   });
 });

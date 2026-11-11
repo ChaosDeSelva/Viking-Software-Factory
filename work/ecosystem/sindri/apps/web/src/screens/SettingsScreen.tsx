@@ -22,6 +22,13 @@ export function SettingsScreen() {
     if (loaded.state.status === "ready") setForm(loaded.state.data.settings);
   }, [loaded.state]);
 
+  // A confirmation is for one project: it must not carry over to the next one selected.
+  useEffect(() => {
+    setConfirm("");
+    setEraseEvidence(false);
+    setEraseConfirm("");
+  }, [project?.id]);
+
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
     try {

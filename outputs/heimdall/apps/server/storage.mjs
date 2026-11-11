@@ -1,6 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, chmodSync } from "node:fs";
 import { join } from "node:path";
+// Search text is matched as written: LIKE's own wildcards are escaped.
+const literal = (text) => String(text).replace(/[\\%_]/g, "\\$&");
 export class Store {
   constructor(dir) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -51,12 +53,12 @@ export class Store {
   } = {}) {
     return this.db
       .prepare(
-        "SELECT seq,json FROM events WHERE seq < ? AND json LIKE ? AND json LIKE ? AND (? = '' OR source = ? OR source LIKE ?) AND (? = '' OR json_extract(json,'$.type') LIKE ?) AND (? = '' OR json_extract(json,'$.missionId') = ? OR json_extract(json,'$.payload.missionId') = ?) ORDER BY seq DESC LIMIT ?",
+        "SELECT seq,json FROM events WHERE seq < ? AND json LIKE ? ESCAPE '\\' AND json LIKE ? ESCAPE '\\' AND (? = '' OR source = ? OR source LIKE ?) AND (? = '' OR json_extract(json,'$.type') LIKE ?) AND (? = '' OR json_extract(json,'$.missionId') = ? OR json_extract(json,'$.payload.missionId') = ?) ORDER BY seq DESC LIMIT ?",
       )
       .all(
         Number(before),
-        "%" + search + "%",
-        "%" + taskId + "%",
+        "%" + literal(search) + "%",
+        "%" + literal(taskId) + "%",
         source,
         source,
         source + ":%",

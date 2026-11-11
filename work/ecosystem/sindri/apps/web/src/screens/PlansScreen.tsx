@@ -54,47 +54,51 @@ export function PlansScreen() {
     <div className="grid gap-4 lg:grid-cols-3">
       <div className="space-y-4">
         <Card title="Propose a plan">
-          {approved.length === 0 ? (
-            <Empty>Approve a spec first; plans are proposed from approved specs.</Empty>
-          ) : (
-            <form
-              aria-label="Propose a plan"
-              className="space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                setBusy(true);
-                api
-                  .proposePlan(chosen)
-                  .then(({ plan }) => {
-                    dispatch({ type: "plan/open", planId: plan.id });
-                    dispatch({
-                      type: "notice",
-                      notice: { kind: "info", text: `Proposed plan v${plan.version}` },
-                    });
-                    setTick((t) => t + 1);
-                  }, report)
-                  .finally(() => setBusy(false));
-              }}
-            >
-              <Field label="Approved spec" id="plan-spec">
-                <select
-                  id="plan-spec"
-                  className={inputClass}
-                  value={chosen}
-                  onChange={(e) => setSpecId(e.target.value)}
+          <LoadState state={specs.state} what="approved specs" onRetry={specs.reload}>
+            {() =>
+              approved.length === 0 ? (
+                <Empty>Approve a spec first; plans are proposed from approved specs.</Empty>
+              ) : (
+                <form
+                  aria-label="Propose a plan"
+                  className="space-y-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setBusy(true);
+                    api
+                      .proposePlan(chosen)
+                      .then(({ plan }) => {
+                        dispatch({ type: "plan/open", planId: plan.id });
+                        dispatch({
+                          type: "notice",
+                          notice: { kind: "info", text: `Proposed plan v${plan.version}` },
+                        });
+                        setTick((t) => t + 1);
+                      }, report)
+                      .finally(() => setBusy(false));
+                  }}
                 >
-                  {approved.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.title} (v{s.version})
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Button type="submit" disabled={busy || !chosen}>
-                {busy ? "Proposing plan…" : "Propose plan"}
-              </Button>
-            </form>
-          )}
+                  <Field label="Approved spec" id="plan-spec">
+                    <select
+                      id="plan-spec"
+                      className={inputClass}
+                      value={chosen}
+                      onChange={(e) => setSpecId(e.target.value)}
+                    >
+                      {approved.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.title} (v{s.version})
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Button type="submit" disabled={busy || !chosen}>
+                    {busy ? "Proposing plan…" : "Propose plan"}
+                  </Button>
+                </form>
+              )
+            }
+          </LoadState>
         </Card>
         <Card title="Plans">
           <LoadState state={plans.state} what="plans" onRetry={plans.reload}>

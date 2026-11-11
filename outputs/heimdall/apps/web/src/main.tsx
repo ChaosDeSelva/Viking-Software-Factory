@@ -1,7 +1,7 @@
 import { Projects } from "./features/Projects";
 import { canControlMission } from "./features/missionState";
 import { ExecutionProfile } from "./features/ExecutionProfile";
-import { isFinalExecution, sindriProjectOf } from "./features/profileForm";
+import { escalationBlock, isFinalExecution, openEscalations, sindriProjectOf } from "./features/profileForm";
 import {
   latestVersions,
   orderedQuestions,
@@ -12,6 +12,10 @@ import {
   mergeProjects,
   projectAliases,
   deliveryTitle,
+  intakeRequest,
+  recordLabel,
+  runTitle as runTitleOf,
+  missionSpecTitle,
 } from "./features/workflowState";
 import {
   RecordRow,
@@ -82,15 +86,7 @@ const defaultStages = [
 ];
 const active = ["running", "starting", "leased", "verifying", "busy"];
 const attention = ["blocked", "failed", "needs_attention", "awaiting_approval"];
-const label = (r: R) =>
-  r.title ??
-  r.objective ??
-  r.name ??
-  r.template ??
-  r.action ??
-  (r.agentKind ? `${r.agentKind} · ${r.role}` : null) ??
-  r.type ??
-  r.id;
+const label = recordLabel;
 const time = (v: any) => (v ? new Date(v).toLocaleString() : "Not reported");
 const ago = (v: any) =>
   v
@@ -492,9 +488,7 @@ function App() {
     (r: R) => r.status === "pending" && missionIDs.has(r.missionId),
   );
   const missionTitle = (mission: R) =>
-    (s.specs ?? []).find((spec: R) => spec.id === executions.find(
-      (e) => e.execution.mimirMissionId === mission.id,
-    )?.plan?.specId)?.title ?? label(mission);
+    missionSpecTitle(mission, executions, s.specs ?? []) ?? label(mission);
   const focusedMission = missions.find((mission) => mission.id === overviewMission) ?? missions.at(-1);
   const focusedTasks = tasks.filter((task) => task.missionId === focusedMission?.id);
   const completed = focusedTasks.filter((t) => t.status === "completed").length;
@@ -511,8 +505,7 @@ function App() {
   const visibleTaskIds = new Set(tasks.map(task => task.id));
   // A run that failed before Mimir had a mission is still a run of the project.
   const visibleExecutions = executions.filter(e => missionIDs.has(e.execution.mimirMissionId) || sindriIDs.has(e.execution.projectId));
-  const runTitle = (e: R) =>
-    (s.specs ?? []).find((spec: R) => spec.id === e.plan?.specId)?.title ?? e.plan?.title ?? "Run " + e.execution.id;
+  const runTitle = (e: R) => runTitleOf(e, s.specs ?? []);
   const visibleExecutionIds = new Set(visibleExecutions.map(e => e.execution.id));
   const inProjectView = (row: R) => {
     if (row.projectId) return visibleProjectIds.has(row.projectId) || sindriIDs.has(row.projectId);
@@ -1214,15 +1207,7 @@ function App() {
                 <Graph
                   key={mission.id}
                   mission={mission}
-                  title={
-                    (s.specs ?? []).find(
-                      (spec: R) =>
-                        spec.id ===
-                        executions.find(
-                          (e) => e.execution.mimirMissionId === mission.id,
-                        )?.plan?.specId,
-                    )?.title
-                  }
+                  title={missionSpecTitle(mission, executions, s.specs ?? [])}
                   tasks={filtered(
                     tasks.filter((t) => t.missionId === mission.id),
                   )}
@@ -1389,9 +1374,7 @@ function App() {
                           <Badge value={g.passed ? "passed" : "failed"} />
                         </Button>
                       ))}
-                      {e.tasks
-                        ?.filter((t: R) => t.escalation)
-                        .map((t: R) => (
+                      {openEscalations(e).map((t: R) => (
                           <Button
                             variant="unstyled"
                             className="row"
@@ -2042,7 +2025,7 @@ function App() {
                   propose("spec.draft", "new", {
                     projectId: dataRow.projectId,
                     intakeId: dataRow.id,
-                    request: dataRow.body ?? dataRow.title,
+                    request: intakeRequest(dataRow),
                   })
                 }
               >
@@ -2196,7 +2179,14 @@ function App() {
               />
             </>
           )}
-          {selected.kind === "escalation" && (
+          {selected.kind === "escalation" && (() => {
+            const resolveWhy =
+              sindriWhy("execution.resolve") ||
+              escalationBlock(
+                executions.find((e) => e.execution.id === dataRow.executionId),
+                dataRow.planTaskId,
+              );
+            return (
             <>
               <Raw
                 data={dataRow.escalation}
@@ -2206,8 +2196,8 @@ function App() {
                 {["retry", "skip", "replan", "abort"].map((decision) => (
                   <Button
                     key={decision}
-                    disabled={!!sindriWhy("execution.resolve")}
-                    title={sindriWhy("execution.resolve") || undefined}
+                    disabled={!!resolveWhy}
+                    title={resolveWhy || undefined}
                     onClick={() =>
                       propose(
                         "execution.resolve",
@@ -2221,9 +2211,10 @@ function App() {
                   </Button>
                 ))}
               </div>
-              {why(sindriWhy("execution.resolve"))}
+              {why(resolveWhy)}
             </>
-          )}
+            );
+          })()}
           {selected.kind === "execution" && (() => {
             const status = dataRow.status;
             const cancelWhy =

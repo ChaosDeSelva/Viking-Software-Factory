@@ -465,12 +465,13 @@ function RequestChanges({ deliveryId }: { deliveryId: string }) {
   const reworks = useLoad(() => api.listReworks(deliveryId), [deliveryId]);
   // Drafting takes minutes: if the person has moved on, tell them but do not pull them away.
   const mounted = useRef(true);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Set again on every mount: StrictMode unmounts and remounts effects in development.
+    mounted.current = true;
+    return () => {
       mounted.current = false;
-    },
-    [],
-  );
+    };
+  }, []);
   return (
     <Card title="Request changes">
       {reworks.state.status === "error" ? (

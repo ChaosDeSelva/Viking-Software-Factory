@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BootstrapResult, SearchHit } from "../api/types.js";
 import { Badge, Button, Card, Empty, Field, inputClass } from "../components/ui.js";
 import { useApi, useReportError, useStore } from "../store/context.js";
@@ -33,6 +33,11 @@ export function ProjectsScreen() {
     );
   };
   useEffect(load, []);
+  // Results belong to the project that was searched.
+  useEffect(() => setHits(null), [state.projectId]);
+  // A search still running when the project changes must not show its results afterwards.
+  const currentProject = useRef(state.projectId);
+  currentProject.current = state.projectId;
 
   const create = async () => {
     setBusy("create");
@@ -73,10 +78,12 @@ export function ProjectsScreen() {
   };
 
   const search = async () => {
-    if (!state.projectId || !q.trim()) return;
+    const projectId = state.projectId;
+    if (!projectId || !q.trim()) return;
     setBusy("search");
     try {
-      setHits(await api.search(state.projectId, q.trim()));
+      const found = await api.search(projectId, q.trim());
+      if (currentProject.current === projectId) setHits(found);
     } catch (e) {
       report(e);
     } finally {

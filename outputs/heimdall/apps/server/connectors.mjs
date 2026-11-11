@@ -35,6 +35,9 @@ export function sanitizer(secrets) {
       }),
     );
 }
+// The source answered, but more than can be shown: a gateway error, not the caller's.
+const tooLarge = () =>
+  Object.assign(Error("Response exceeds display limit"), { status: 502 });
 // fetch gives up after 300 s without response headers, so long commands use node:http,
 // which has no such limit; only the caller's timeoutMs applies.
 function slowRequest(url, { method = "GET", headers, body, timeoutMs }) {
@@ -65,7 +68,7 @@ function slowRequest(url, { method = "GET", headers, body, timeoutMs }) {
         res.on("data", (chunk) => {
           size += chunk.length;
           if (size > 12 * 1024 * 1024)
-            req.destroy(Error("Response exceeds display limit"));
+            req.destroy(tooLarge());
           else parts.push(chunk);
         });
         res.on("error", fail);
@@ -99,14 +102,28 @@ export async function request(connection, path, options = {}) {
       timeoutMs,
     }));
   else {
-    const r = await fetch(connection.url + path, {
-      ...fetchOptions,
-      redirect: "error",
-      headers,
-      signal: options.signal ?? AbortSignal.timeout(12000),
-    });
-    status = r.status;
-    text = await boundedText(r, 12 * 1024 * 1024);
+    try {
+      const r = await fetch(connection.url + path, {
+        ...fetchOptions,
+        redirect: "error",
+        headers,
+        signal: options.signal ?? AbortSignal.timeout(12000),
+      });
+      status = r.status;
+      text = await boundedText(r, 12 * 1024 * 1024);
+    } catch (e) {
+      // fetch reports every network failure as "fetch failed"; say what it means, as a gateway error.
+      if (e.name === "TimeoutError")
+        throw Object.assign(Error("Source did not answer in time"), {
+          name: "TimeoutError",
+          status: 504,
+        });
+      if (e.message !== "fetch failed") throw e;
+      throw Object.assign(
+        Error(`Source is unreachable (${e.cause?.code ?? e.cause?.message ?? "network error"})`),
+        { status: 502 },
+      );
+    }
   }
   let data;
   try {
@@ -117,11 +134,11 @@ export async function request(connection, path, options = {}) {
   if (status < 200 || status > 299)
     throw Object.assign(
       Error(
-        data.error?.message ??
-          data.message ??
+        data?.error?.message ??
+          data?.message ??
           `Source returned HTTP ${status}`,
       ),
-      { status, code: data.error?.code },
+      { status, code: data?.error?.code },
     );
   return data;
 }
@@ -130,7 +147,7 @@ export async function boundedText(r, max) {
   const parts = [];
   for await (const chunk of r.body) {
     size += chunk.length;
-    if (size > max) throw Error("Response exceeds display limit");
+    if (size > max) throw tooLarge();
     parts.push(chunk);
   }
   return Buffer.concat(parts).toString("utf8");

@@ -40,7 +40,11 @@ source.workflow = {
       tasks: [{ id: "build", objective: "Build totals", budget: { wallClockMinutes: 10 }, maxRetries: 1, dependsOn: [], inputs: [], outputs: [], acceptanceCriteria: [] }],
     },
   ],
-  intakes: [{ id: "int_1", projectId: "prj_demo", title: "Customer request", body: "Please fix totals" }],
+  intakes: [
+    { id: "int_1", projectId: "prj_demo", title: "Customer request", body: "Please fix totals" },
+    // An imported ticket without a description: Sindri stores an empty body.
+    { id: "int_blank", projectId: "prj_demo", title: "Ticket without description", body: "" },
+  ],
   deliveries: [{ id: "exe_demo", executionId: "exe_demo", projectId: "prj_demo", status: "verified_pending_review" }],
   meta: { ln_a: { untrustedInstructionDetected: true } },
   local: {
@@ -127,6 +131,8 @@ const runs = page.locator("section").filter({ has: page.getByRole("heading", { n
 const review = inspector.getByRole("button", { name: "Review profile change" });
 const posts = (path) =>
   source.requests.filter((r) => r.method === "POST" && r.path === path).length;
+const lastPost = (path) =>
+  JSON.parse(source.requests.findLast((r) => r.method === "POST" && r.path === path).body);
 try {
   console.log("Pipeline lists");
   await page.goto(app.url);
@@ -340,6 +346,26 @@ try {
   assert.deepEqual(source.profiles.prj_demo, withoutChecks);
   await closeInspector();
 
+  console.log("Escalations end with their run");
+  source.execution.tasks = [{ planTaskId: "build", escalation: { reason: "Gate failed twice" } }];
+  source.execution.execution.status = "running";
+  await app.hub.refresh();
+  await nav("Quality & approvals");
+  const escalation = page.getByRole("button", { name: "build · Human decision needed" });
+  await escalation.click();
+  const retryTask = inspector.getByRole("button", { name: "retry", exact: true });
+  assert.equal(await retryTask.isEnabled(), true);
+  source.execution.execution.status = "failed";
+  await app.hub.refresh();
+  await inspector.getByText(/its escalations can no longer be resolved/).first().waitFor();
+  assert.equal(await retryTask.isDisabled(), true);
+  assert.match(await retryTask.getAttribute("title"), /status is failed/);
+  await closeInspector();
+  await escalation.waitFor({ state: "hidden" });
+  source.execution.tasks = [];
+  source.execution.execution.status = "verified_pending_review";
+  await app.hub.refresh();
+
   console.log("Cancel a run");
   await nav("Pipeline");
   await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
@@ -364,6 +390,111 @@ try {
   assert.match(await cancelRun.getAttribute("title"), /status is cancelled/);
   await closeInspector();
 
+  console.log("Intake to a cancelled run");
+  source.workflow.authoring = true;
+  await nav("New work");
+  await page.getByLabel("Intake title", { exact: true }).fill("Footer totals");
+  await page.getByLabel("Request", { exact: true }).fill("Show the invoice total in the footer");
+  await page.getByRole("button", { name: "Save intake" }).click();
+  await send("Customer asked");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/intakes"), {
+    projectId: "prj_demo",
+    title: "Footer totals",
+    body: "Show the invoice total in the footer",
+  });
+  await inspector.getByRole("heading", { name: "Footer totals" }).waitFor();
+  await inspector.getByRole("button", { name: "Draft specification from intake" }).click();
+  await send("Draft it");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/director/draft"), {
+    projectId: "prj_demo",
+    intakeId: "int_new01",
+    request: "Show the invoice total in the footer",
+  });
+  await inspector.getByText("v1 · spc_new02").waitFor();
+  assert.equal(await questions.count(), 1);
+  await questions.first().getByRole("button", { name: "Use recommendation" }).click();
+  assert.equal(await questions.first().getByLabel("Your answer").inputValue(), "Only the totals module");
+  await questions.first().getByRole("button", { name: "Review answer" }).click();
+  await send("The recommendation fits");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/specs/spc_new02/answer"), {
+    questionId: "q-scope",
+    answer: "Only the totals module",
+  });
+  await inspector.getByText("v2 · spc_new02x").waitFor();
+  assert.equal(await questions.count(), 0);
+  await submit.click();
+  await send("Ready");
+  await confirmed();
+  await inspector.getByText("review", { exact: true }).first().waitFor();
+  await approve.click();
+  await send("Looks right");
+  await confirmed();
+  await inspector.getByText("approved", { exact: true }).first().waitFor();
+  await inspector.getByRole("button", { name: "Propose implementation plan" }).click();
+  await send("Plan it");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/plans/propose"), { specId: "spc_new02x" });
+  await inspector.getByText("v1 · pln_new03").waitFor();
+  const approvePlan = inspector.getByRole("button", { name: "Approve plan" });
+  assert.equal(await approvePlan.isDisabled(), true);
+  await submit.click();
+  await send("Ready");
+  await confirmed();
+  await approvePlan.click();
+  await send("Good plan");
+  await confirmed();
+  await inspector.getByText("approved", { exact: true }).first().waitFor();
+  await inspector.getByRole("button", { name: "Start approved plan" }).click();
+  await send("Go");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/executions"), { planId: "pln_new03" });
+  await page.getByRole("heading", { name: "Pipeline", exact: true }).waitFor();
+  await inspector.waitFor({ state: "hidden" });
+  const newRun = runs.getByRole("button", { name: /Drafted: Show the invoice total/ });
+  await newRun.click();
+  await inspector.getByText(/Cancelling stops the run for good/).waitFor();
+  await cancelRun.click();
+  await send("No longer needed");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/executions/exe_new04/cancel"), { reason: "No longer needed" });
+  await inspector.waitFor({ state: "hidden" });
+  await page.waitForFunction(() => /0 in progress · 2 failed or cancelled/.test(document.body.innerText));
+  await newRun.click();
+  assert.match(await cancelRun.getAttribute("title"), /status is cancelled/);
+  await closeInspector();
+
+  console.log("An intake without a description is drafted from its title");
+  await stage("Intake").getByRole("button", { name: /Ticket without description/ }).click();
+  await inspector.getByRole("button", { name: "Draft specification from intake" }).click();
+  await send("Draft from the ticket title");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/director/draft"), {
+    projectId: "prj_demo",
+    intakeId: "int_blank",
+    request: "Ticket without description",
+  });
+  await inspector.getByText("v1 · spc_new05").waitFor();
+  await closeInspector();
+
+  console.log("Request changes to a delivery");
+  await stage("Delivery").getByRole("button", { name: /Exact invoice totals/ }).click();
+  await inspector.getByText("Request changes to this delivery").click();
+  const reviewChanges = inspector.getByRole("button", { name: "Review change request" });
+  assert.equal(await reviewChanges.isDisabled(), true);
+  await inspector.getByLabel("What should change").fill("  Round per line, not per invoice  ");
+  await reviewChanges.click();
+  await send("Reviewer feedback");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/deliveries/exe_demo/rework"), {
+    feedback: "Round per line, not per invoice",
+  });
+  await inspector.getByText("v1 · spc_new07").waitFor();
+  assert.match(await inspector.innerText(), /Drafted: Round per line/);
+  await closeInspector();
+
   console.log("Project filter survives the ID change");
   const filter = page.getByRole("combobox", { name: "Filter by project" });
   await filter.click();
@@ -376,7 +507,20 @@ try {
   assert.match(await filter.innerText(), /Ledger app/);
   assert.equal(await stage("Specification").getByRole("button", { name: /Ledger export/ }).count(), 1);
 
+  console.log("Session expiry");
+  // The browser drops the session cookie when its lifetime ends; the next request is refused.
+  await context.clearCookies();
+  await nav("Activity");
+  await page.getByText("Your session ended. Sign in again.").waitFor();
+  await page.getByLabel("Access token", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+
   console.log("Session loss");
+  await page.getByLabel("Access token", { exact: true }).fill("test-workflow");
+  await page.getByRole("button", { name: "Connect to factory" }).click();
+  await page.getByRole("navigation", { name: "Main navigation" }).waitFor();
+  assert.equal(await page.getByText("Your session ended. Sign in again.").count(), 0);
+  // Signing out elsewhere ends this page's event stream, which returns it to sign-in.
   await page.evaluate(() =>
     fetch("/api/logout", {
       method: "POST",
@@ -384,12 +528,11 @@ try {
       body: "{}",
     }),
   );
-  await nav("Activity");
   await page.getByText("Your session ended. Sign in again.").waitFor();
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, run cancel, stable project filter and session loss.",
+    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, stable project filter, session expiry and session loss.",
   );
 } finally {
   await browser.close();

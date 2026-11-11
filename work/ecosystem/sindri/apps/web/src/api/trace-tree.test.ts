@@ -54,4 +54,43 @@ describe("traceTree", () => {
   it("starts at the spec when there is no ticket", () => {
     expect(traceTree({ ...doc, ticket: null }).kind).toBe("spec");
   });
+
+  it("labels tasks without a Mimir id or gate, and review tasks with and without a verdict", () => {
+    const root = traceTree({
+      ...doc,
+      ticket: null,
+      tasks: [
+        { ...doc.tasks[0]!, mimirTaskId: null, planTaskId: "docs", gate: null, events: [] },
+        { ...doc.tasks[0]!, planTaskId: "qa", mimirTaskId: "tsk_q", gate: { passed: true } },
+      ],
+      reviewTasks: [
+        {
+          mimirTaskId: "tsk_r1",
+          review: { reviewId: "r1", ofPlanTaskId: "docs", status: "completed", verdict: "approve" },
+          events: [{ id: "evt_r", type: "task.completed", occurredAt: "2026-01-01T00:00:01Z" }],
+          artifacts: [{ id: "art_r", kind: "review.json", hash: `sha256:${"f".repeat(64)}` }],
+        },
+        {
+          mimirTaskId: "tsk_r2",
+          review: { reviewId: "r2", ofPlanTaskId: "qa", status: "running", verdict: null },
+          events: [],
+          artifacts: [],
+        },
+      ],
+      unattributedEvents: [],
+    });
+    const mission = root.children[0]!.children[0]!;
+    expect(mission.children.map((n) => [n.kind, n.id, n.label])).toEqual([
+      ["task", "docs", "docs (implementer): completed · frontend-react@1.1.0"],
+      ["task", "tsk_q", "qa (implementer): completed · frontend-react@1.1.0 · gate passed"],
+      ["review", "tsk_r1", "Review of docs: completed (approve)"],
+      ["review", "tsk_r2", "Review of qa: running"],
+    ]);
+    const review = mission.children[2]!;
+    expect(review.children.map((n) => n.label)).toEqual([
+      `review.json sha256:${"f".repeat(12)}`,
+      "Events (1)",
+    ]);
+    expect(review.children[1]!.children[0]!.label).toBe("task.completed at 2026-01-01T00:00:01Z");
+  });
 });

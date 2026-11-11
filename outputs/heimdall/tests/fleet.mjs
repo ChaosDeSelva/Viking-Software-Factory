@@ -106,6 +106,34 @@ try {
     .getByText("Waiting for a deliberate human decision", { exact: true })
     .first()
     .waitFor();
+  // Switching supervisors must not leave the previous one's details and messages on screen while
+  // the controls already target the newly selected supervisor.
+  await page.getByLabel("Supervisor ID", { exact: true }).fill("second");
+  await page
+    .getByRole("button", { name: "Register supervisor", exact: true })
+    .click();
+  await confirm();
+  await page.getByRole("button", { name: "Refresh observations" }).click();
+  let release;
+  const held = new Promise((r) => (release = r));
+  await page.route("**/api/supervisors/second", async (route) => {
+    await held;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: /^second · primary/ }).click();
+  await page
+    .getByRole("heading", { name: "primary", exact: true })
+    .waitFor({ state: "hidden" });
+  assert.equal(
+    await page.getByRole("button", { name: "Hold supervisor", exact: true }).count(),
+    0,
+    "no controls while the selected supervisor's details are loading",
+  );
+  release();
+  await page.getByRole("heading", { name: "second", exact: true }).waitFor();
+  await page.unroute("**/api/supervisors/second");
+  await page.getByRole("button", { name: /^primary · primary/ }).click();
+  await page.getByRole("heading", { name: "primary", exact: true }).waitFor();
   for (const width of [390, 768, 1440]) {
     await page.setViewportSize({ width, height: 1100 });
     assert.ok(
@@ -132,7 +160,7 @@ try {
     fullPage: true,
   });
   console.log(
-    "PASS real-source fleet inventory, read-only controls, drain, audited supervisor register/hold and three viewport/accessibility checks",
+    "PASS real-source fleet inventory, read-only controls, drain, audited supervisor register/hold, no stale supervisor details while switching, and three viewport/accessibility checks",
   );
 } finally {
   await browser.close();

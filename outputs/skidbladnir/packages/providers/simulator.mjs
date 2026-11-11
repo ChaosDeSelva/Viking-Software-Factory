@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 export class Simulator {
   mode = 'simulation';
-  async create(input) { return { id: `sim-${randomUUID()}`, ...input, state: 'running', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now()+input.minutes*60000).toISOString() }; }
+  async create(input) { const now = Date.now(); return { id: `sim-${randomUUID()}`, ...input, state: 'running', createdAt: new Date(now).toISOString(), expiresAt: new Date(now+input.minutes*60000).toISOString() }; }
   async transition(worker, action) {
     const transitions = { stop: ['running','stopped'], start: ['stopped','running'], reboot: ['running','running'], terminate: ['running,stopped','terminated'] };
     const [from, to] = transitions[action] ?? [];

@@ -109,9 +109,21 @@ function RunDetail({ executionId, onChanged }: { executionId: string; onChanged:
   const shown = live ?? (loaded.state.status === "ready" ? loaded.state.data : null);
   status.current = shown?.execution.status ?? null;
 
+  // Refreshes can answer out of order: only a view newer than the one shown replaces it.
+  const requested = useRef(0);
+  const applied = useRef(0);
+  const show = useCallback((d: ExecutionDetail, n = ++requested.current) => {
+    if (n <= applied.current) return;
+    applied.current = n;
+    setLive(d);
+  }, []);
   const refresh = useCallback(() => {
-    api.getExecution(executionId).then(setLive, () => undefined);
-  }, [api, executionId]);
+    const n = ++requested.current;
+    api.getExecution(executionId).then(
+      (d) => show(d, n),
+      () => undefined,
+    );
+  }, [api, executionId, show]);
 
   // The stream ends when the server restarts or the connection drops. While the run can still
   // change, say so and reopen it with a capped backoff; unmounting stops everything.
@@ -221,7 +233,7 @@ function RunDetail({ executionId, onChanged }: { executionId: string; onChanged:
               <CancelRun
                 executionId={executionId}
                 onCancelled={(cancelled) => {
-                  setLive(cancelled);
+                  show(cancelled);
                   onChanged();
                 }}
                 onRefused={refresh}

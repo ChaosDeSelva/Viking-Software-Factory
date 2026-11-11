@@ -46,8 +46,11 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
     res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const expectedHost = `127.0.0.1:${server.address()?.port}`;
     if (req.headers.host !== expectedHost || (req.headers.origin && req.headers.origin !== `http://${expectedHost}`) || req.headers['sec-fetch-site'] === 'cross-site') return reply(403,{error:'Local same-origin access only.'});
-    const url = new URL(req.url, `http://${expectedHost}`);
+    // An absolute-form target such as `http://[` is not a valid URL; it must not reject the handler.
+    let url; try { url = new URL(req.url, `http://${expectedHost}`); } catch { return reply(400,{error:'Invalid path.'}); }
     if (url.pathname.startsWith('/api/')) {
+      // Another local port is same-site: it may link to the dashboard but must not call the API.
+      if (!['same-origin','none',undefined].includes(req.headers['sec-fetch-site'])) return reply(403,{error:'Local same-origin access only.'});
       if (req.method === 'GET' && url.pathname === '/api/session') return reply(200,{token});
       if (req.method !== 'GET') {
         const received = Buffer.from(String(req.headers['x-skidbladnir-token'] || ''));
@@ -81,6 +84,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
             if(worker){worker={...worker,requestKey:key,fingerprint};store.save(worker,'AWS launch reserved. Reconcile uncertain outcomes before retrying.');broadcast();}
             try {worker=await provider.create(spec,worker);}
             catch(error){if(worker){store.save({...worker,state:error.notSubmitted?'failed':'unknown'},error.notSubmitted?'AWS preflight failed before launch.':'AWS launch outcome unknown. Reconcile before launching again.');broadcast();}throw error;}
+            if(key&&!worker.requestKey)worker={...worker,requestKey:key,fingerprint};
             store.save(worker,provider.mode==='aws'?'AWS launch accepted. Independent expiration applies.':'Simulated worker created. No cloud resources or commands were started.'); broadcast(); return reply(201,worker);
           }
           const sessionRoute=url.pathname.match(/^\/api\/workers\/([^/]+)\/terminals(?:\/([^/]+)\/(resume|close))?$/);

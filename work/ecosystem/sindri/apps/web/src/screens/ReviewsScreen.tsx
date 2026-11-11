@@ -12,6 +12,9 @@ export function ReviewsScreen() {
   const inbox = useLoad(projectId ? () => api.reviews(projectId) : null, [projectId]);
   const [busy, setBusy] = useState(false);
   const [, setUnlockTick] = useState(0);
+  // Typed reasons live here, per escalation: every decision reloads the inbox, which remounts
+  // the list, and a reason typed for another task must survive that.
+  const [reasons, setReasons] = useState<Record<string, string>>({});
 
   if (!projectId)
     return (
@@ -102,20 +105,31 @@ export function ReviewsScreen() {
                 <Empty>No escalations.</Empty>
               ) : (
                 <ul className="space-y-3 text-sm">
-                  {r.escalations.map((e) => (
-                    <Escalation
-                      key={`${e.executionId}:${e.planTaskId}`}
-                      item={e}
-                      busy={busy}
-                      onDecide={(decision, reason) =>
-                        act(
-                          () =>
-                            api.resolveEscalation(e.executionId, e.planTaskId, decision, reason),
-                          `${decision} requested for ${e.planTaskId}`,
-                        )
-                      }
-                    />
-                  ))}
+                  {r.escalations.map((e) => {
+                    const key = `${e.executionId}:${e.planTaskId}`;
+                    return (
+                      <Escalation
+                        key={key}
+                        item={e}
+                        busy={busy}
+                        reason={reasons[key] ?? ""}
+                        onReason={(text) => setReasons((all) => ({ ...all, [key]: text }))}
+                        onDecide={(decision, reason) =>
+                          act(async () => {
+                            await api.resolveEscalation(
+                              e.executionId,
+                              e.planTaskId,
+                              decision,
+                              reason,
+                            );
+                            setReasons((all) =>
+                              Object.fromEntries(Object.entries(all).filter(([k]) => k !== key)),
+                            );
+                          }, `${decision} requested for ${e.planTaskId}`)
+                        }
+                      />
+                    );
+                  })}
                 </ul>
               )}
               {r.budgetAlerts.length > 0 ? (
@@ -175,10 +189,12 @@ const DECISIONS: { decision: EscalationDecision; label: string }[] = [
 function Escalation(props: {
   item: ReviewsInbox["escalations"][number];
   busy: boolean;
+  reason: string;
+  onReason: (text: string) => void;
   onDecide: (decision: EscalationDecision, reason: string) => void;
 }) {
   const e = props.item;
-  const [reason, setReason] = useState("");
+  const reason = props.reason;
   const id = `esc-${e.executionId}-${e.planTaskId}`;
   return (
     <li className="space-y-1">
@@ -193,7 +209,7 @@ function Escalation(props: {
         id={id}
         className="block w-full rounded border border-slate-400 bg-white px-2 py-1 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-100"
         value={reason}
-        onChange={(ev) => setReason(ev.target.value)}
+        onChange={(ev) => props.onReason(ev.target.value)}
       />
       <div className="flex flex-wrap gap-2">
         {DECISIONS.map((d) => (
