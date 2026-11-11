@@ -5,7 +5,6 @@ import type { SqliteDatabase } from "@sindri/knowledge";
 export interface ReworkRequest {
   id: string;
   projectId: string;
-  /** The delivered execution being revised. */
   sourceExecutionId: string;
   specLineageId: string;
   /** Verified result commits of the delivered execution; the rework starts from these. */
@@ -63,7 +62,6 @@ export class ReworkStore {
     return rework;
   }
 
-  /** The rework a spec lineage was drafted for, if it is one. */
   forLineage(specLineageId: string): ReworkRequest | undefined {
     const row = this.db
       .prepare("SELECT * FROM rework_requests WHERE spec_lineage_id = ?")

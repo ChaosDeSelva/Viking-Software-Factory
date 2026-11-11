@@ -21,7 +21,6 @@ export interface CliProviderOptions {
   timeoutMs?: number;
 }
 
-/** Read-only tools a Claude planner gets when the request names a workspace. */
 const WORKSPACE_TOOLS = "Read,Grep,Glob";
 /** Files a planner never reads, even inside the workspace. */
 const WORKSPACE_DENY = [".env", ".env.*", "*.pem", "*.key", "id_rsa*", "id_ed25519*"].flatMap(

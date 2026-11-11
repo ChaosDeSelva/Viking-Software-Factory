@@ -135,10 +135,9 @@ export const CreateMissionRequestSchema = z.strictObject({
   objective: z.string().min(1),
   budget: BudgetInputSchema.optional(),
   /**
-   * Commits already in the project repository that the mission's work starts from, instead of
-   * the default branch: tasks with no dependencies get a worktree based on these (combined when
-   * there are several, as dependency results are). Used to rework an earlier mission's verified
-   * results in place.
+   * Commits already in the project repository that tasks with no dependencies start from,
+   * instead of the default branch (several are combined, as dependency results are). Used to
+   * rework an earlier mission's verified results.
    */
   baseCommits: z.array(GitShaSchema).min(1).max(16).optional(),
   /** The mission's task DAG, created with the mission (`dependsOn` may reference earlier ids). */

@@ -67,9 +67,8 @@ export interface ProposeOptions {
   harnesses: HarnessService;
   repoIndex?: RepoIndex;
   caps?: ProjectCaps;
-  /** Project repository the provider may read while filling in the plan. */
+  /** See `CompleteRequest.workspace` and `workspaceLabel`. */
   workspace?: string;
-  /** One line telling the provider what `workspace` holds. */
   workspaceLabel?: string;
 }
 

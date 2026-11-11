@@ -7,9 +7,7 @@ import { gitConfigFindings, hardenedGitEnv, HARDENED_GIT_CONFIG } from "@sindri/
 
 const run = promisify(execFile);
 
-/** What a planner is given to read for a project. */
 export interface PlanningWorkspace {
-  /** Directory the planner may read. */
   path: string;
   /** One line telling the planner what the directory holds. */
   label: string;
@@ -71,7 +69,6 @@ async function defaultBranchHead(repoPath: string): Promise<{ ref: string; sha: 
   }
 }
 
-/** A commit already in the repository, such as a delivered result. */
 async function commitHead(
   repoPath: string,
   commit: string,
@@ -91,14 +88,12 @@ async function commitHead(
 
 /**
  * A read-only copy of the project's default branch for the planner, so specs and plans describe
- * the code work will start from rather than whatever branch and uncommitted edits happen to be in
- * the operator's checkout. Only tracked files are exported, which also keeps local secrets such
- * as `.env` out of the planner's reach.
+ * the code work starts from, not the branch and uncommitted edits in the operator's checkout.
+ * Only tracked files are exported, which keeps local secrets such as `.env` out of the planner's
+ * reach. Keyed by commit and reused; no network access (the branch is read as last fetched).
  *
- * Snapshots are keyed by commit and reused; older ones for the project are removed. No network
- * access: the branch is read as last fetched. Falls back to the working checkout (and says so in
- * the label) when the repository has no fetched default branch, has unsafe git config, or the
- * export fails, so planning never stops on a snapshot problem.
+ * Falls back to the working checkout, and says so in the label, when there is no fetched default
+ * branch, the repo's git config is unsafe, or the export fails: planning never stops on this.
  */
 export async function planningWorkspace(o: SnapshotOptions): Promise<PlanningWorkspace> {
   const checkout: PlanningWorkspace = {

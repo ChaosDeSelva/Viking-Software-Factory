@@ -39,7 +39,6 @@ export interface Services {
   specs: Specs;
   commands: CommandStore;
   settings: SettingsStore;
-  /** Reviewer requests to change a delivered execution. */
   rework: ReworkStore;
   dataDir: string | null;
   /** The directory a planner reads for a project: a default-branch snapshot when possible. */

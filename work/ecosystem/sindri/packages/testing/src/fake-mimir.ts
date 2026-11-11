@@ -461,7 +461,6 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
         );
       }
       later(() => {
-        // A verified result, as the real server records: the head the task's manifest reported.
         st.task.resultCommit = headShaOf(st.task.id);
         transition(st, "task.completed", "completed");
         later(() => pump(st.task.missionId));

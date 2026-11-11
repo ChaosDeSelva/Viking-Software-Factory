@@ -150,10 +150,9 @@ export function deliveryRoutes(
   });
 
   /**
-   * Request changes to a delivered execution. Drafts a new spec from the reviewer's feedback
-   * and ties it to the delivery's verified results, so its plan is drafted against the delivered
-   * code and its execution starts from that code rather than from the default branch. The spec
-   * then goes through the usual questions, approvals, plan and run.
+   * Request changes to a delivered execution: drafts a spec from the reviewer's feedback and ties
+   * it to the delivery's verified results, so it is planned against, and run on top of, the
+   * delivered code. The spec then goes through the usual questions, approvals, plan and run.
    */
   app.post<{ Params: { id: string } }>("/v1/deliveries/:id/rework", async (req, reply) => {
     const body = parseBody(Rework, req.body);
