@@ -21,6 +21,12 @@ def local_factory_files(directory):
    if target.is_relative_to(directory):pending.append(target)
  return sorted(found)
 def run(cmd,cwd):subprocess.run(cmd,cwd=cwd,check=True)
+SYSTEM_LIBRARY=re.compile(r'^\s*(/usr/lib/|/System/Library/)')
+def require_standalone_node(node,linked=None):
+ """The bundled node must link only macOS system libraries: a Homebrew node needs its own dylibs and fails once copied."""
+ out=linked if linked is not None else subprocess.run(['otool','-L',str(node)],check=True,capture_output=True,text=True).stdout
+ foreign=[l.strip().split(' (')[0] for l in out.splitlines()[1:] if l.strip() and not SYSTEM_LIBRARY.match(l)]
+ if foreign:raise SystemExit(f'{node} is not a standalone Node build (it links {", ".join(foreign[:3])}). Put an official build from nodejs.org first on PATH.')
 def copy(src,dst):
  if src.is_dir():shutil.copytree(src,dst,symlinks=True,ignore=shutil.ignore_patterns('.git','.data','.heimdall','test-results','coverage','.DS_Store'))
  else:dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
@@ -32,7 +38,8 @@ def main():
 def package(args,root,out,stage):
  core=stage/'core';core.mkdir()
  if not args.skip_build:run(['sh','build.sh'],root)
- copy(Path(shutil.which('node')).resolve(),core/'node')
+ node=Path(shutil.which('node')).resolve();require_standalone_node(node)
+ copy(node,core/'node')
  for name in ['mimir','sindri','brokkr']:
   source=root/'work/ecosystem'/name;target=core/'work/ecosystem'/name
   apps=['server','cli'] if name!='brokkr' else ['cli']

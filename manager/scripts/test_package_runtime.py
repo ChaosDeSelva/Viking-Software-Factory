@@ -103,3 +103,25 @@ class CompanionVersion(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StandaloneNode(unittest.TestCase):
+    OFFICIAL = """/usr/local/bin/node:
+	/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 150.0.0)
+	/usr/lib/libc++.1.dylib (compatibility version 1.0.0)
+	/usr/lib/libSystem.B.dylib (compatibility version 1.0.0)
+"""
+    HOMEBREW = """/opt/homebrew/bin/node:
+	@rpath/libnode.147.dylib (compatibility version 0.0.0)
+	/usr/lib/libz.1.dylib (compatibility version 1.0.0)
+	/opt/homebrew/opt/libuv/lib/libuv.1.dylib (compatibility version 1.0.0)
+"""
+
+    def test_an_official_build_linking_only_system_libraries_is_accepted(self):
+        packager.require_standalone_node(Path('/usr/local/bin/node'), linked=self.OFFICIAL)
+
+    def test_a_homebrew_node_is_refused_before_it_ships_a_bundle_that_cannot_start(self):
+        with self.assertRaises(SystemExit) as caught:
+            packager.require_standalone_node(Path('/opt/homebrew/bin/node'), linked=self.HOMEBREW)
+        self.assertIn('libnode.147.dylib', str(caught.exception))
+        self.assertIn('nodejs.org', str(caught.exception))

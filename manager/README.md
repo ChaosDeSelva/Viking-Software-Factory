@@ -79,11 +79,11 @@ Run on the target Apple silicon Mac from a built factory checkout:
 
 ```sh
 python3 manager/scripts/package-runtime.py \
-  --source . --output /tmp/viking-bundle --version 0.2.0 \
+  --source . --output /tmp/viking-bundle --version 0.3.0 \
   --bifrost /path/to/built/bifrost --hulder /path/to/Hulder.app
 ```
 
-Use `--skip-build` only for an already verified local build. The packager uses production dependency deployments, preserves internal links, carries the Node license and retains project notices. Optional IDE binaries must be built and checked separately. Use `--companion` to include a separately built companion app in coordinated updates. Do not bundle an arbitrary personal IDE build for public release.
+The bundle carries the `node` that is first on `PATH`, so put an official build from nodejs.org first: the packager refuses a Homebrew `node`, which links Homebrew libraries and would not start once copied. Use `--skip-build` only for an already verified local build. The packager uses production dependency deployments, preserves internal links, carries the Node license and retains project notices. Optional IDE binaries must be built and checked separately. Use `--companion` to include a separately built companion app in coordinated updates. Do not bundle an arbitrary personal IDE build for public release.
 
 To make an app with a local bundle included:
 
