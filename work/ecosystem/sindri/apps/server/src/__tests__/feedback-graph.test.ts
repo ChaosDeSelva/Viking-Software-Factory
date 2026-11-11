@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import {
   startStubFeedbackGraph,
   fgLesson,
@@ -22,7 +23,8 @@ beforeEach(async () => {
         Promise.resolve(k === GOOD ? stub.token : k === BAD ? "not-the-token" : undefined),
     },
   });
-  stub.projects.set(f.repo.path, "demo-app");
+  // Sindri stores the resolved path (on macOS a temp dir is /private/var/..., not /var/...).
+  stub.projects.set(realpathSync(f.repo.path), "demo-app");
   stub.lessons.set("demo-app", [
     fgLesson("l1", { projectKey: "demo-app", rule: "Run the export tests before review." }),
     fgLesson("l2", { projectKey: "demo-app", status: "proposed" }),
@@ -165,7 +167,7 @@ describe("/v1/projects/:id/feedback-graph", () => {
     configure({});
     expect((await getLink()).json().link.projectKey).toBe("demo-app");
     // Feedback Graph now maps the path elsewhere: cached until the link is written.
-    stub.projects.set(f.repo.path, "other-app");
+    stub.projects.set(realpathSync(f.repo.path), "other-app");
     expect((await getLink()).json().link.projectKey).toBe("demo-app");
     expect((await putLink({ projectKey: null })).json().link).toEqual({
       projectKey: "other-app",

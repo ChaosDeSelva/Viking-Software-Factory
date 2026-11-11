@@ -80,7 +80,7 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | GET    | `/v1/plans/:id/versions`       |                                                                 | `{versions}`                                                |
 | GET    | `/v1/plans/:id/dry-run`        |                                                                 | `{dryRun}`                                                  |
 | POST   | `/v1/plans/:id/submit`         | `{}`                                                            | `{plan}`                                                    |
-| POST   | `/v1/plans/:id/approve`        | `{}` + `X-Sindri-Approval`                                      | `{plan}`                                                    |
+| POST   | `/v1/plans/:id/approve`        | `{acknowledgeUntrusted?}` + `X-Sindri-Approval`                 | `{plan}`; 409 `untrusted_unacknowledged` for a plan built from flagged instructions without the acknowledgement, 409 when its spec version has been replaced |
 | POST   | `/v1/plans/:id/revise`         | `{tasks:[PlanTask]}`                                            | 201 `{plan, versions}`                                      |
 | GET    | `/v1/harnesses`                |                                                                 | `{source, harnesses}` (`fake` fixtures unless Brokkr is enabled) |
 | GET    | `/v1/harnesses/repo-signals`   | `?projectId=`                                                   | `{source, signals}`                                         |

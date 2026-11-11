@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -377,7 +378,8 @@ describe("sindri demo", () => {
       const p = db.prepare("SELECT repo_path FROM projects WHERE id = ?").get(out.projectId) as {
         repo_path: string;
       };
-      expect(p.repo_path).toBe(out.repoPath);
+      // Sindri stores the resolved path (on macOS a temp dir is /private/var/..., not /var/...).
+      expect(p.repo_path).toBe(realpathSync(out.repoPath));
       const i = db.prepare("SELECT source, title FROM intakes WHERE id = ?").get(out.intakeId) as {
         source: string;
         title: string;

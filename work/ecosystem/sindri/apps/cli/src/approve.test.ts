@@ -130,6 +130,22 @@ describe("sindri approve (audit M9)", () => {
     for (const x of [b, c]) expect(x.calls.filter((k) => k.method === "POST")).toEqual([]);
   });
 
+  it("requires typing acknowledge for a flagged plan too", async () => {
+    const flagged = { "/v1/plans/p1": { plan: { id: "p1", untrustedInstructionDetected: true } } };
+    const a = fakeFetch(flagged);
+    await approve("plan", "p1", {
+      env: env(),
+      io: io(["ABCDE-FGH23", "acknowledge", "yes"]),
+      fetch: a.fetch,
+    });
+    expect(a.calls.at(-1)!.body).toEqual({ acknowledgeUntrusted: true });
+    const b = fakeFetch(flagged);
+    await expect(
+      approve("plan", "p1", { env: env(), io: io(["ABCDE-FGH23", "yes"]), fetch: b.fetch }),
+    ).rejects.toThrow(/not approved/);
+    expect(b.calls.filter((k) => k.method === "POST")).toEqual([]);
+  });
+
   it("requests a PR for an execution through the same factor", async () => {
     const f = fakeFetch({
       "/v1/executions/e1": { execution: { id: "e1", status: "verified_pending_review" } },

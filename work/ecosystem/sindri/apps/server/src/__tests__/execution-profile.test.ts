@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -71,7 +72,7 @@ describe("execution profile", () => {
     expect((await f.h.call({ url: url() })).json()).toEqual({ profile: PROFILE });
     // The project's other fields are untouched.
     const project = (await f.h.call({ url: `/v1/projects/${f.projectId}` })).json().project;
-    expect(project).toMatchObject({ name: "Reports", repoPath: f.repo.path });
+    expect(project).toMatchObject({ name: "Reports", repoPath: realpathSync(f.repo.path) });
   });
 
   it("writes the generated harness with the profile's checks, env names and network", async () => {

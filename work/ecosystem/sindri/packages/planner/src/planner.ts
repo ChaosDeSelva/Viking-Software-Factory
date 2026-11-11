@@ -681,6 +681,13 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       requireLatest(r, "approve");
       if (r.status !== "review")
         throw new PlanStateError(`plan ${id} is ${r.status}; only plans in review can be approved`);
+      // A plan carries out the spec it was built from; once that spec version is replaced, the
+      // plan would run outdated requirements.
+      const spec = loadSpec(r.spec_id);
+      if (spec.status !== "approved")
+        throw new PlanStateError(
+          `plan ${id} was built from spec v${spec.version}, which is now ${spec.status}; propose a plan from the approved spec`,
+        );
       db.transaction(() => {
         db.prepare(
           "UPDATE plans SET status = 'superseded' WHERE lineage_id = ? AND id <> ? AND status <> 'superseded'",

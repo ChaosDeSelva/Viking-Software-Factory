@@ -67,6 +67,31 @@ describe("plans", () => {
     expect((await f.h.call({ url: "/v1/plans" })).statusCode).toBe(422);
   });
 
+  it("a plan built from flagged instructions needs acknowledgeUntrusted to be approved", async () => {
+    const specId = await approvedSpec(f);
+    const plan = (await propose(specId)).json().plan;
+    // As the planner stores it when lessons or repository text held injected instructions.
+    f.h.db
+      .prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      )
+      .run(plan.id);
+    await f.h.call({ method: "POST", url: `/v1/plans/${plan.id}/submit`, payload: {} });
+    const approve = async (payload: object) =>
+      f.h.call({
+        method: "POST",
+        url: `/v1/plans/${plan.id}/approve`,
+        headers: await f.h.approvalHeaders(),
+        payload,
+      });
+    const refused = await approve({});
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("untrusted_unacknowledged");
+    const ok = await approve({ acknowledgeUntrusted: true });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().plan.status).toBe("approved");
+  });
+
   it("returns the dry-run order", async () => {
     const specId = await approvedSpec(f);
     const plan = (await propose(specId)).json().plan;

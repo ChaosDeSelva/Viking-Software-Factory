@@ -95,10 +95,14 @@ export async function approve(
   };
 
   const view = await call("GET", VIEW[kind](id));
+  // Specs carry the flag in meta, plans on the plan itself; the server refuses either unacknowledged.
   const flagged =
-    kind === "spec" &&
-    (view["meta"] as { untrustedInstructionDetected?: boolean } | undefined)
-      ?.untrustedInstructionDetected === true;
+    (kind === "spec" &&
+      (view["meta"] as { untrustedInstructionDetected?: boolean } | undefined)
+        ?.untrustedInstructionDetected === true) ||
+    (kind === "plan" &&
+      (view["plan"] as { untrustedInstructionDetected?: boolean } | undefined)
+        ?.untrustedInstructionDetected === true);
   const title = String(
     (view[kind === "pr" ? "execution" : kind] as Record<string, unknown> | undefined)?.["title"] ??
       "",
@@ -110,7 +114,7 @@ export async function approve(
   const pairingCode = (await io.prompt("Pairing code (shown by `sindri start`): ")).trim();
   if (flagged) {
     io.write(
-      "This spec was drafted from text with flagged untrusted instructions. Review them first.\n",
+      `This ${kind} was built from text with flagged untrusted instructions. Review them first.\n`,
     );
     const ack = await io.prompt('Type "acknowledge" to approve it anyway: ');
     if (ack.trim() !== "acknowledge") throw new CliError(`${kind} ${id} not approved`, EXIT_CONFIG);

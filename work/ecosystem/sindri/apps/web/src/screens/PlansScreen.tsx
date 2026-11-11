@@ -236,6 +236,7 @@ function PlanDetail({
   const [executing, setExecuting] = useState(false);
   const [tab, setTab] = useState("tasks");
   const [, setUnlockTick] = useState(0);
+  const [acknowledged, setAcknowledged] = useState(false);
   const detail = useLoad(() => api.getPlan(planId), [planId, tick]);
   const dry = useLoad(() => api.dryRunPlan(planId), [planId], { live: false });
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
@@ -277,10 +278,17 @@ function PlanDetail({
                 {plan.status === "review" ? (
                   <Button
                     disabled={busy}
-                    {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
+                    {...(locked
+                      ? { disabledReason: APPROVALS_LOCKED }
+                      : plan.untrustedInstructionDetected && !acknowledged
+                        ? { disabledReason: "Confirm you reviewed the flagged instructions first." }
+                        : {})}
                     onClick={() =>
                       act(async () => {
-                        await api.approvePlan(plan.id);
+                        await api.approvePlan(
+                          plan.id,
+                          plan.untrustedInstructionDetected ? { acknowledgeUntrusted: true } : {},
+                        );
                         notify(`Approved plan v${plan.version}`);
                       })
                     }
@@ -348,6 +356,28 @@ function PlanDetail({
                 { label: "Tokens", value: plan.estimates.tokens.toLocaleString() },
               ]}
             />
+            {plan.untrustedInstructionDetected ? (
+              <div role="note" aria-label="Untrusted instructions detected">
+                <Callout tone="warning" title="Untrusted instructions detected">
+                  Text in{" "}
+                  {[...new Set((plan.injectionFindings ?? []).map((f) => f.source))].join(", ") ||
+                    "the plan's input"}{" "}
+                  looked like instructions to the model. It was treated as data and not followed.
+                  Check the tasks before approving. <InfoHint term="Flagged source instructions" />
+                </Callout>
+                {plan.status === "review" ? (
+                  <label className="mt-2 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--accent)]"
+                      checked={acknowledged}
+                      onChange={(e) => setAcknowledged(e.target.checked)}
+                    />
+                    I reviewed the flagged instructions and this plan&apos;s tasks
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
             {plan.status === "review" && locked ? (
               <Callout tone="info" title="Approvals are locked">
                 <ApprovalUnlock

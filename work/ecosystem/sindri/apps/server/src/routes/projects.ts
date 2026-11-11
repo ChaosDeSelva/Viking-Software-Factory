@@ -1,4 +1,4 @@
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ExecutionProfileSchema } from "@sindri/harnesses";
@@ -9,6 +9,15 @@ import { DISPLAY_SANITIZED } from "../display.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import { PROFILE_KEY, profileHarness, profileOf } from "../execution-profile.js";
 import type { Services } from "../services.js";
+
+/** The resolved path, or the path as given when it does not exist (a data dir not yet created). */
+const realOr = (p: string): string => {
+  try {
+    return realpathSync(p);
+  } catch {
+    return resolve(p);
+  }
+};
 
 const CreateProject = z.strictObject({
   name: z.string().trim().min(1).max(200),
@@ -40,18 +49,20 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
         "validation_failed",
         "repoPath must be an existing absolute directory",
       );
-    const repo = resolve(body.repoPath);
+    // The resolved path, as Mimir stores it: a trailing slash or a symlink would otherwise
+    // register one repository twice, and a symlink to the home directory would pass the check.
+    const repo = realpathSync(body.repoPath);
     const inside = (root: string) => {
-      const r = relative(resolve(root), repo);
+      const r = relative(realOr(root), repo);
       return r === "" || (!r.startsWith("..") && !isAbsolute(r));
     };
-    if (repo === "/" || repo === resolve(homedir()) || (s.dataDir && inside(s.dataDir)))
+    if (repo === "/" || repo === realOr(homedir()) || (s.dataDir && inside(s.dataDir)))
       throw new ApiError(
         422,
         "validation_failed",
         "repoPath must be a project directory, not /, the home directory or the Sindri data directory",
       );
-    const project = s.knowledge.projects.create({ name: body.name, repoPath: body.repoPath });
+    const project = s.knowledge.projects.create({ name: body.name, repoPath: repo });
     return reply.code(201).send({ project });
   });
 

@@ -8,8 +8,11 @@ import type { Factory } from "../factory.js";
 import type { Services } from "../services.js";
 
 const Propose = z.strictObject({ specId: z.string().min(1).max(200) });
-/** The approver is the authenticated approval principal (audit M9); the body is empty. */
-const Approve = z.strictObject({});
+/**
+ * The approver is the authenticated approval principal (audit M9). A plan built from lessons with
+ * flagged instructions needs `acknowledgeUntrusted: true`, as a flagged spec does.
+ */
+const Approve = z.strictObject({ acknowledgeUntrusted: z.boolean().optional() });
 const Revise = z.strictObject({ tasks: z.array(PlanTaskSchema).min(1).max(200) });
 const ListQuery = z.object({
   projectId: z.string().min(1).optional(),
@@ -115,8 +118,18 @@ export function planRoutes(
 
   app.post<IdParams>("/v1/plans/:id/approve", (req) => {
     const approver = approvals.require(req);
-    requirePlan(req.params.id);
-    parseBody(Approve, req.body);
+    const plan = requirePlan(req.params.id);
+    const body = parseBody(Approve, req.body);
+    // Sticky across the lineage: a revision of a flagged plan still came from that input.
+    const flagged = f.planner
+      .listLineage(plan.lineageId)
+      .some((p) => p.untrustedInstructionDetected === true);
+    if (flagged && body.acknowledgeUntrusted !== true)
+      throw new ApiError(
+        409,
+        "untrusted_unacknowledged",
+        "this plan was built from text with flagged instructions; review them and send acknowledgeUntrusted: true",
+      );
     return { plan: f.planner.approve(req.params.id, approver) };
   });
 

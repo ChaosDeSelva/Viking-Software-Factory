@@ -38,6 +38,9 @@ export interface Plan {
     tokens: number;
     costUsd: number | null;
   };
+  /** Set when the lessons or repository text the plan was built from held injected instructions. */
+  untrustedInstructionDetected?: boolean;
+  injectionFindings?: { source: string; patternId: string }[];
   approvedBy: string | null;
   approvedAt: string | null;
   createdAt: string;

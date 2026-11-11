@@ -108,9 +108,34 @@ describe("PlansScreen", () => {
     renderWithStore(ui, api, { planId: "pl1" });
     await userEvent.click(await screen.findByRole("button", { name: "Submit for review" }));
     await userEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
-    expect(api.approvePlan).toHaveBeenCalledWith("pl1");
+    expect(api.approvePlan).toHaveBeenCalledWith("pl1", {});
     await userEvent.click(await screen.findByRole("button", { name: "Execute plan" }));
     expect(api.createExecution).toHaveBeenCalledWith("pl1");
+  });
+
+  it("a plan with flagged instructions warns and needs the reviewer to confirm before approving", async () => {
+    const review = plan({
+      status: "review",
+      untrustedInstructionDetected: true,
+      injectionFindings: [{ source: "lesson:acme/demo-app#1", patternId: "ignore-previous" }],
+    });
+    const api = mockApi({
+      listPlans: [review],
+      listSpecs: [],
+      getPlan: () => Promise.resolve(detail(review)),
+      dryRunPlan: dry,
+      approvePlan: plan({ status: "approved" }),
+    });
+    renderWithStore(ui, api, { planId: "pl1" });
+    const note = await screen.findByRole("note", { name: "Untrusted instructions detected" });
+    expect(note.textContent).toMatch(/lesson:acme\/demo-app#1/);
+    const approve = screen.getByRole("button", { name: /^Approve plan/ });
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: /I reviewed the flagged instructions/ }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^Approve plan/ }));
+    expect(api.approvePlan).toHaveBeenCalledWith("pl1", { acknowledgeUntrusted: true });
   });
 
   it("explains when Mimir is not configured", async () => {
@@ -165,7 +190,7 @@ describe("PlansScreen", () => {
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     await userEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
-    expect(api.approvePlan).toHaveBeenCalledWith("pl1");
+    expect(api.approvePlan).toHaveBeenCalledWith("pl1", {});
   });
 
   it("sends an emptied token budget as unset and confirms the save (L2)", async () => {

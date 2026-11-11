@@ -524,6 +524,14 @@ describe("planner", () => {
       });
     });
 
+    it("refuses to approve a plan whose spec version has since been replaced", async () => {
+      const plan = await propose(fullstack());
+      planner.submitForReview(plan.id);
+      db.prepare("UPDATE specifications SET status = 'superseded' WHERE id = ?").run(plan.specId);
+      expect(() => planner.approve(plan.id, "jacob")).toThrow(/now superseded; propose a plan/);
+      expect(planner.get(plan.id)?.status).toBe("review");
+    });
+
     it("revising an approved plan creates a new version needing re-approval; the approved one is immutable", async () => {
       const v1 = await propose(fullstack());
       planner.submitForReview(v1.id);

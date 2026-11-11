@@ -1,3 +1,6 @@
+import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { createTempRepo, type TempRepo } from "@sindri/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { makeHarness, type Harness } from "./helpers.js";
@@ -30,7 +33,11 @@ describe("projects", () => {
     });
     expect(created.statusCode).toBe(201);
     const p = created.json().project;
-    expect(p).toMatchObject({ id: expect.any(String), name: "Demo", repoPath: repo.path });
+    expect(p).toMatchObject({
+      id: expect.any(String),
+      name: "Demo",
+      repoPath: realpathSync(repo.path),
+    });
     const list = await h.call({ method: "GET", url: "/v1/projects" });
     expect(list.json().projects.map((x: { id: string }) => x.id)).toEqual([p.id]);
     const got = await h.call({ method: "GET", url: `/v1/projects/${p.id}` });
@@ -53,7 +60,6 @@ describe("projects", () => {
   });
 
   it("refuses /, the home directory and the Sindri data dir as repoPath", async () => {
-    const { homedir } = await import("node:os");
     for (const repoPath of ["/", homedir(), h.dir]) {
       const res = await h.call({
         method: "POST",
@@ -61,6 +67,34 @@ describe("projects", () => {
         payload: { name: "X", repoPath },
       });
       expect(res.statusCode, repoPath).toBe(422);
+    }
+  });
+
+  it("stores the resolved path, as Mimir does, so one repository is one project", async () => {
+    const links = mkdtempSync(join(tmpdir(), "sindri-links-"));
+    try {
+      const link = join(links, "repo-link");
+      symlinkSync(repo.path, link);
+      for (const repoPath of [`${repo.path}/`, link]) {
+        const res = await h.call({
+          method: "POST",
+          url: "/v1/projects",
+          payload: { name: "X", repoPath },
+        });
+        expect(res.statusCode, repoPath).toBe(201);
+        expect(res.json().project.repoPath, repoPath).toBe(realpathSync(repo.path));
+      }
+      // A symlink to the home directory is the home directory.
+      const home = join(links, "home-link");
+      symlinkSync(homedir(), home);
+      const res = await h.call({
+        method: "POST",
+        url: "/v1/projects",
+        payload: { name: "X", repoPath: home },
+      });
+      expect(res.statusCode).toBe(422);
+    } finally {
+      rmSync(links, { recursive: true, force: true });
     }
   });
 
