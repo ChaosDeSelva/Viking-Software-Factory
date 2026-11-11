@@ -73,6 +73,9 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private var more: NSStackView!
     private var moreToggle: NSButton!
     private var root: NSStackView!
+    private var codesRow: NSStackView!
+    private var codes: [String: String] = [:]
+    private var copyTitles: [String: String] = [:]
     private var moreRowRef: NSView!
     private var updateTimer: Timer?
     private let manager = Bundle.main.url(forResource: "viking", withExtension: nil)!
@@ -91,6 +94,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private var recoverButton: NSButton!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        installEditMenu()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.title = "V"
         statusItem.button?.setAccessibilityLabel("Viking Factory")
@@ -116,6 +120,22 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.refresh() }
         updateTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.backgroundUpdateCheck() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.backgroundUpdateCheck() }
+    }
+
+    /// A menu bar app shows no menus, but its main menu still routes Cmd+C, Cmd+A and the rest to the window.
+    private func installEditMenu() {
+        let main = NSMenu()
+        let appItem = NSMenuItem(); main.addItem(appItem)
+        let appMenu = NSMenu(); appMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        appItem.submenu = appMenu
+        let editItem = NSMenuItem(); main.addItem(editItem)
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = edit
+        NSApp.mainMenu = main
     }
 
     // MARK: building the window
@@ -215,6 +235,16 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         output.autoresizingMask = [.width]; output.isHorizontallyResizable = false; output.textContainer?.widthTracksTextView = true
         output.setAccessibilityLabel("Results of the last action"); scroll.documentView = output
         output.string = "Results of what you click appear here.\n\nHover over any button to see what it does."
+        // One-click copies of each sign-in code, shown after Show sign-in codes.
+        codesRow = NSStackView(); codesRow.orientation = .horizontal; codesRow.spacing = 8; codesRow.distribution = .fillEqually; codesRow.isHidden = true
+        for (key, title, tip) in [("heimdall", "Copy Heimdall token", "Copies the token you paste into Heimdall's sign-in page."), ("operator", "Copy operator code", "Copies the code that unlocks actions in Heimdall."), ("pairing", "Copy pairing code", "Copies the Sindri pairing code used to approve specs and plans."), ("sindri", "Copy Sindri token", "Copies the token you paste into Sindri's sign-in page (127.0.0.1:4310)."), ("mimir", "Copy Mimir token", "Copies the token you paste into Mimir's sign-in page (127.0.0.1:7700).")] {
+            let b = NSButton(title: title, target: self, action: #selector(copyCode(_:)))
+            b.bezelStyle = .rounded; b.font = .systemFont(ofSize: 11); b.toolTip = tip
+            b.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            b.identifier = NSUserInterfaceItemIdentifier(key); copyTitles[key] = title; codesRow.addArrangedSubview(b)
+        }
+        root.addArrangedSubview(codesRow)
+        codesRow.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         root.addArrangedSubview(scroll)
         scroll.widthAnchor.constraint(equalTo: root.widthAnchor).isActive = true
         scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 110).isActive = true
@@ -271,7 +301,12 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private func refresh() {
         guard !busy else { return }
         execute(["status"]) { ok, value, _ in
-            if ok, let value { self.state = FactoryState(value) }
+            if ok, let value {
+                let next = FactoryState(value)
+                // Started or stopped elsewhere: the shown codes may no longer be valid.
+                if next.running != self.state.running { self.codesRow.isHidden = true; self.codes = [:] }
+                self.state = next
+            }
             self.applyState()
         }
     }
@@ -299,6 +334,8 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private func act(_ args: [String], working: String) {
         guard !busy else { return }
         busy = true; controls.forEach { $0.isEnabled = false }
+        // Codes change when the factory restarts; never leave old ones one click away.
+        if args != ["access"] { codesRow.isHidden = true; codes = [:] }
         headline.stringValue = working
         execute(args) { ok, value, message in
             if ok && args == ["open", "companion"] { NSApp.terminate(nil); return }
@@ -323,10 +360,17 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
             }.joined(separator: "\n") + "\n\n" + FactoryState(value["status"] as? [String: Any] ?? [:]).headline
         }
         if value["heimdallToken"] != nil {
-            return "Sign-in codes (they change each time the factory starts)\n\n"
-                + "Heimdall access token: \(value["heimdallToken"] as? String ?? "")\n"
-                + "Operator code (unlocks actions in Heimdall): \(value["operatorCode"] as? String ?? "")\n"
-                + "Sindri pairing code (for approvals): \(value["sindriPairingCode"] as? String ?? "")"
+            codes = ["heimdall": value["heimdallToken"] as? String ?? "", "operator": value["operatorCode"] as? String ?? "", "pairing": value["sindriPairingCode"] as? String ?? "", "sindri": token("sindri"), "mimir": token("mimir")]
+            codesRow.isHidden = false
+            for case let b as NSButton in codesRow.arrangedSubviews { b.isEnabled = !(codes[b.identifier?.rawValue ?? ""] ?? "").isEmpty }
+            let shown = codes.mapValues { $0.isEmpty ? "not available" : $0 }
+            return "Sign-in codes. Use the Copy buttons above, or select text here and press Cmd+C.\n\n"
+                + "Heimdall access token: \(shown["heimdall"]!)\n"
+                + "Operator code (unlocks actions in Heimdall): \(shown["operator"]!)\n"
+                + "Sindri pairing code (for approvals): \(shown["pairing"]!)\n"
+                + "Sindri access token: \(shown["sindri"]!)\n"
+                + "Mimir access token: \(shown["mimir"]!)\n\n"
+                + "The Heimdall token, operator code and pairing code change each time the factory starts."
         }
         if value["installation"] != nil { return FactoryState(value).headline }
         if let repositories = value["repositories"] as? [[String: Any]] {
@@ -402,6 +446,17 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         window.setFrame(frame, display: true, animate: true)
     }
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
+    /// The Sindri and Mimir tokens live in the installed factory's data folder (owner-only files).
+    private func token(_ service: String) -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Viking Factory/data/\(service)/auth-token")
+        return (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+    @objc private func copyCode(_ sender: NSButton) {
+        guard let key = sender.identifier?.rawValue, let code = codes[key], !code.isEmpty else { return }
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(code, forType: .string)
+        let title = copyTitles[key] ?? sender.title; sender.title = "Copied"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { sender.title = title }
+    }
     @objc private func access() { act(["access"], working: "Reading the sign-in codes…") }
     @objc private func doctor() { act(["doctor"], working: "Checking health…") }
     @objc private func startWorkers() { act(["start", "skidbladnir"], working: "Starting workers…") }
