@@ -2,30 +2,56 @@
 
 The factory turns a request ("add CSV export to the reports page") into a verified change you can apply to your repository. Five programs share the work. Everything runs on your machine.
 
-```text
- ticket ──► Sindri ──plan──► Mimir ──task──► agent (in its own worktree)
-             ▲  │             │  ▲                 │
-             │  │             │  └── Brokkr verifies the result
-             │  └─ delivery ◄─┘
-             │
-  Heimdall watches Sindri and Mimir     Skidbladnir can supply worker machines
-  Feedback Graph lessons ──► Sindri     The steward recommends your decisions
+```factory-architecture
+
 ```
 
 ## Who does what
 
-| Program     | Job                                                                                                               | Default address                 |
-| ----------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| Sindri      | Plans. Inbox, Director, specs, plans, runs, quality gates, deliveries, knowledge, steward.                        | `http://127.0.0.1:4310`         |
-| Mimir       | Executes. Runs a mission's tasks with crews of agents, asks for approvals, enforces budgets, records every event. | `http://127.0.0.1:7700`         |
-| Brokkr      | Verifies. Runs the harness's checks on a task's result and writes a signed report with a verdict.                 | no UI; used by Sindri and Mimir |
-| Heimdall    | Watches. One dashboard over Sindri and Mimir; with the operator code it can act on them.                          | `http://127.0.0.1:4320`         |
-| Skidbladnir | Supplies workers. Disposable machines, simulated or in the cloud, that can run agent jobs.                        | `http://127.0.0.1:4380`         |
+| Program     | Job                                                                                                               | Open it                                  |
+| ----------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Sindri      | Plans. Inbox, Director, specs, plans, runs, quality gates, deliveries, knowledge, steward.                        | [127.0.0.1:4310](http://127.0.0.1:4310/) |
+| Mimir       | Executes. Runs a mission's tasks with crews of agents, asks for approvals, enforces budgets, records every event. | [127.0.0.1:7700](http://127.0.0.1:7700/) |
+| Heimdall    | Watches. One dashboard over Sindri and Mimir; with the operator code it can act on them.                          | [127.0.0.1:4320](http://127.0.0.1:4320/) |
+| Skidbladnir | Supplies workers. Disposable machines, simulated or in the cloud, that can run agent jobs.                        | [127.0.0.1:4380](http://127.0.0.1:4380/) |
+| Brokkr      | Verifies. Runs the harness's checks on a task's result and writes a signed report with a verdict.                 | no UI; Mimir and Sindri call it          |
 
 Two helpers:
 
 - **The steward** lives inside Sindri. Whenever you would have to make a decision (answer a spec question, resolve an escalation, approve a spec or plan, accept a delivery), it recommends one, says why, and records what happened afterwards. You accept, change or reject. See [Steward](/docs/glossary#steward).
 - **Feedback Graph** is a separate local tool (`http://127.0.0.1:8787`) that keeps lessons you approved from earlier feedback to agents. Sindri reads them and passes them to the Director, the planner and the steward. It never writes to it. Without it everything still works.
+
+## Local addresses
+
+Everything listens on `127.0.0.1` only. The launcher (_Start Factory.command_) starts Sindri, Mimir and Heimdall together and prints each one's access token; Skidbladnir and Feedback Graph start separately.
+
+| Address                                  | What                            | Sign in with                                 |
+| ---------------------------------------- | ------------------------------- | -------------------------------------------- |
+| [127.0.0.1:4320](http://127.0.0.1:4320/) | Heimdall, the command center    | Heimdall access token; operator code to act  |
+| [127.0.0.1:4310](http://127.0.0.1:4310/) | Sindri, planning and approvals  | Sindri access token; pairing code to approve |
+| [127.0.0.1:7700](http://127.0.0.1:7700/) | Mimir, execution                | Mimir access token                           |
+| [127.0.0.1:4380](http://127.0.0.1:4380/) | Skidbladnir, worker machines    | none (local only)                            |
+| [127.0.0.1:8787](http://127.0.0.1:8787/) | Feedback Graph inbox (optional) | its own                                      |
+
+Each restart prints new codes, except Sindri's and Mimir's access tokens, which stay until you rotate them.
+
+## What talks to what
+
+| From     | To              | How                                                      | Carries                                                  |
+| -------- | --------------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| Browser  | Sindri          | HTTP API; live stream `GET /v1/changes`                  | your requests and approvals; pages refresh on any change |
+| Browser  | Mimir           | HTTP API; live event stream                              | missions, crews, approvals, budgets                      |
+| Browser  | Heimdall        | its own API; live stream `/api/stream`                   | one snapshot of Sindri and Mimir, pushed as it changes   |
+| Heimdall | Sindri, Mimir   | their HTTP APIs, every 3 seconds; your actions on demand | everything it shows; operator actions                    |
+| Sindri   | Mimir           | Mimir SDK over HTTP, plus Mimir's event stream           | the approved plan as a mission; events and evidence back |
+| Sindri   | Claude Code     | the local CLI                                            | spec and plan drafting (Director and planner)            |
+| Sindri   | Feedback Graph  | HTTP, read only                                          | approved lessons for the Director, planner and steward   |
+| Mimir    | Agents          | Codex or Claude Code in a git worktree per task          | the task; the agent's changes and transcript             |
+| Mimir    | Brokkr          | library call after each task                             | a signed verification report and verdict                 |
+| Mimir    | Skidbladnir     | its API, when a task runs on a worker machine (optional) | worker lifecycle and command evidence                    |
+| You      | Your repository | `git apply` of an exported delivery                      | the verified change; nothing is merged for you           |
+
+For AI tools, Skidbladnir ships an MCP server (read only unless controls are enabled). Sindri, Mimir and Heimdall expose HTTP APIs; the factory's own agents run with MCP turned off.
 
 ## The flow in one paragraph
 

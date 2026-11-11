@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Icon } from "../icons.js";
 import { cn, focusRing, Link } from "../lib.js";
+import { ArchitectureDiagram } from "./architecture.js";
 import { Button } from "./controls.js";
 import { glossarySlug } from "./overlay.js";
 
@@ -70,10 +71,15 @@ export function Markdown({ source, className }: { source: string; className?: st
       continue;
     }
     if (line.startsWith("```")) {
+      const lang = line.slice(3).trim();
       const body: string[] = [];
       i++;
       while (i < lines.length && !lines[i]!.startsWith("```")) body.push(lines[i++]!);
       i++;
+      if (lang === "factory-architecture") {
+        blocks.push(<ArchitectureDiagram key={key} />);
+        continue;
+      }
       blocks.push(
         <pre key={key}>
           <code>{body.join("\n")}</code>

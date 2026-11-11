@@ -1,6 +1,6 @@
 {
   "name": "@factory/docs",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Shared operator docs, glossary and status meanings for the factory web apps.",
   "license": "Apache-2.0",
   "type": "module",

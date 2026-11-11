@@ -7,5 +7,6 @@ export * from "./components/layout.js";
 export * from "./components/status.js";
 export * from "./components/data.js";
 export * from "./components/combobox.js";
+export * from "./components/architecture.js";
 export * from "./components/docs.js";
 export * from "./components/shell.js";

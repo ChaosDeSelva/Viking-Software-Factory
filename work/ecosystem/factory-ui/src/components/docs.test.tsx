@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { setup } from "../test/render.js";
+import { FACTORY_ADDRESSES } from "./architecture.js";
 import { DocsView, GuideChat, Markdown, type GuideAnswer } from "./docs.js";
 
 describe("Markdown", () => {
@@ -103,5 +104,22 @@ describe("GuideChat", () => {
     expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(true);
     await user.type(screen.getByRole("textbox", { name: "Your question" }), "   {Enter}");
     expect(ask).not.toHaveBeenCalled();
+  });
+});
+
+describe("architecture diagram", () => {
+  it("renders for a factory-architecture fence, with a link to every local web app", () => {
+    render(<Markdown source={"Intro\n\n```factory-architecture\n```\n\nAfter"} />);
+    const figure = screen.getByRole("img", { name: "How the factory's programs connect" });
+    expect(figure).toBeTruthy();
+    const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
+    for (const href of Object.values(FACTORY_ADDRESSES)) expect(hrefs).toContain(href);
+    expect(screen.getByRole("link", { name: /Open Sindri/ }).getAttribute("target")).toBe("_blank");
+    expect(screen.getByText("After")).toBeTruthy();
+  });
+
+  it("other fences stay code blocks", () => {
+    const { container } = render(<Markdown source={"```text\nplain\n```"} />);
+    expect(container.querySelector("pre code")?.textContent).toBe("plain");
   });
 });
