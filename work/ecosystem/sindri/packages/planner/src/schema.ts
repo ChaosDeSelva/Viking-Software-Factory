@@ -33,7 +33,7 @@ export const BudgetSchema = z
   .strict();
 export type Budget = z.infer<typeof BudgetSchema>;
 
-const LessonIdSchema = z.string().regex(/^fg:[\w.:@-]{1,200}$/);
+const LessonIdSchema = z.string().regex(/^fg:[\w.:@/#-]{1,200}$/);
 
 /** Stored lesson text is cut to this many characters per lesson. */
 export const MAX_TASK_LESSON_CHARS = 2000;

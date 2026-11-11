@@ -11,7 +11,7 @@ export const MAX_PATH_CHARS = 300;
 export const MAX_LESSONS = 200;
 
 /** Lesson ids become citation ids (`fg:<id>`) and prompt attributes: a conservative charset. */
-const LESSON_ID = /^[\w.:@-]{1,200}$/;
+const LESSON_ID = /^[\w.:@/#-]{1,200}$/;
 
 // eslint-disable-next-line no-control-regex -- strips control characters except tab and newline
 const CONTROL = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/g;

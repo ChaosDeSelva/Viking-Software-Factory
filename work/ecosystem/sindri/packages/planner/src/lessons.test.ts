@@ -199,3 +199,12 @@ describe("planner: Feedback Graph lessons", () => {
     expect(planner.get(v2.id)!.untrustedInstructionDetected).toBe(true);
   });
 });
+
+describe("lesson ids", () => {
+  it("accept Feedback Graph's real id shape (source URL with / and #)", async () => {
+    const { PlanTaskSchema } = await import("./schema.js");
+    const lessons = PlanTaskSchema.shape.lessons;
+    expect(lessons.parse(["fg:lesson:github:acme/demo-app#13864/issue_comment/1"])).toHaveLength(1);
+    expect(() => lessons.parse(['fg:a"b'])).toThrow();
+  });
+});

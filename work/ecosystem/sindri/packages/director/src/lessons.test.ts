@@ -209,6 +209,12 @@ describe("loadLessons", () => {
     expect(new Set(got.lessons.map((l) => l.id)).size).toBe(10);
   });
 
+  it("keeps Feedback Graph's real id shape (source URL with / and #)", async () => {
+    const id = "lesson:github:acme/demo-app#13864/issue_comment/6135990338";
+    const got = await loadLessons(() => Promise.resolve([lesson(id)]), "p1");
+    expect(got.lessons.map((l) => l.id)).toEqual([`fg:${id}`]);
+  });
+
   it("redacts secrets in lesson text", async () => {
     const secret = "sk-ant-api03-" + "Z9y8X7w6V5u4T3s2R1q0".repeat(4);
     const {

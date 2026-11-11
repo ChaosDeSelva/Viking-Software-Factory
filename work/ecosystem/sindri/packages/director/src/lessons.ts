@@ -60,7 +60,7 @@ export interface LoadedLessons {
 }
 
 // Same charset the Feedback Graph client accepts: ids end up in block attributes and citations.
-const LESSON_ID = /^[\w.:@-]{1,200}$/;
+const LESSON_ID = /^[\w.:@/#-]{1,200}$/;
 
 const clean = (s: string) => redactInjections(redactSecrets(s).text).trim();
 

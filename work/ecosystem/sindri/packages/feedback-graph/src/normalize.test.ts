@@ -62,6 +62,13 @@ describe("normalizeLesson", () => {
       expect(normalizeLesson(raw)).toBeNull();
   });
 
+  it("keeps Feedback Graph's real id shape (source URL with / and #)", () => {
+    const id = "lesson:github:acme/demo-app#13864/issue_comment/6135990338";
+    expect(normalizeLesson({ id, rule: "r" })?.id).toBe(id);
+    expect(normalizeLesson({ id: 'a"b', rule: "r" })).toBeNull();
+    expect(normalizeLesson({ id: "a<b", rule: "r" })).toBeNull();
+  });
+
   it("caps lengths and path counts, strips control characters", () => {
     const l = normalizeLesson({
       id: "big",
