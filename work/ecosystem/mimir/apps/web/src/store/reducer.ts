@@ -134,10 +134,40 @@ const KNOWN_PREFIXES = [
   "artifact.",
 ];
 
+// Payloads are not validated, so a newer server can name a status this build cannot place.
+const TASK_STATUSES: Record<Task["status"], true> = {
+  pending: true,
+  ready: true,
+  leased: true,
+  running: true,
+  verifying: true,
+  completed: true,
+  blocked: true,
+  failed: true,
+  cancelled: true,
+};
+const MISSION_STATUSES: Record<Mission["status"], true> = {
+  draft: true,
+  active: true,
+  paused: true,
+  completed: true,
+  cancelled: true,
+  failed: true,
+};
+
+/** A transition to a status this build does not know (left unfolded; the snapshot is reloaded). */
+function unknownTransition(event: EventEnvelope): boolean {
+  const to = (event.payload as { to?: unknown } | null)?.to;
+  if (typeof to !== "string") return false;
+  if (event.type.startsWith("task.")) return !Object.hasOwn(TASK_STATUSES, to);
+  if (event.type.startsWith("mission.")) return !Object.hasOwn(MISSION_STATUSES, to);
+  return false;
+}
+
 /** Events that create or reshape entities; the UI reloads the snapshot after them. */
 export function needsSnapshotRefresh(event: EventEnvelope): boolean {
   const type = event.type as string;
-  if (REFRESH_TYPES.has(type)) return true;
+  if (REFRESH_TYPES.has(type) || unknownTransition(event)) return true;
   // Types this protocol version does not define (project.created, crew.created, ...).
   return !KNOWN_PREFIXES.some((p) => type.startsWith(p));
 }
@@ -167,6 +197,7 @@ function withoutBlockedReason(t: Task): Task {
 function foldEvent(state: State, e: EventEnvelope): State {
   const p = e.payload as Record<string, unknown>;
   const type = e.type;
+  if (unknownTransition(e)) return state;
 
   if (type.startsWith("task.") && type !== "task.created") {
     const to = p["to"] as Task["status"] | undefined;

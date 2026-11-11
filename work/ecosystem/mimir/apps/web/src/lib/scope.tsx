@@ -3,7 +3,7 @@
  * them (crews, tasks, agents, approvals, events); `null` is the operator's "All projects" view.
  * The choice lives in `?project=` (shareable, carried across factory apps) and in localStorage.
  */
-import type { EventEnvelope, Project } from "@mimir/protocol";
+import type { EventEnvelope, EventPayloadMap, Project } from "@mimir/protocol";
 import type { Scope } from "@factory/ui";
 import {
   createContext,
@@ -161,16 +161,30 @@ export function scopeState(state: State, projectId: string | null): ScopedState 
     const p = e.payload as { project?: { id?: unknown } } | null;
     return p?.project?.id === projectId;
   };
+  // An approval naming no mission or task (a force stop of a taskless session) is placed by the
+  // session its live request named; one that cannot be placed shows everywhere, never nowhere.
+  const sessionOf = new Map<string, string>();
+  for (const e of state.events) {
+    if (e.type !== "approval.requested" || e.sessionId === undefined) continue;
+    sessionOf.set((e.payload as EventPayloadMap["approval.requested"]).approvalId, e.sessionId);
+  }
+  const looseInScope = (id: string) => {
+    const session = sessionOf.get(id);
+    const owner =
+      session === undefined ? undefined : state.agents.find((a) => a.runtimeSessionId === session);
+    return owner === undefined || crewIds.has(owner.crewId);
+  };
   return {
     missions,
     crews,
     tasks,
     taskDependencies: state.taskDependencies.filter((d) => taskIds.has(d.taskId)),
     agents: state.agents.filter((a) => crewIds.has(a.crewId)),
-    approvals: state.approvals.filter(
-      (a) =>
-        (a.missionId !== null && missionIds.has(a.missionId)) ||
-        (a.taskId !== null && taskIds.has(a.taskId)),
+    approvals: state.approvals.filter((a) =>
+      a.missionId === null && a.taskId === null
+        ? looseInScope(a.id)
+        : (a.missionId !== null && missionIds.has(a.missionId)) ||
+          (a.taskId !== null && taskIds.has(a.taskId)),
     ),
     worktrees: state.worktrees.filter((w) => taskIds.has(w.taskId)),
     events: state.events.filter(eventInScope),
@@ -195,10 +209,13 @@ export function attentionInScope(
     missionId?: string | undefined;
     taskId?: string | undefined;
     sessionId?: string | undefined;
+    approvalId?: string | undefined;
   },
   scoped: ScopedState,
 ): boolean {
   if (scoped.missionIds === null) return true;
+  if (item.approvalId !== undefined && scoped.approvals.some((a) => a.id === item.approvalId))
+    return true;
   if (item.missionId !== undefined) return scoped.missionIds.has(item.missionId);
   if (item.taskId !== undefined) return scoped.tasks.some((t) => t.id === item.taskId);
   if (item.sessionId !== undefined)

@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTempRepo, type TempRepo } from "@sindri/testing";
@@ -61,7 +61,10 @@ describe("projects", () => {
   });
 
   it("refuses /, the home directory and the Sindri data dir as repoPath", async () => {
-    for (const repoPath of ["/", homedir(), h.dir]) {
+    // A folder inside the data dir whose name starts with ".." is still inside it.
+    const dotted = join(h.dir, "..repo");
+    mkdirSync(dotted);
+    for (const repoPath of ["/", homedir(), h.dir, dotted]) {
       const res = await h.call({
         method: "POST",
         url: "/v1/projects",

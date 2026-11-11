@@ -131,6 +131,11 @@ export function crewEffectiveStatus(
   return { value: crew.status === "running" ? "idle" : crew.status, domain: "crew" };
 }
 
+/** Completed, failed or cancelled: the server refuses budget changes and new work for it. */
+export function isMissionEnded(mission: Mission): boolean {
+  return MISSION_TERMINAL.has(mission.status);
+}
+
 /** A crew is active while its mission can still run work. */
 export function isCrewActive(crew: Crew, mission: Mission | undefined): boolean {
   if (crew.status === "stopped" || crew.status === "archived") return false;

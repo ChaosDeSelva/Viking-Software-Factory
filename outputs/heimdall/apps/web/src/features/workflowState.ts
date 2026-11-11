@@ -86,8 +86,15 @@ export function mergeEventPages(fresh: R[], loaded: R[]): R[] {
   );
 }
 
+/** A repository path compared as Mimir stores it: older Sindri rows keep a typed trailing slash. */
+export const repoKey = (path: unknown): string =>
+  typeof path === "string" && path ? path.replace(/\/+$/, "") || "/" : "";
+/** Whether two repository paths name the same repository; never true for missing paths. */
+export const sameRepo = (a: unknown, b: unknown): boolean =>
+  !!repoKey(a) && repoKey(a) === repoKey(b);
+
 /** Stable across the switch from a Sindri-only project to Mimir's record of the same repository. */
-export const projectKey = (p: R): string => p.repoPath || p.id;
+export const projectKey = (p: R): string => repoKey(p.repoPath) || p.id;
 
 /** One row per repository: Mimir's record (under Sindri's name) once it exists, Sindri's otherwise. */
 export function mergeProjects(mimir: R[], sindri: R[]): R[] {
@@ -95,10 +102,11 @@ export function mergeProjects(mimir: R[], sindri: R[]): R[] {
     ...mimir.map((p) => ({
       ...p,
       name:
-        sindri.find((sp) => p.repoPath && sp.repoPath === p.repoPath)?.name ??
-        p.name,
+        sindri.find((sp) => sameRepo(sp.repoPath, p.repoPath))?.name ?? p.name,
     })),
-    ...sindri.filter((sp) => !mimir.some((mp) => mp.repoPath === sp.repoPath)),
+    ...sindri.filter(
+      (sp) => !mimir.some((mp) => sameRepo(mp.repoPath, sp.repoPath)),
+    ),
   ];
 }
 
@@ -108,7 +116,7 @@ export function projectAliases(p: R, sindri: R[]): string[] {
     ...new Set([
       p.id,
       ...sindri
-        .filter((sp) => p.repoPath && sp.repoPath === p.repoPath)
+        .filter((sp) => sameRepo(sp.repoPath, p.repoPath))
         .map((sp) => sp.id),
     ]),
   ];

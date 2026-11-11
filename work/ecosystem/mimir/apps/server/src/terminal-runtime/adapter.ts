@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -57,6 +57,8 @@ type Binding = {
   target?: string;
   result: string;
   delivered: boolean;
+  /** Delivery sequence; retention keeps the latest deliveries, not the latest launches. */
+  deliveredSeq?: number;
   output: string;
   stopping: boolean;
   hookFile?: string;
@@ -401,6 +403,8 @@ export class TerminalRuntime implements RuntimeAdapter {
           delete b.managedPlugin;
         }
         b.delivered = true;
+        b.deliveredSeq =
+          1 + Math.max(0, ...[...this.bindings.values()].map((o) => o.deliveredSeq ?? 0));
         this.emit({
           kind: "session.exited",
           sessionId: b.session.sessionId,
@@ -426,9 +430,21 @@ export class TerminalRuntime implements RuntimeAdapter {
     }
   }
   private prune() {
-    const delivered = [...this.bindings].filter(([, b]) => b.delivered);
+    const delivered = [...this.bindings]
+      .filter(([, b]) => b.delivered)
+      .sort(([, a], [, b]) => (a.deliveredSeq ?? 0) - (b.deliveredSeq ?? 0));
     const excess = delivered.slice(0, -DELIVERED_SESSIONS_KEPT);
-    for (const [id] of excess) this.bindings.delete(id);
+    for (const [id, b] of excess) {
+      this.bindings.delete(id);
+      // The launch file holds the prompt and environment; nothing reads these once forgotten.
+      for (const file of [
+        join(this.home, b.label + ".launch.json"),
+        b.result,
+        b.result + ".tmp",
+        ...(b.hookFile ? [b.hookFile] : []),
+      ])
+        rmSync(file, { force: true });
+    }
     if (excess.length) this.save();
   }
   async subscribe(handler: (e: RuntimeEvent) => void) {

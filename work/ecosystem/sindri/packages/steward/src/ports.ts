@@ -69,6 +69,9 @@ export interface PlanApprovalSubject {
   tasks: { id: string; objective: string }[];
   /** Problems a dry run reports (empty when it is clean). */
   problems: string[];
+  /** Built from text with flagged instructions: only a person can approve it. Optional so older
+   * worlds that do not report it keep working. */
+  untrustedFlagged?: boolean;
 }
 
 export type Subject =

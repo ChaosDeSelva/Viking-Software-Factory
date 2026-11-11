@@ -100,7 +100,11 @@ export function validatePlan(plan: { tasks: readonly PlanTask[] }, ctx: Validate
     for (const id of task.acceptanceCriteria)
       if (!known.has(id)) issues.push(`${task.id} references unknown acceptance criterion ${id}`);
 
+  const tokenCapped = caps.maxTaskTokens !== undefined || caps.maxTotalTokens !== undefined;
   for (const task of plan.tasks) {
+    // Mimir gets a crew budget only from task token budgets: a missing one would be uncapped.
+    if (tokenCapped && task.budget.tokens === undefined)
+      issues.push(`${task.id}: tokens budget is required while a token cap applies`);
     issues.push(
       ...over(`${task.id}: maxRetries`, task.maxRetries, caps.maxRetries),
       ...over(

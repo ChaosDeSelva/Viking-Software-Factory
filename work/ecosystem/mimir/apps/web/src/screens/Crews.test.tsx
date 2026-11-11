@@ -107,6 +107,44 @@ describe("CrewDetail", () => {
     expect(await screen.findByRole("dialog", { name: "Raise budget" })).toBeTruthy();
   });
 
+  it("offers no Raise budget once the crew's mission has ended (the server refuses it)", async () => {
+    const m = mission({ status: "completed" });
+    const c = crew({ missionId: m.id, template: "squad" });
+    renderWithStore(<CrewDetail />, {
+      client: mockClient({
+        snapshot: vi.fn(async () => snapshot({ missions: [m], crews: [c] })),
+      }),
+      route: `/crews/${c.id}`,
+      path: "/crews/:id",
+    });
+    expect(await screen.findByRole("heading", { level: 1, name: /Squad crew/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Raise budget" })).toBeNull();
+  });
+
+  it("names the crew's own project in the breadcrumb, not the selected one", async () => {
+    const p1 = project({ name: "alpha" });
+    const p2 = project({ name: "beta" });
+    const m2 = mission({ projectId: p2.id });
+    const c = crew({ missionId: m2.id, template: "squad" });
+    localStorage.setItem("mimir.project", p1.id);
+    renderWithStore(<CrewDetail />, {
+      client: mockClient({
+        snapshot: vi.fn(async () =>
+          snapshot({
+            projects: [p1, p2],
+            missions: [mission({ projectId: p1.id }), m2],
+            crews: [c],
+          }),
+        ),
+      }),
+      route: `/crews/${c.id}`,
+      path: "/crews/:id",
+    });
+    const crumbs = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    await waitFor(() => expect(within(crumbs).getByText("beta")).toBeTruthy());
+    expect(within(crumbs).queryByText("alpha")).toBeNull();
+  });
+
   it("shows roster, active mission and live crew events", async () => {
     const m = mission({ objective: "Objective Y" });
     const c = crew({ missionId: m.id, template: "squad" });

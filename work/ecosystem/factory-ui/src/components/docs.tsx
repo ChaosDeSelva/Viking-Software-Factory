@@ -3,7 +3,6 @@ import { Icon } from "../icons.js";
 import { cn, focusRing, Link } from "../lib.js";
 import { ArchitectureDiagram } from "./architecture.js";
 import { Button } from "./controls.js";
-import { glossarySlug } from "./overlay.js";
 
 /* ------------------------------------------------------------------ Markdown */
 
@@ -56,12 +55,30 @@ const cells = (row: string) =>
     .split("|")
     .map((c) => c.trim());
 
+/**
+ * Heading anchor as `@factory/docs` computes it (`headingAnchors`), so its table of contents,
+ * search hits and cross-page links land on the heading: GitHub style, repeats get `-1`, `-2`.
+ */
+function headingId(text: string, seen: Map<string, number>): string {
+  const base = text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*`]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim()
+    .replace(/\s/g, "-");
+  const n = seen.get(base) ?? 0;
+  seen.set(base, n + 1);
+  return n === 0 ? base : `${base}-${n}`;
+}
+
 /** Small, safe Markdown renderer for docs and guide answers (no raw HTML). */
 export function Markdown({ source, className }: { source: string; className?: string }) {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
   let n = 0;
+  const anchors = new Map<string, number>();
   const isBlockStart = (l: string) => /^(#{1,6}\s|```|>\s?|\s*([-*]|\d+\.)\s|\||---+\s*$)/.test(l);
   while (i < lines.length) {
     const line = lines[i]!;
@@ -92,7 +109,7 @@ export function Markdown({ source, className }: { source: string; className?: st
       const level = Math.min(h[1]!.length, 4) as 1 | 2 | 3 | 4;
       const H = `h${level}` as const;
       blocks.push(
-        <H key={key} id={glossarySlug(h[2]!)}>
+        <H key={key} id={headingId(h[2]!, anchors)}>
           {inline(h[2]!, key)}
         </H>,
       );

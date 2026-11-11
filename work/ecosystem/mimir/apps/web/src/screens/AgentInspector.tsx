@@ -44,6 +44,8 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
   const [follow, setFollow] = useState(
     () => live && new URLSearchParams(search).get("follow") === "1",
   );
+  // An ended session has nothing new to show, so following stops with it.
+  const following = follow && live;
   const preRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
@@ -61,6 +63,8 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
     } catch (e) {
       reportError(e);
       setError(describeError(e).message);
+      // Re-reading every few seconds would only repeat the failure; the switch can turn it back on.
+      setFollow(false);
     } finally {
       setBusy(false);
     }
@@ -68,11 +72,11 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
 
   // Follow: one read now, then every TERMINAL_FOLLOW_MS (well above the 2 s floor) until off.
   useEffect(() => {
-    if (!follow) return;
+    if (!following) return;
     void load();
     const t = setInterval(() => void load(), TERMINAL_FOLLOW_MS);
     return () => clearInterval(t);
-  }, [follow, load]);
+  }, [following, load]);
 
   useEffect(() => {
     const pre = preRef.current;
@@ -93,7 +97,7 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
         <Button
           size="sm"
           icon="refresh"
-          disabled={busy || cooling || follow}
+          disabled={busy || cooling || following}
           onClick={() => void load()}
         >
           {data === null ? "Read terminal" : "Refresh terminal"}
@@ -181,7 +185,7 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
             >
               Soft stop
             </Button>
-            <Button variant="danger" onClick={() => setConfirmForce(true)}>
+            <Button variant="danger" disabled={stop.busy} onClick={() => setConfirmForce(true)}>
               Force stop…
             </Button>
           </div>
@@ -263,13 +267,15 @@ export function AgentInspector() {
   const title = agent ? `Agent ${agent.role} (${agent.agentKind})` : "Agent";
   const live = agent ? LIVE.has(agent.status) : false;
 
+  // Keyed so it keeps what it read when it moves below the state card as the session ends.
   const terminal = boundSession && (
     <Section
+      key="terminal"
       title="Terminal"
       term="Agent session"
       description="What the agent's terminal shows now: the live output of the session."
     >
-      <Terminal sessionId={boundSession} live={live} />
+      <Terminal key={boundSession} sessionId={boundSession} live={live} />
     </Section>
   );
 
@@ -369,7 +375,7 @@ export function AgentInspector() {
               />
             </Section>
             {!live && terminal}
-            <Controls sessionId={boundSession} />
+            <Controls key={boundSession} sessionId={boundSession} />
             <Section title="Timeline">
               <EventList
                 events={timeline}

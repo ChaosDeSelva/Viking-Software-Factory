@@ -41,7 +41,7 @@ fn execute() -> Result<serde_json::Value> {
     let command = args.first().map(String::as_str).unwrap_or("help");
     if command == "help" || command == "--help" {
         return Ok(
-            json!({"commands":["status","doctor","install <manifest.json> [skidbladnir hulder bifrost]","start","start skidbladnir","stop","logs [core|skidbladnir]","update check [--force]","update apply","channel <stable|preview>","rollback","recover","uninstall --confirm","open <heimdall|hulder|companion|data>","diagnostics <output.json>","config path <PATH>","config ports <mimir> <sindri> <heimdall> <skidbladnir>"],"note":"Local manifests are trusted executable software. Remote updates require an Ed25519 trusted key. All commands support --home."}),
+            json!({"commands":["access","status","doctor","install <manifest.json> [skidbladnir hulder bifrost]","start","start skidbladnir","stop","logs [core|skidbladnir]","update check [--force]","update apply","channel <stable|preview>","rollback","recover","uninstall --confirm","open <heimdall|hulder|companion|data>","diagnostics <output.json>","config path <PATH>","config ports <mimir> <sindri> <heimdall> <skidbladnir>"],"note":"Local manifests are trusted executable software. Remote updates require an Ed25519 trusted key. All commands support --home."}),
         );
     }
     let manager = Manager::open(root)?;

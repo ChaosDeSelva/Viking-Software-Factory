@@ -203,7 +203,7 @@ export function subjectInputs(c: Candidate): DecisionInput[] {
           kind: "spec",
           ref: `plan:${p.planId}`,
           summary: clip(
-            `plan v${p.version} (${p.status}) with ${p.tasks.length} task(s) for ${p.specApproved ? "an approved" : "an unapproved"} spec${p.problems.length ? `; dry run: ${p.problems.join("; ")}` : ""}`,
+            `plan v${p.version} (${p.status}) with ${p.tasks.length} task(s) for ${p.specApproved ? "an approved" : "an unapproved"} spec${p.untrustedFlagged ? ", flagged instructions in its input" : ""}${p.problems.length ? `; dry run: ${p.problems.join("; ")}` : ""}`,
           ),
         },
       ];
@@ -252,6 +252,9 @@ export function heuristic(c: Candidate): Heuristic | null {
       const blockers = [
         ...(!p.specApproved ? ["its specification is not approved"] : []),
         ...(p.tasks.length === 0 ? ["it has no tasks"] : []),
+        ...(p.untrustedFlagged
+          ? ["it was built from text with flagged instructions a person must review"]
+          : []),
         ...p.problems.map((x) => `dry run: ${x}`),
       ];
       if (blockers.length === 0) return null;

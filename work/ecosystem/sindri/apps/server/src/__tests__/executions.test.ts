@@ -165,6 +165,40 @@ describe("executions with a fake Mimir", () => {
     expect(text).toMatch(/event: execution.notice\ndata: \{.*"to":"verified_pending_review"/);
   });
 
+  it("relays Sindri's own event rows (a cancel) to an open stream", async () => {
+    const flow = (f = await startMimirFlow({
+      "implement-frontend": [{ kind: "approval", action: "fs.write" }],
+    }));
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const { execution } = (await create(flow, plan.id)).json();
+    await until(status(flow, execution.id), (s) => s === "awaiting_human");
+    const address = await flow.h.app.listen({ host: "127.0.0.1", port: 0 });
+    const ctrl = new AbortController();
+    const res = await fetch(`${address}/v1/executions/${execution.id}/events`, {
+      headers: { authorization: `Bearer ${"t".repeat(64)}` },
+      signal: ctrl.signal,
+    });
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const cancel = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/cancel`,
+      payload: { reason: "wrong plan" },
+    });
+    expect(cancel.statusCode).toBe(200);
+    let text = "";
+    const dec = new TextDecoder();
+    while (!/"to":"cancelled"/.test(text)) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += dec.decode(value);
+    }
+    ctrl.abort();
+    // The event row comes before the notice of the status change it explains.
+    expect(text).toMatch(
+      /event: execution.event\ndata: \{.*"type":"execution_cancelled"[^]*"to":"cancelled"/,
+    );
+  });
+
   it("resolves an escalated task with a human retry and runs on to verification", async () => {
     const flow = (f = await startMimirFlow({
       qa: [

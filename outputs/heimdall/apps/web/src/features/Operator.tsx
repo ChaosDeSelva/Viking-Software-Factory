@@ -231,10 +231,11 @@ export function useDesktopAlerts(
   items: R[] | undefined,
   enabled: boolean,
   onInspect: (k: string, r: R) => void,
+  shown?: (n: R) => boolean,
 ) {
   const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
-    const [next, fresh] = newAlerts(seen.current, items);
+    const [next, fresh] = newAlerts(seen.current, items, shown);
     seen.current = next;
     for (const n of fresh) {
       if (

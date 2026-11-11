@@ -48,6 +48,7 @@ import {
   projectAliases,
   projectKey,
   recordLabel,
+  repoKey,
 } from "../features/workflowState";
 import { sindriProjectOf } from "../features/profileForm";
 import { HeimdallContext, type Heimdall, type Session } from "./context";
@@ -220,7 +221,8 @@ export function App() {
     const p = all.activeProjects.find(
       (row) =>
         row.id === value ||
-        projectKey(row) === value ||
+        // A remembered key may still carry an older Sindri row's trailing slash.
+        projectKey(row) === repoKey(value) ||
         projectAliases(row, all.sindriProjects).includes(value),
     );
     return p ? projectKey(p) : "all";
@@ -359,6 +361,8 @@ export function App() {
     state?.notifications,
     !!state?.preferences?.desktopNotifications,
     inspectNotification,
+    // Only what the badge counts: an archived project's news stays quiet.
+    (n) => scopedNotifications([n], all).length > 0,
   );
 
   const page = route.page;

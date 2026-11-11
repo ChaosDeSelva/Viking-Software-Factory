@@ -198,8 +198,9 @@ export function executionRoutes(
       streams.add(raw);
       const unsubscribe = hub.subscribe((n) => {
         if (n.executionId !== id) return;
-        if (n.type === "event") flush();
-        else write("execution.notice", n);
+        // Rows Sindri writes itself (a cancel, an escalation answer) send no `event` notice.
+        flush();
+        if (n.type !== "event") write("execution.notice", n);
       });
       const ping = setInterval(() => raw.write(": ping\n\n"), HEARTBEAT_MS);
       req.raw.on("close", () => {
@@ -229,13 +230,17 @@ export function executionRoutes(
         // PR approvals arrive after execution streaming has settled. Read them through the
         // SDK, bind them to this mission, and retain the same human approval requirement.
         const execution = hub.reader.get(id)!;
-        const conn = await hub.connection();
-        const remote = await conn.facade.approvalForMission(execution.mimirMissionId, approvalId);
-        if (!remote || remote.action !== "pr.create") throw notFound("approval");
-        if (remote.status !== "pending")
-          throw new ApiError(409, "invalid_state", `approval is already ${remote.status}`);
-        await conn.facade.decideApproval(remote.id, body.decision, body.reason);
-        return { approval: { ...remote, status: body.decision }, execution };
+        try {
+          const conn = await hub.connection();
+          const remote = await conn.facade.approvalForMission(execution.mimirMissionId, approvalId);
+          if (!remote || remote.action !== "pr.create") throw notFound("approval");
+          if (remote.status !== "pending")
+            throw new ApiError(409, "invalid_state", `approval is already ${remote.status}`);
+          await conn.facade.decideApproval(remote.id, body.decision, body.reason);
+          return { approval: { ...remote, status: body.decision }, execution };
+        } catch (err) {
+          throw asMimirUnavailable(err);
+        }
       }
       if (approval.status !== "pending")
         throw new ApiError(409, "invalid_state", `approval is already ${approval.status}`);

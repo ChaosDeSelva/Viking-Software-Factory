@@ -5,6 +5,7 @@ import {
   mergeProjects,
   projectAliases,
   projectKey,
+  repoKey,
 } from "./workflowState.ts";
 import { openEscalations } from "./profileForm.ts";
 type R = Record<string, any>;
@@ -74,7 +75,9 @@ export function scopeOf(state: R | null, selection: string): Scope {
     (p) => filter === "all" || projectKey(p) === filter,
   );
   const projectIds = new Set(projects.map((p) => p.id));
-  const repos = new Set(projects.map((p) => p.repoPath).filter(Boolean));
+  const repos = new Set(
+    projects.map((p) => repoKey(p.repoPath)).filter(Boolean),
+  );
   const missions: R[] = (m.missions ?? []).filter((r: R) =>
     projectIds.has(r.projectId),
   );
@@ -89,9 +92,7 @@ export function scopeOf(state: R | null, selection: string): Scope {
   const agents: R[] = (m.agents ?? []).filter((r: R) => crewIds.has(r.crewId));
   const sindriIds = new Set(
     sindriProjects
-      .filter(
-        (p) => projectIds.has(p.id) || (p.repoPath && repos.has(p.repoPath)),
-      )
+      .filter((p) => projectIds.has(p.id) || repos.has(repoKey(p.repoPath)))
       .map((p) => p.id),
   );
   const inSindri = (r: R) => sindriIds.has(r.projectId);

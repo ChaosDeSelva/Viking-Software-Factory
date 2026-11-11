@@ -1,5 +1,6 @@
 // Pure conversion between Sindri's execution profile and the form that edits it. Sindri validates
 // the saved profile; the checks here only report the same problems before the request is sent.
+import { sameRepo } from "./workflowState.ts";
 type R = Record<string, any>;
 
 export type CheckRow = {
@@ -272,7 +273,7 @@ export function formToProfile(form: ProfileForm): {
 export function sindriProjectOf(project: R, sindri: R[]): R | undefined {
   return (
     sindri.find((sp) => sp.id === project.id) ??
-    sindri.find((sp) => project.repoPath && sp.repoPath === project.repoPath)
+    sindri.find((sp) => sameRepo(sp.repoPath, project.repoPath))
   );
 }
 

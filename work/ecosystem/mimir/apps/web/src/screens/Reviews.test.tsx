@@ -3,7 +3,16 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { expectNoSeriousA11yViolations } from "../test/axe.js";
-import { approval, event, mission, project, snapshot, task } from "../test/fixtures.js";
+import {
+  agent,
+  approval,
+  crew,
+  event,
+  mission,
+  project,
+  snapshot,
+  task,
+} from "../test/fixtures.js";
 import { accepted, mockClient, page } from "../test/mockClient.js";
 import { renderWithStore } from "../test/render.js";
 import { Reviews } from "./Reviews.js";
@@ -195,6 +204,61 @@ describe("Reviews: grouping and project scope", () => {
     expect(within(tests).getByRole("img", { name: /Status: Passed/i })).toBeTruthy();
     expect(within(tests).getByRole("link", { name: "Mission G" })).toBeTruthy();
     expect(within(tests).getByText(/build-api · Build the API/)).toBeTruthy();
+  });
+
+  it("keeps an approval naming no mission or task (a taskless force stop) under every project", async () => {
+    const p1 = project({ name: "alpha" });
+    const p2 = project({ name: "beta" });
+    const m1 = mission({ projectId: p1.id });
+    const m2 = mission({ projectId: p2.id });
+    const loose = approval({ action: "runtime.force_stop", missionId: null, taskId: null });
+    localStorage.setItem("mimir.project", p1.id);
+    const client = mockClient({
+      snapshot: vi.fn(async () =>
+        snapshot({ projects: [p1, p2], missions: [m1, m2], approvals: [loose] }),
+      ),
+    });
+    renderWithStore(<Reviews />, { client });
+    const inbox = await screen.findByRole("region", { name: /Pending approvals/ });
+    await waitFor(() =>
+      expect(within(inbox).getAllByText("runtime.force_stop").length).toBeGreaterThan(0),
+    );
+  });
+
+  it("places a taskless approval by its session when the request was seen live", async () => {
+    const p1 = project({ name: "alpha" });
+    const p2 = project({ name: "beta" });
+    const m1 = mission({ projectId: p1.id });
+    const m2 = mission({ projectId: p2.id });
+    const c2 = crew({ missionId: m2.id });
+    const ag = agent({ crewId: c2.id, taskId: null });
+    const loose = approval({ action: "runtime.force_stop", missionId: null, taskId: null });
+    localStorage.setItem("mimir.project", p1.id);
+    const snap = snapshot({
+      projects: [p1, p2],
+      missions: [m1, m2],
+      crews: [c2],
+      agents: [ag],
+    });
+    const client = mockClient({ snapshot: vi.fn(async () => snap) });
+    renderWithStore(<Reviews />, { client });
+    const inbox = await screen.findByRole("region", { name: /Pending approvals/ });
+    vi.mocked(client.snapshot).mockResolvedValue({ ...snap, approvals: [loose] });
+    act(() =>
+      client.streamController.push(
+        event(
+          "approval.requested",
+          { approvalId: loose.id, action: "runtime.force_stop", expiry: null },
+          { sessionId: ag.runtimeSessionId as never },
+        ),
+      ),
+    );
+    await waitFor(() => expect(client.snapshot).toHaveBeenCalledTimes(2));
+    // The session's crew belongs to the other project.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(within(inbox).queryByText("runtime.force_stop")).toBeNull();
   });
 
   it("loads history per mission of the selected project and hides other projects", async () => {

@@ -21,6 +21,25 @@ describe("Markdown", () => {
     expect(container.querySelector("pre code")?.textContent).toBe("sindri run");
   });
 
+  it("gives headings the GitHub-style anchors the docs index and search link to", () => {
+    render(
+      <Markdown
+        source={
+          "## Crews & agents\n\n## Delete a project's data\n\n## 5. Watch: **Execute › Runs**\n\n## See [Runs](/docs/runs)\n\n## Usage\n\n## Usage"
+        }
+      />,
+    );
+    const ids = screen.getAllByRole("heading", { level: 2 }).map((h) => h.id);
+    expect(ids).toEqual([
+      "crews--agents",
+      "delete-a-projects-data",
+      "5-watch-execute--runs",
+      "see-runs",
+      "usage",
+      "usage-1",
+    ]);
+  });
+
   it("never renders HTML or unsafe links from the source", () => {
     const { container } = render(
       <Markdown

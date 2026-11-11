@@ -165,4 +165,22 @@ describe("Overview (project scope and real crew status)", () => {
     // A single project is selected by default, so usage comes from the scoped endpoint.
     await waitFor(() => expect(client.usage.get).toHaveBeenCalledWith({ projectId: p.id }));
   });
+
+  it("lists an approval naming no mission or task while the lone project is selected", async () => {
+    const p = project();
+    const client = mockClient({
+      snapshot: vi.fn(async () =>
+        snapshot({
+          projects: [p],
+          missions: [mission({ projectId: p.id })],
+          approvals: [approval({ action: "runtime.force_stop" })],
+        }),
+      ),
+    });
+    renderWithStore(<Overview />, { client });
+    const attention = await screen.findByRole("region", { name: /Needs attention/ });
+    await waitFor(() =>
+      expect(within(attention).getByText(/Approval needed: runtime.force_stop/)).toBeTruthy(),
+    );
+  });
 });

@@ -12,6 +12,12 @@ import {
   scopedNotifications,
 } from "../apps/web/src/features/scope.ts";
 import { parseRoute, hrefFor } from "../apps/web/src/lib/router.ts";
+import {
+  projectAliases,
+  projectKey,
+} from "../apps/web/src/features/workflowState.ts";
+import { sindriProjectOf } from "../apps/web/src/features/profileForm.ts";
+import { stewardProjects } from "../apps/web/src/features/autonomyState.ts";
 
 const state = {
   preferences: { archivedProjects: ["prj_old"] },
@@ -289,4 +295,90 @@ test("desktop alerts: the backlog in the first snapshot never alerts, later news
     ["task:t_b"],
     "a new revision is news",
   );
+});
+
+test("an older Sindri row saved with a trailing slash still matches Mimir's resolved path", () => {
+  const sindri = [{ id: "sp_old", name: "Invoices", repoPath: "/r/invoice/" }];
+  const mimir = [{ id: "prj_inv", name: "invoice", repoPath: "/r/invoice" }];
+  const before = scopeOf({ sindri: { projects: sindri } }, "all");
+  const s = scopeOf(
+    {
+      mimir: { projects: mimir },
+      sindri: {
+        projects: sindri,
+        specs: [{ id: "spc_1", projectId: "sp_old", version: 1 }],
+      },
+      preferences: { archivedProjects: [] },
+    },
+    "/r/invoice",
+  );
+  assert.equal(s.allProjects.length, 1);
+  assert.equal(s.allProjects[0].name, "Invoices");
+  // The key a Sindri-only row had stays selected once Mimir's record takes over.
+  assert.equal(projectKey(before.allProjects[0]), projectKey(s.allProjects[0]));
+  assert.equal(s.filter, "/r/invoice");
+  assert.deepEqual([...s.sindriIds], ["sp_old"]);
+  assert.deepEqual(
+    s.specs.map((x) => x.id),
+    ["spc_1"],
+  );
+  assert.deepEqual(projectAliases(mimir[0], sindri), ["prj_inv", "sp_old"]);
+  assert.equal(sindriProjectOf(mimir[0], sindri)?.id, "sp_old");
+  assert.deepEqual(stewardProjects("/r/invoice", sindri), ["sp_old"]);
+  const archived = scopeOf(
+    {
+      mimir: { projects: mimir },
+      sindri: { projects: sindri },
+      preferences: { archivedProjects: ["sp_old"] },
+    },
+    "all",
+  );
+  assert.equal(archived.activeProjects.length, 0);
+});
+
+test("desktop alerts skip an archived project's news, as the badge and the Notifications page do", async () => {
+  const { newAlerts } = await import("../apps/web/src/features/alerts.ts");
+  const withOld = {
+    ...state,
+    mimir: {
+      ...state.mimir,
+      missions: [
+        ...state.mimir.missions,
+        { id: "m_old", projectId: "prj_old" },
+      ],
+      tasks: [
+        ...state.mimir.tasks,
+        { id: "t_old", missionId: "m_old", status: "failed" },
+      ],
+    },
+  };
+  const all = scopeOf(withOld, "all");
+  const shown = (n) => scopedNotifications([n], all).length > 0;
+  const news = [
+    {
+      id: "task:t_a",
+      kind: "tasks",
+      resourceId: "t_a",
+      revision: "1",
+      active: true,
+      seen: false,
+    },
+    {
+      id: "task:t_old",
+      kind: "tasks",
+      resourceId: "t_old",
+      revision: "1",
+      active: true,
+      seen: false,
+    },
+  ];
+  const [seen] = newAlerts(null, []);
+  const [, alerts] = newAlerts(seen, news, shown);
+  assert.deepEqual(
+    alerts.map((n) => n.id),
+    ["task:t_a"],
+  );
+  // Restoring the project later does not replay what arrived while it was archived.
+  const [, after] = newAlerts(seen, news);
+  assert.deepEqual(after, []);
 });

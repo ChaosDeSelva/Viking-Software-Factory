@@ -53,6 +53,9 @@ export class CliProvider implements LlmProvider {
 
   async complete<T>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
     const dir = await mkdtemp(join(tmpdir(), "sindri-director-"));
+    // Measured before the answer is validated, so a rejected answer still reports its cost.
+    let usage: LlmUsage | null = null;
+    const model = this.options.model ?? "default";
     try {
       const codex = this.name === "codex-cli";
       const bundled =
@@ -121,10 +124,8 @@ export class CliProvider implements LlmProvider {
         this.options.timeoutMs ?? (workspace ? WORKSPACE_TIMEOUT_MS : 180_000),
       );
       let text: string;
-      let usage: LlmUsage | null = null;
       let parsed: unknown;
       if (codex) {
-        text = await readFile(output, "utf8");
         for (const line of raw.split("\n")) {
           try {
             const e = JSON.parse(line) as {
@@ -146,6 +147,7 @@ export class CliProvider implements LlmProvider {
             /* non-event progress is not usage */
           }
         }
+        text = await readFile(output, "utf8");
       } else {
         const result = JSON.parse(raw) as ClaudeResult & {
           result?: string;
@@ -157,16 +159,6 @@ export class CliProvider implements LlmProvider {
             cache_read_input_tokens?: number;
           };
         };
-        if (result.is_error) {
-          const reported = claudeError(result);
-          throw cliFailure(
-            "Claude Code could not complete the planning request",
-            [reported.text],
-            reported.status,
-          );
-        }
-        parsed = result.structured_output;
-        text = result.result ?? (parsed === undefined ? "" : JSON.stringify(parsed));
         if (
           typeof result.usage?.input_tokens === "number" &&
           typeof result.usage.output_tokens === "number"
@@ -178,6 +170,16 @@ export class CliProvider implements LlmProvider {
               (result.usage.cache_read_input_tokens ?? 0),
             outputTokens: result.usage.output_tokens,
           };
+        if (result.is_error) {
+          const reported = claudeError(result);
+          throw cliFailure(
+            "Claude Code could not complete the planning request",
+            [reported.text],
+            reported.status,
+          );
+        }
+        parsed = result.structured_output;
+        text = result.result ?? (parsed === undefined ? "" : JSON.stringify(parsed));
       }
       return {
         text,
@@ -185,12 +187,15 @@ export class CliProvider implements LlmProvider {
           ? { parsed: parseStructured(req.responseSchema, parsed ?? JSON.parse(text)) }
           : {}),
         usage,
-        model: this.options.model ?? "default",
+        model,
         stopReason: "completed",
       };
     } catch (error) {
-      if (error instanceof ProviderError) throw error;
-      throw new ProviderError("invalid_output", "CLI planning response was missing or invalid");
+      const failure =
+        error instanceof ProviderError
+          ? error
+          : new ProviderError("invalid_output", "CLI planning response was missing or invalid");
+      throw usage ? failure.withDetails({ usage, model }) : failure;
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

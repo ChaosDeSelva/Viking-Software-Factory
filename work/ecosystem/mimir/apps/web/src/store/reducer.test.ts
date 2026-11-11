@@ -330,6 +330,38 @@ describe("reducer: connection and gaps", () => {
   });
 });
 
+describe("reducer: statuses from a newer server", () => {
+  it("keeps a task in a status the board knows when an event names an unknown one", () => {
+    const t = task({ status: "running" });
+    const e = event(
+      "task.blocked",
+      { from: "running", to: "on_hold" as never, reason: "x" },
+      {
+        taskId: t.id,
+      },
+    );
+    const s = reducer(loaded({ tasks: [t] }), { type: "event/received", event: e });
+    expect(s.tasks[0]!.status).toBe("running");
+    expect(s.events).toHaveLength(1);
+    // The snapshot is reloaded instead, so whatever the server holds now shows.
+    expect(needsSnapshotRefresh(e)).toBe(true);
+  });
+
+  it("keeps a mission's status when an event names an unknown one", () => {
+    const m = mission({ status: "active" });
+    const e = event(
+      "mission.paused",
+      { from: "active", to: "archived" as never },
+      {
+        missionId: m.id,
+      },
+    );
+    const s = reducer(loaded({ missions: [m] }), { type: "event/received", event: e });
+    expect(s.missions[0]!.status).toBe("active");
+    expect(needsSnapshotRefresh(e)).toBe(true);
+  });
+});
+
 describe("needsSnapshotRefresh", () => {
   it("is true for entity-creating events", () => {
     expect(

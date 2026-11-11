@@ -257,3 +257,22 @@ it("classifies a CLI failure from what the CLI reports, never from the prompt or
     await run("codex-cli", `console.error('Not logged in. Run codex login'); process.exit(1);`),
   ).toMatchObject({ code: "auth" });
 }, 30_000);
+
+it("keeps the measured usage when the structured output fails validation", async () => {
+  const claude = executable(
+    `console.log(JSON.stringify({structured_output:{ready:'wrong'},usage:{input_tokens:20,output_tokens:5}}));`,
+  );
+  await expect(
+    new CliProvider({ kind: "claude-cli", executable: claude, model: "m" }).complete(request),
+  ).rejects.toMatchObject({
+    code: "invalid_output",
+    usage: { inputTokens: 20, outputTokens: 5 },
+    model: "m",
+  });
+  const codex = executable(
+    `const fs=require('node:fs'); const a=process.argv; fs.writeFileSync(a[a.indexOf('--output-last-message')+1],'not json'); console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:7,output_tokens:2}}));`,
+  );
+  await expect(
+    new CliProvider({ kind: "codex-cli", executable: codex }).complete(request),
+  ).rejects.toMatchObject({ code: "invalid_output", usage: { inputTokens: 7, outputTokens: 2 } });
+});

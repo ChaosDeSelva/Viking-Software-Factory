@@ -1,6 +1,6 @@
 // Pure view logic for the steward (Autonomy page) and Feedback Graph. Sindri stays authoritative;
 // every enum it sends may grow, so an unknown value is shown as sent and never unlocks a control.
-import { actionBlock } from "./workflowState.ts";
+import { actionBlock, sameRepo } from "./workflowState.ts";
 type R = Record<string, any>;
 type Session = { operator?: boolean; pairedSindri?: boolean };
 
@@ -163,9 +163,7 @@ export function stewardProjects(
 ): string[] | null {
   if (selection === "all") return null;
   return sindriProjects
-    .filter(
-      (p) => p.id === selection || (p.repoPath && p.repoPath === selection),
-    )
+    .filter((p) => p.id === selection || sameRepo(p.repoPath, selection))
     .map((p) => p.id);
 }
 

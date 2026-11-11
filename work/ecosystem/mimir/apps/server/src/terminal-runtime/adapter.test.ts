@@ -592,3 +592,53 @@ it("stops polling when the last subscriber closes and resumes on the next subscr
     vi.useRealTimers();
   }
 });
+it("deletes the launch, result and hook files of a pruned session", async () => {
+  const { home, runtime } = fixture();
+  const labels: string[] = [];
+  for (let n = 0; n <= DELIVERED_SESSIONS_KEPT; n++) {
+    await runtime.createSession({
+      ...spec(),
+      sessionId: `s${n}`,
+      idempotencyKey: `k${n}`,
+      argv: ["codex", "secret prompt"],
+    });
+    const label = readdirSync(home)
+      .filter((f) => f.endsWith(".launch.json"))
+      .map((f) => f.slice(0, -".launch.json".length))
+      .find((l) => !labels.includes(l))!;
+    labels.push(label);
+    writeFileSync(join(home, label + ".hook.json"), "{}");
+    writeFileSync(
+      join(home, label + ".result.json"),
+      JSON.stringify({ state: "completed", exitCode: 0 }),
+    );
+    await runtime.reconcile();
+  }
+  await runtime.reconcile();
+  expect(await runtime.getSession("s0")).toBeNull();
+  // The launch file holds the prompt and environment; nothing references it once pruned.
+  expect(readdirSync(home).filter((f) => f.startsWith(labels[0]!))).toEqual([]);
+  expect(existsSync(join(home, labels[1]! + ".launch.json"))).toBe(true);
+});
+it("keeps a long-running session that was delivered last over older deliveries", async () => {
+  const { home, runtime } = fixture();
+  const deliver = (before: Set<string>) => {
+    const name = readdirSync(home).find((f) => f.endsWith(".launch.json") && !before.has(f))!;
+    return JSON.parse(readFileSync(join(home, name), "utf8")).resultFile as string;
+  };
+  let before = new Set(readdirSync(home));
+  await runtime.createSession({ ...spec(), sessionId: "early", idempotencyKey: "early" });
+  const earlyResult = deliver(before);
+  for (let n = 0; n <= DELIVERED_SESSIONS_KEPT; n++) {
+    before = new Set(readdirSync(home));
+    await runtime.createSession({ ...spec(), sessionId: `s${n}`, idempotencyKey: `k${n}` });
+    writeFileSync(deliver(before), JSON.stringify({ state: "completed", exitCode: 0 }));
+    await runtime.reconcile();
+  }
+  writeFileSync(earlyResult, JSON.stringify({ state: "completed", exitCode: 0 }));
+  await runtime.reconcile();
+  await runtime.reconcile();
+  expect(await runtime.getSession("early")).toMatchObject({ state: "completed" });
+  expect(await runtime.readTerminal("early")).toBe("visible output");
+  expect(await runtime.getSession("s1")).toBeNull();
+});

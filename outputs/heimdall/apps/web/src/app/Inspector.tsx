@@ -47,6 +47,7 @@ import {
   orderedQuestions,
   projectKey,
   runTitle,
+  sameRepo,
   statusBadge,
 } from "../features/workflowState";
 
@@ -543,8 +544,10 @@ export function Inspector({
           rows={specsAll.filter(
             (sp) =>
               sp.projectId === row.id ||
-              all.sindriProjects.find((p) => p.id === sp.projectId)
-                ?.repoPath === row.repoPath,
+              sameRepo(
+                all.sindriProjects.find((p) => p.id === sp.projectId)?.repoPath,
+                row.repoPath,
+              ),
           )}
           empty="No specifications yet."
         />

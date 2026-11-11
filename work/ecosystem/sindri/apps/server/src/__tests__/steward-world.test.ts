@@ -352,8 +352,16 @@ describe("ServerStewardWorld readers", () => {
           objective: t.objective,
         })),
         problems: [],
+        untrustedFlagged: false,
       },
     ]);
+    // A plan built from flagged text is reported as such, so the steward holds it.
+    fl.h.db
+      .prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      )
+      .run(v2.json().plan.id);
+    expect(world().plansProposed()[0]!.untrustedFlagged).toBe(true);
   });
 
   it("knowledge: the project's valid entries", async () => {
@@ -582,6 +590,29 @@ describe("ServerStewardWorld actions", () => {
     ).rejects.toMatchObject({
       status: 403,
       code: "approval_required",
+    });
+    expect(planner.get(planId)!.status).toBe("draft");
+  });
+
+  it("approvePlan refuses a flagged plan before changing it, pointing to the Plans screen", async () => {
+    const { fl, world, planner, approval } = await setup();
+    const specId = await approvedSpec(fl);
+    const p = await fl.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId } });
+    const planId = p.json().plan.id as string;
+    fl.h.db
+      .prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      )
+      .run(planId);
+    await expect(
+      world().approvePlan({ planId } as PlanApprovalSubject, {
+        actor: "user",
+        approval: await approval(),
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "untrusted_unacknowledged",
+      message: expect.stringMatching(/Plans screen/),
     });
     expect(planner.get(planId)!.status).toBe("draft");
   });

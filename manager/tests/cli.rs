@@ -29,7 +29,31 @@ fn help_and_argument_errors_exit_with_failure() {
     let t = tempfile::tempdir().unwrap();
     let fresh = t.path().join("fresh");
     let help = ok(&stub, &fresh, &["help", "--json"]);
-    assert!(help["commands"].as_array().unwrap().len() > 10);
+    let listed: Vec<&str> = help["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c.as_str().unwrap().split(' ').next().unwrap())
+        .collect();
+    for command in [
+        "access",
+        "status",
+        "doctor",
+        "install",
+        "start",
+        "stop",
+        "logs",
+        "update",
+        "channel",
+        "rollback",
+        "recover",
+        "uninstall",
+        "open",
+        "diagnostics",
+        "config",
+    ] {
+        assert!(listed.contains(&command), "help omits {command}");
+    }
     assert_eq!(ok(&stub, &fresh, &[])["commands"], help["commands"]);
     assert_eq!(ok(&stub, &fresh, &["--help"])["commands"], help["commands"]);
     assert!(!fresh.exists(), "help opens no managed root");

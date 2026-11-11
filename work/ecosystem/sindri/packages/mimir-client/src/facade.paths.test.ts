@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { newId, type EventEnvelope, type MissionId, type ProjectId } from "@mimir/protocol";
 import { openDatabase, type SqliteDatabase } from "@sindri/knowledge";
 import { createFakeMimir, createReplayFetch, type FakeMimir, type TaskStep } from "@sindri/testing";
@@ -240,7 +241,7 @@ describe("MimirClientFacade.createMissionFromPlan", () => {
 });
 
 describe("MimirClientFacade mission commands and reads", () => {
-  it("cancels with and without a reason under one key per mission, and reads the mission", async () => {
+  it("cancels with and without a reason under one key per mission and reason, and reads the mission", async () => {
     const { facade, fake } = await boot();
     const project = await facade.ensureProject("/repos/app");
     const a = await facade.createMissionFromPlan(approvedPlan([planTask("impl")]), {
@@ -255,9 +256,14 @@ describe("MimirClientFacade mission commands and reads", () => {
     const cancels = fake.requests.filter((r) => r.path.endsWith("/cancel"));
     expect(cancels.map((r) => r.body)).toEqual([{ reason: "superseded" }, {}]);
     expect(cancels.map((r) => r.idempotencyKey)).toEqual([
-      `sindri:cancel:${a.missionId}`,
+      `sindri:cancel:${a.missionId}:${createHash("sha256").update("superseded").digest("hex").slice(0, 16)}`,
       `sindri:cancel:${b.missionId}`,
     ]);
+    // A repeat is replayed; another reason reaches Mimir, which answers that it already ended.
+    await facade.cancel(a.missionId, "superseded");
+    await expect(facade.cancel(a.missionId, "project deleted")).rejects.toMatchObject({
+      code: "invalid_transition",
+    });
     const read = await facade.getMission(a.missionId);
     expect(read.mission).toMatchObject({ id: a.missionId, status: "cancelled" });
     expect(read.tasks.map((t) => t.id)).toEqual([a.taskIdMap.impl]);

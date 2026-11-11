@@ -221,6 +221,49 @@ describe("PlansScreen", () => {
     expect(await screen.findByText(/Saved budgets as draft plan v2/)).toBeTruthy();
   });
 
+  it("offers no submit, approve or budget save on a version that is not the latest", async () => {
+    // Saving budgets makes v2 a draft and leaves v1 in review; the server acts on the latest only.
+    const v1 = plan({ status: "review" });
+    const v2 = plan({ id: "pl2", version: 2, status: "draft" });
+    const api = mockApi({
+      listPlans: [v1, v2],
+      listSpecs: [],
+      getPlan: { plan: v1, versions: [versionOf(v1), versionOf(v2)] },
+      dryRunPlan: dry,
+    });
+    renderWithStore(ui, api, { planId: "pl1" });
+    await screen.findByRole("heading", { name: "Plan v1" });
+    expect(screen.queryByRole("button", { name: /^Approve plan/ })).toBeNull();
+    const note = screen.getByRole("note", { name: "Not the latest version" });
+    expect(within(note).getByRole("button", { name: "Open v2" })).toBeTruthy();
+    await openTab(/Task budgets/);
+    const save = screen.getByRole("button", { name: /^Save budgets as new draft/ });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it.each([
+    ["review", /^Approve plan/],
+    ["approved", /^Execute plan/],
+  ] as const)(
+    "does not offer the next step on a %s plan whose spec was replaced",
+    async (status, name) => {
+      const p = plan({ status });
+      const api = mockApi({
+        listPlans: [p],
+        listSpecs: [spec({ id: "s1", version: 2, status: "superseded" })],
+        getPlan: detail(p),
+        dryRunPlan: dry,
+      });
+      renderWithStore(ui, api, { planId: "pl1" });
+      const button = await screen.findByRole("button", { name });
+      await waitFor(() => expect(button.getAttribute("aria-disabled")).toBe("true"));
+      expect(button.textContent).toMatch(/spec v2 is now superseded/);
+      await userEvent.click(button);
+      expect(api.approvePlan).not.toHaveBeenCalled();
+      expect(api.createExecution).not.toHaveBeenCalled();
+    },
+  );
+
   it("says a run is starting while Execute plan is in flight (M9)", async () => {
     const approved = plan({ status: "approved" });
     const api = mockApi({

@@ -32,10 +32,11 @@ import {
   crewEffectiveStatus,
   crewLabel,
   isCrewActive,
+  isMissionEnded,
   missionName,
   taskName,
 } from "../lib/names.js";
-import { useProjectScope, useScoped } from "../lib/scope.js";
+import { useScoped } from "../lib/scope.js";
 import { useAction } from "../lib/useAction.js";
 import { useAsync } from "../lib/useAsync.js";
 import { useStore } from "../store/StoreProvider.js";
@@ -400,7 +401,6 @@ function RosterTable({ roster }: { roster: Agent[] }) {
 export function CrewDetail() {
   const { id = "" } = useParams();
   const { state } = useStore();
-  const { project } = useProjectScope();
   const [raising, setRaising] = useState(false);
   const c = state.crews.find((x) => x.id === id);
   if (state.status === "ready" && !c) {
@@ -417,6 +417,9 @@ export function CrewDetail() {
     );
   }
   const m = c ? state.missions.find((x) => x.id === c.missionId) : undefined;
+  const project = m ? state.projects.find((p) => p.id === m.projectId) : undefined;
+  // The server refuses budget changes once the mission has ended (or is gone).
+  const canRaise = m !== undefined && !isMissionEnded(m);
   const roster = state.agents.filter((a) => a.crewId === id);
   const status = c ? crewEffectiveStatus(c, m, state.agents) : null;
   const tasks = c ? state.tasks.filter((t) => t.missionId === c.missionId) : [];
@@ -428,7 +431,7 @@ export function CrewDetail() {
       term="Crew"
       description={m ? `Works on: ${missionName(m, state.tasks)}` : undefined}
       actions={
-        c ? (
+        c && canRaise ? (
           <Button
             variant={budgetBlocked ? "primary" : "secondary"}
             onClick={() => setRaising(true)}
@@ -438,7 +441,7 @@ export function CrewDetail() {
         ) : undefined
       }
       breadcrumbs={[
-        { label: project?.name ?? "All projects", href: "/" },
+        ...(project ? [{ label: project.name }] : []),
         { label: "Crews", href: "/crews" },
         { label: c ? crewLabel(c) : "Crew" },
       ]}

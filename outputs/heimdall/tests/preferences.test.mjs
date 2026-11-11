@@ -131,6 +131,28 @@ test("attention records cover each kind of problem and use the row's revision", 
   assert.deepEqual(attentionRecords({ mimir: {}, sindri: {} }), []);
 });
 
+test("an escalation on a run that has ended raises no operator-decision notification", () => {
+  const run = (id, status) => ({
+    execution: { id, status },
+    tasks: [{ planTaskId: "build", escalation: { reason: "stuck" } }],
+  });
+  const ids = attentionRecords({
+    mimir: {},
+    sindri: {
+      executions: [
+        "running",
+        "verified_pending_review",
+        "cancelled",
+        "failed",
+      ].map((s) => run("e_" + s, s)),
+    },
+  })
+    .filter((r) => r.kind === "escalation")
+    .map((r) => r.id);
+  // Sindri refuses to resolve these, and the attention list leaves them out too.
+  assert.deepEqual(ids, ["escalation:e_running:build"]);
+});
+
 test("a failed write leaves the event cache and the notifications as they were", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "heimdall-rollback-"));
   const store = new Store(dir);

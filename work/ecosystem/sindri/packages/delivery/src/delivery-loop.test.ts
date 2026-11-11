@@ -717,6 +717,29 @@ describe("DeliveryLoop: runs that end outside the happy path", () => {
     expect(loop.get(second.id)!.status).toBe("pending");
   });
 
+  it("a run whose skip already cancelled the mission can still be cancelled with another reason", async () => {
+    const h = await boot({ impl: [{ kind: "fail" }, { kind: "fail" }] });
+    const mimir = new MimirClientFacade({ db: h.db }).connect({
+      baseUrl: h.fake.url,
+      token: h.fake.token,
+    });
+    const loop = new DeliveryLoop({ db: h.db, mimir, logger: { warn: () => undefined } });
+    const exec = await execute(
+      h,
+      approvedPlan([planTask("impl", { maxRetries: 1, escalation: "ask" }), planTask("other")]),
+    );
+    expect((await loop.run(exec.id)).status).toBe("awaiting_human");
+    // The skip cancels the mission, then reading the artifacts fails: the run stays open.
+    const getArtifact = mimir.getArtifact.bind(mimir);
+    mimir.getArtifact = () => Promise.reject(new MimirError("internal", "down"));
+    await expect(
+      loop.resolveEscalation(exec.id, "impl", { decision: "skip", actor: "j", reason: "x" }),
+    ).rejects.toThrow();
+    mimir.getArtifact = getArtifact;
+    const cancelled = await loop.cancelExecution(exec.id, { actor: "j", reason: "give up" });
+    expect(cancelled.status).toBe("cancelled");
+  });
+
   it("cancelExecution cancels the mission, closes inbox items and approvals, and records why", async () => {
     const h = await boot({ impl: [{ kind: "approval", action: "git.push" }] });
     const exec = await execute(h, approvedPlan([planTask("impl")]));

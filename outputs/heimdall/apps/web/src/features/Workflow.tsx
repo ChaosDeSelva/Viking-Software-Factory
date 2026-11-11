@@ -29,6 +29,7 @@ import { AccessCallout } from "./AccessCallout";
 import {
   actionBlock,
   latestVersions,
+  sameRepo,
   specRevision,
   statusBadge,
 } from "./workflowState";
@@ -74,7 +75,7 @@ export function NewWorkPage() {
   // Sindri's records of the active (not archived) projects; one repository may be registered twice.
   const projects = scope.sindriProjects.filter((p) =>
     scope.activeProjects.some(
-      (a) => a.id === p.id || (p.repoPath && a.repoPath === p.repoPath),
+      (a) => a.id === p.id || sameRepo(a.repoPath, p.repoPath),
     ),
   );
   const preferred = projects.find(

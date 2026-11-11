@@ -348,8 +348,11 @@ export class MimirClientFacade {
   }
 
   async cancel(missionId: MissionId | string, reason?: string): Promise<void> {
+    // The key names the reason too: Mimir refuses a key reused with another body, so a second
+    // cancel for another reason (after one that went through) must get Mimir's own answer.
+    const why = reason ? `:${createHash("sha256").update(reason).digest("hex").slice(0, 16)}` : "";
     await this.sdk.missions.cancel(missionId as MissionId, reason ? { reason } : {}, {
-      idempotencyKey: `sindri:cancel:${missionId}`,
+      idempotencyKey: `sindri:cancel:${missionId}${why}`,
     });
   }
 

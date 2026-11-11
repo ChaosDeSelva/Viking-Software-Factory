@@ -114,6 +114,14 @@ describe("executions: refusals", () => {
       headers: await flow.h.approvalHeaders(),
     });
     expect([decide.statusCode, decide.json().error.code]).toEqual([503, "mimir_unavailable"]);
+    // An approval Sindri has not stored (a PR approval) is looked up in Mimir.
+    const remote = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/approvals/apr_unstored`,
+      payload: { decision: "approved" },
+      headers: await flow.h.approvalHeaders(),
+    });
+    expect([remote.statusCode, remote.json().error.code]).toEqual([503, "mimir_unavailable"]);
     const cancel = await flow.h.call({
       method: "POST",
       url: `/v1/executions/${execution.id}/cancel`,

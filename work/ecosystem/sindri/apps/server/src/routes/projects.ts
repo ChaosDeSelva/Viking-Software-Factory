@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { ExecutionProfileSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
 import type { ApprovalAuthority } from "../approval.js";
@@ -62,7 +62,8 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
       );
     const inside = (root: string) => {
       const r = relative(realOr(root), repo);
-      return r === "" || (!r.startsWith("..") && !isAbsolute(r));
+      // `..x` is a folder inside root; only `..` itself or a `../` prefix leaves it.
+      return r === "" || (r !== ".." && !r.startsWith(`..${sep}`) && !isAbsolute(r));
     };
     if (repo === "/" || repo === realOr(homedir()) || (s.dataDir && inside(s.dataDir)))
       throw new ApiError(

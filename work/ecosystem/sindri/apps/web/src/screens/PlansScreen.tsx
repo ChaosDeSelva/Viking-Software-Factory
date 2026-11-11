@@ -79,6 +79,7 @@ export function PlansScreen() {
   const allSpecs = specs.state.status === "ready" ? specs.state.data : [];
   const approved = allSpecs.filter((s) => s.status === "approved");
   const specTitle = (id: string) => allSpecs.find((s) => s.id === id)?.title;
+  const specStatus = (id: string) => allSpecs.find((s) => s.id === id)?.status;
   // Only a spec from this project's approved list is ever sent.
   const chosen = approved.some((s) => s.id === specId) ? specId : (approved[0]?.id ?? "");
   const listed = plans.state.status === "ready" ? latestPlans(plans.state.data) : [];
@@ -196,6 +197,7 @@ export function PlansScreen() {
               key={state.planId}
               planId={state.planId}
               specTitle={specTitle}
+              specStatus={specStatus}
               onChanged={() => setTick((t) => t + 1)}
             />
           ) : (
@@ -222,10 +224,13 @@ export function PlansScreen() {
 function PlanDetail({
   planId,
   specTitle,
+  specStatus,
   onChanged,
 }: {
   planId: string;
   specTitle: (specId: string) => string | undefined;
+  /** Undefined until the specs load; a replaced spec's plan cannot be approved or run. */
+  specStatus: (specId: string) => string | undefined;
   onChanged: () => void;
 }) {
   const api = useApi();
@@ -253,205 +258,253 @@ function PlanDetail({
 
   return (
     <LoadState state={detail.state} what="plan" onRetry={detail.reload}>
-      {({ plan, versions }) => (
-        <section aria-labelledby="plan-title" className="flex min-w-0 flex-col gap-6">
-          <Stack gap={3}>
-            <Cluster gap={3} justify="between" align="start">
-              <Cluster gap={3} className="min-w-0">
-                <DetailHeading id="plan-title">Plan v{plan.version}</DetailHeading>
-                <Status value={plan.status} domain="plan" size="md" />
-              </Cluster>
-              <Cluster gap={2}>
-                {plan.status === "draft" ? (
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      act(async () => {
-                        await api.submitPlan(plan.id);
-                        notify(`Submitted plan v${plan.version} for review`);
-                      })
-                    }
-                  >
-                    Submit for review
-                  </Button>
-                ) : null}
-                {plan.status === "review" ? (
-                  <Button
-                    disabled={busy}
-                    {...(locked
-                      ? { disabledReason: APPROVALS_LOCKED }
-                      : plan.untrustedInstructionDetected && !acknowledged
-                        ? { disabledReason: "Confirm you reviewed the flagged instructions first." }
-                        : {})}
-                    onClick={() =>
-                      act(async () => {
-                        await api.approvePlan(
-                          plan.id,
-                          plan.untrustedInstructionDetected ? { acknowledgeUntrusted: true } : {},
-                        );
-                        notify(`Approved plan v${plan.version}`);
-                      })
-                    }
-                  >
-                    Approve plan
-                  </Button>
-                ) : null}
-                {plan.status === "approved" ? (
-                  <Button
-                    disabled={busy}
-                    onClick={() => {
-                      setBusy(true);
-                      setExecuting(true);
-                      api
-                        .createExecution(plan.id)
-                        .then(({ execution }) => {
-                          dispatch({ type: "execution/open", executionId: execution.id });
-                          notify(`Started a run of plan v${plan.version}`);
-                        }, report)
-                        .finally(() => {
-                          setBusy(false);
-                          setExecuting(false);
-                        });
-                    }}
-                  >
-                    {executing ? "Starting run…" : "Execute plan"}
-                  </Button>
-                ) : null}
-              </Cluster>
-            </Cluster>
-            <p className="text-sm text-muted [overflow-wrap:anywhere]">
-              For spec v{plan.specVersion}
-              {specTitle(plan.specId) ? ` · ${specTitle(plan.specId)}` : ""} · proposed{" "}
-              <Timestamp value={plan.createdAt} />
-            </p>
-            <nav aria-label="Plan versions">
-              <ul className="flex flex-wrap gap-1">
-                {versions.map((v) => (
-                  <li key={v.id}>
+      {({ plan, versions }) => {
+        const latest = Math.max(plan.version, ...versions.map((v) => v.version));
+        const latestId = versions.find((v) => v.version === latest)?.id;
+        // Submitting, approving and revising act on the latest version only.
+        const isLatest = plan.version === latest;
+        const specState = specStatus(plan.specId);
+        const specReplaced =
+          specState !== undefined && specState !== "approved"
+            ? `Its spec v${plan.specVersion} is now ${specState}; propose a plan from the approved spec.`
+            : null;
+        return (
+          <section aria-labelledby="plan-title" className="flex min-w-0 flex-col gap-6">
+            <Stack gap={3}>
+              <Cluster gap={3} justify="between" align="start">
+                <Cluster gap={3} className="min-w-0">
+                  <DetailHeading id="plan-title">Plan v{plan.version}</DetailHeading>
+                  <Status value={plan.status} domain="plan" size="md" />
+                </Cluster>
+                <Cluster gap={2}>
+                  {isLatest && plan.status === "draft" ? (
                     <Button
-                      size="sm"
-                      variant={v.id === plan.id ? "primary" : "secondary"}
-                      aria-current={v.id === plan.id ? "true" : undefined}
-                      onClick={() => dispatch({ type: "plan/open", planId: v.id })}
+                      disabled={busy}
+                      onClick={() =>
+                        act(async () => {
+                          await api.submitPlan(plan.id);
+                          notify(`Submitted plan v${plan.version} for review`);
+                        })
+                      }
                     >
-                      v{v.version} ({v.status})
+                      Submit for review
                     </Button>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-            <KeyValue
+                  ) : null}
+                  {isLatest && plan.status === "review" ? (
+                    <Button
+                      disabled={busy}
+                      {...(specReplaced
+                        ? { disabledReason: specReplaced }
+                        : locked
+                          ? { disabledReason: APPROVALS_LOCKED }
+                          : plan.untrustedInstructionDetected && !acknowledged
+                            ? {
+                                disabledReason:
+                                  "Confirm you reviewed the flagged instructions first.",
+                              }
+                            : {})}
+                      onClick={() =>
+                        act(async () => {
+                          await api.approvePlan(
+                            plan.id,
+                            plan.untrustedInstructionDetected ? { acknowledgeUntrusted: true } : {},
+                          );
+                          notify(`Approved plan v${plan.version}`);
+                        })
+                      }
+                    >
+                      Approve plan
+                    </Button>
+                  ) : null}
+                  {plan.status === "approved" ? (
+                    <Button
+                      disabled={busy}
+                      {...(specReplaced ? { disabledReason: specReplaced } : {})}
+                      onClick={() => {
+                        setBusy(true);
+                        setExecuting(true);
+                        api
+                          .createExecution(plan.id)
+                          .then(({ execution }) => {
+                            dispatch({ type: "execution/open", executionId: execution.id });
+                            notify(`Started a run of plan v${plan.version}`);
+                          }, report)
+                          .finally(() => {
+                            setBusy(false);
+                            setExecuting(false);
+                          });
+                      }}
+                    >
+                      {executing ? "Starting run…" : "Execute plan"}
+                    </Button>
+                  ) : null}
+                </Cluster>
+              </Cluster>
+              <p className="text-sm text-muted [overflow-wrap:anywhere]">
+                For spec v{plan.specVersion}
+                {specTitle(plan.specId) ? ` · ${specTitle(plan.specId)}` : ""} · proposed{" "}
+                <Timestamp value={plan.createdAt} />
+              </p>
+              <nav aria-label="Plan versions">
+                <ul className="flex flex-wrap gap-1">
+                  {versions.map((v) => (
+                    <li key={v.id}>
+                      <Button
+                        size="sm"
+                        variant={v.id === plan.id ? "primary" : "secondary"}
+                        aria-current={v.id === plan.id ? "true" : undefined}
+                        onClick={() => dispatch({ type: "plan/open", planId: v.id })}
+                      >
+                        v{v.version} ({v.status})
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+              <KeyValue
+                items={[
+                  { label: "Tasks", term: "Task", value: plan.estimates.taskCount },
+                  {
+                    label: "Agent time",
+                    term: "Task budget",
+                    value: `about ${plan.estimates.wallClockMinutes} min`,
+                  },
+                  {
+                    label: "Critical path",
+                    term: "Task graph",
+                    value: `${plan.estimates.criticalPathMinutes} min`,
+                  },
+                  { label: "Tokens", value: plan.estimates.tokens.toLocaleString() },
+                ]}
+              />
+              {!isLatest ? (
+                <div role="note" aria-label="Not the latest version">
+                  <Callout
+                    tone="info"
+                    action={
+                      latestId ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() => dispatch({ type: "plan/open", planId: latestId })}
+                        >
+                          Open v{latest}
+                        </Button>
+                      ) : undefined
+                    }
+                  >
+                    This is not the latest version; only v{latest} can be submitted, approved or
+                    revised.
+                  </Callout>
+                </div>
+              ) : null}
+              {plan.untrustedInstructionDetected ? (
+                <div role="note" aria-label="Untrusted instructions detected">
+                  <Callout tone="warning" title="Untrusted instructions detected">
+                    Text in{" "}
+                    {[...new Set((plan.injectionFindings ?? []).map((f) => f.source))].join(", ") ||
+                      "the plan's input"}{" "}
+                    looked like instructions to the model. It was treated as data and not followed.
+                    Check the tasks before approving.{" "}
+                    <InfoHint term="Flagged source instructions" />
+                  </Callout>
+                  {isLatest && plan.status === "review" ? (
+                    <label className="mt-2 flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-[var(--accent)]"
+                        checked={acknowledged}
+                        onChange={(e) => setAcknowledged(e.target.checked)}
+                      />
+                      I reviewed the flagged instructions and this plan&apos;s tasks
+                    </label>
+                  ) : null}
+                </div>
+              ) : null}
+              {isLatest && plan.status === "review" && locked ? (
+                <Callout tone="info" title="Approvals are locked">
+                  <ApprovalUnlock
+                    id="plan-approval-code"
+                    onUnlocked={() => setUnlockTick((n) => n + 1)}
+                  />
+                </Callout>
+              ) : null}
+            </Stack>
+            <Tabs
+              label="Plan sections"
+              value={tab}
+              onValueChange={setTab}
               items={[
-                { label: "Tasks", term: "Task", value: plan.estimates.taskCount },
                 {
-                  label: "Agent time",
-                  term: "Task budget",
-                  value: `about ${plan.estimates.wallClockMinutes} min`,
+                  value: "tasks",
+                  label: "Tasks",
+                  count: plan.tasks.length,
+                  content: (
+                    <div className="flex flex-col gap-3">
+                      {plan.tasks.map((t) => (
+                        <TaskCard key={t.id} task={t} />
+                      ))}
+                    </div>
+                  ),
                 },
                 {
-                  label: "Critical path",
-                  term: "Task graph",
-                  value: `${plan.estimates.criticalPathMinutes} min`,
+                  value: "order",
+                  label: "Dry-run order",
+                  content: (
+                    <Card
+                      title="Dry-run order"
+                      term="Dry-run order"
+                      description="The order tasks would run in; tasks in one step run in parallel."
+                    >
+                      <LoadState state={dry.state} what="dry run" onRetry={dry.reload}>
+                        {(d) => (
+                          <ol aria-label="Dry-run order" className="flex flex-col gap-2 text-sm">
+                            {d.steps.map((s) => (
+                              <li key={s.step} className="[overflow-wrap:anywhere]">
+                                <span className="font-medium">Step {s.step}:</span>{" "}
+                                {s.tasks.map((t) => `${t.id} (${t.role})`).join(", ")}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </LoadState>
+                    </Card>
+                  ),
                 },
-                { label: "Tokens", value: plan.estimates.tokens.toLocaleString() },
+                {
+                  value: "budgets",
+                  label: "Task budgets",
+                  content: (
+                    <PlanBudgets
+                      key={plan.id}
+                      plan={plan}
+                      {...(isLatest ? {} : { stale: `Only v${latest} can be revised.` })}
+                      onSaved={(next) => {
+                        dispatch({ type: "plan/open", planId: next.id });
+                        notify(`Saved budgets as draft plan v${next.version}`);
+                        onChanged();
+                      }}
+                    />
+                  ),
+                },
               ]}
             />
-            {plan.untrustedInstructionDetected ? (
-              <div role="note" aria-label="Untrusted instructions detected">
-                <Callout tone="warning" title="Untrusted instructions detected">
-                  Text in{" "}
-                  {[...new Set((plan.injectionFindings ?? []).map((f) => f.source))].join(", ") ||
-                    "the plan's input"}{" "}
-                  looked like instructions to the model. It was treated as data and not followed.
-                  Check the tasks before approving. <InfoHint term="Flagged source instructions" />
-                </Callout>
-                {plan.status === "review" ? (
-                  <label className="mt-2 flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-[var(--accent)]"
-                      checked={acknowledged}
-                      onChange={(e) => setAcknowledged(e.target.checked)}
-                    />
-                    I reviewed the flagged instructions and this plan&apos;s tasks
-                  </label>
-                ) : null}
-              </div>
-            ) : null}
-            {plan.status === "review" && locked ? (
-              <Callout tone="info" title="Approvals are locked">
-                <ApprovalUnlock
-                  id="plan-approval-code"
-                  onUnlocked={() => setUnlockTick((n) => n + 1)}
-                />
-              </Callout>
-            ) : null}
-          </Stack>
-          <Tabs
-            label="Plan sections"
-            value={tab}
-            onValueChange={setTab}
-            items={[
-              {
-                value: "tasks",
-                label: "Tasks",
-                count: plan.tasks.length,
-                content: (
-                  <div className="flex flex-col gap-3">
-                    {plan.tasks.map((t) => (
-                      <TaskCard key={t.id} task={t} />
-                    ))}
-                  </div>
-                ),
-              },
-              {
-                value: "order",
-                label: "Dry-run order",
-                content: (
-                  <Card
-                    title="Dry-run order"
-                    term="Dry-run order"
-                    description="The order tasks would run in; tasks in one step run in parallel."
-                  >
-                    <LoadState state={dry.state} what="dry run" onRetry={dry.reload}>
-                      {(d) => (
-                        <ol aria-label="Dry-run order" className="flex flex-col gap-2 text-sm">
-                          {d.steps.map((s) => (
-                            <li key={s.step} className="[overflow-wrap:anywhere]">
-                              <span className="font-medium">Step {s.step}:</span>{" "}
-                              {s.tasks.map((t) => `${t.id} (${t.role})`).join(", ")}
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </LoadState>
-                  </Card>
-                ),
-              },
-              {
-                value: "budgets",
-                label: "Task budgets",
-                content: (
-                  <PlanBudgets
-                    key={plan.id}
-                    plan={plan}
-                    onSaved={(next) => {
-                      dispatch({ type: "plan/open", planId: next.id });
-                      notify(`Saved budgets as draft plan v${next.version}`);
-                      onChanged();
-                    }}
-                  />
-                ),
-              },
-            ]}
-          />
-        </section>
-      )}
+          </section>
+        );
+      }}
     </LoadState>
   );
 }
 
-function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => void }) {
+function PlanBudgets({
+  plan,
+  stale,
+  onSaved,
+}: {
+  plan: Plan;
+  /** Why saving cannot work: the server revises the latest version only. */
+  stale?: string;
+  onSaved: (plan: Plan) => void;
+}) {
   const api = useApi();
   const report = useReportError();
   const [tasks, setTasks] = useState(plan.tasks);
@@ -472,6 +525,7 @@ function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => v
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
+          if (stale) return;
           setBusy(true);
           api
             .revisePlan(plan.id, tasks)
@@ -527,7 +581,7 @@ function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => v
           </div>
         ))}
         <div>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" disabled={busy} {...(stale ? { disabledReason: stale } : {})}>
             Save budgets as new draft
           </Button>
         </div>

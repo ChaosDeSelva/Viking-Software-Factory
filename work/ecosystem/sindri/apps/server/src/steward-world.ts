@@ -214,6 +214,7 @@ export class ServerStewardWorld implements StewardWorld {
             specApproved: spec?.status === "approved",
             tasks: latest.tasks.map((t) => ({ id: t.id, objective: t.objective })),
             problems: [],
+            untrustedFlagged: latest.untrustedInstructionDetected === true,
           });
         }
     return out;
@@ -524,6 +525,13 @@ export class ServerStewardWorld implements StewardWorld {
     // Before the submit: without the approval factor a draft must stay a draft.
     const approval = this.#approval(ctx);
     const plan = this.#o.factory.planner.get(s.planId);
+    // Never acknowledged here, so refused; checked before the submit so nothing changes.
+    if (plan?.untrustedInstructionDetected)
+      throw new ApiError(
+        409,
+        "untrusted_unacknowledged",
+        "this plan was built from text with flagged instructions; review them and approve it in the Plans screen (or `sindri approve plan`)",
+      );
     if (plan?.status === "draft")
       await this.#call("POST", `/v1/plans/${encodeURIComponent(s.planId)}/submit`, {});
     await this.#call("POST", `/v1/plans/${encodeURIComponent(s.planId)}/approve`, {}, approval);

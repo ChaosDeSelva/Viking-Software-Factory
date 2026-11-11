@@ -4,16 +4,18 @@ type R = Record<string, any>;
 /**
  * The notifications new since the last call, and the seen set to pass next time. `seen` is null
  * until primed; `items` is undefined until the first snapshot, whose backlog only primes it.
+ * News that `shown` rejects (an archived project's) is marked seen without alerting.
  */
 export function newAlerts(
   seen: Set<string> | null,
   items: R[] | undefined,
+  shown: (n: R) => boolean = () => true,
 ): [Set<string> | null, R[]] {
   if (!items) return [seen, []];
   const keys = items.map((n) => n.id + ":" + n.revision);
   if (!seen) return [new Set(keys), []];
   const fresh = items.filter(
-    (n, i) => !seen.has(keys[i]) && n.active && !n.seen,
+    (n, i) => !seen.has(keys[i]) && n.active && !n.seen && shown(n),
   );
   for (const key of keys) seen.add(key);
   return [seen, fresh];

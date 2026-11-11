@@ -12,11 +12,14 @@ if [ -f "$root/update-public-key.txt" ] && [ -z "${VIKING_UPDATE_PUBLIC_KEY:-}" 
 fi
 cargo build --locked --release --manifest-path "$root/Cargo.toml"
 app="$out/Viking Factory.app"
+# The companion carries the manager it embeds, so it reports that manager's version.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)
+: "${version:?Cargo.toml has no package version}"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 xcrun swiftc -module-cache-path "$out/swift-cache" -O -parse-as-library -target arm64-apple-macosx13.0 "$root/macos/main.swift" -framework AppKit -framework ServiceManagement -o "$app/Contents/MacOS/VikingFactory"
 cp "$root/target/release/viking" "$app/Contents/Resources/viking"
 cp "$root/../LICENSE" "$root/../NOTICE" "$app/Contents/Resources/"
-cat > "$app/Contents/Info.plist" <<'PLIST'
+cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -24,7 +27,7 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Viking Factory</string>
 <key>CFBundleExecutable</key><string>VikingFactory</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleShortVersionString</key><string>$version</string>
 <key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>

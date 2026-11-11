@@ -117,6 +117,17 @@ describe("subject inputs and heuristics", () => {
     });
   });
 
+  it("a plan built from flagged instructions is held for a person", () => {
+    const w = new FakeWorld();
+    w.p = [planProposed({ untrustedFlagged: true })];
+    const c = candidate("plan.approve", w);
+    expect(only(subjectInputs(c)).summary).toMatch(/flagged instructions in its input/);
+    expect(heuristic(c)).toMatchObject({
+      value: "hold",
+      detail: "it was built from text with flagged instructions a person must review",
+    });
+  });
+
   it("a drafter suggestion without a rationale says only that", () => {
     const w = new FakeWorld();
     w.q = [question({}, { recommendation: "Comma" })];
