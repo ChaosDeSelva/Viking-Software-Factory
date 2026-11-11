@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "../api/client.js";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import type { ExecutionDetail, ExecutionEvent, TaskGate } from "../api/delivery-types.js";
 import { Badge, Button, Card, DetailHeading, Empty, LoadState } from "../components/ui.js";
@@ -12,6 +13,10 @@ const gateText = (g: TaskGate | undefined) =>
       : `failed: ${g.failures.map((f) => `${f.gateId} ${f.reason}`).join("; ")}`;
 
 const DELIVERED = new Set(["verified_pending_review", "delivered_pending_merge"]);
+/** Statuses after which a run produces no more events, so a closed stream is not reopened. */
+const FINAL = new Set([...DELIVERED, "replan_requested", "cancelled", "failed"]);
+/** Delays between attempts to reopen the event stream; the last one repeats. */
+export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000];
 const tone = (status: string) =>
   DELIVERED.has(status)
     ? "ok"
@@ -83,31 +88,69 @@ function RunDetail({ executionId }: { executionId: string }) {
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [busy, setBusy] = useState(false);
   const [, setUnlockTick] = useState(0);
+  const [disconnected, setDisconnected] = useState(false);
+  // Latest known status, read by the stream loop when it decides whether to reconnect.
+  const status = useRef<string | null>(null);
+  const shown = live ?? (loaded.state.status === "ready" ? loaded.state.data : null);
+  status.current = shown?.execution.status ?? null;
 
   const refresh = useCallback(() => {
     api.getExecution(executionId).then(setLive, () => undefined);
   }, [api, executionId]);
 
+  // The stream ends when the server restarts or the connection drops. While the run can still
+  // change, say so and reopen it with a capped backoff; unmounting stops everything.
   useEffect(() => {
     const ctrl = new AbortController();
-    api
-      .streamExecution(
-        executionId,
-        (m) => {
-          if (m.kind === "event")
-            setEvents((es) =>
-              es.some((e) => e.id === m.data.id) ? es : [...es.slice(-199), m.data],
-            );
-          if (
-            m.kind === "notice" ||
-            (m.kind === "event" && /^(task|approval|mission)\./.test(m.data.type))
-          )
-            refresh();
-        },
-        ctrl.signal,
-      )
-      .catch(() => undefined);
-    return () => ctrl.abort();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const isFinal = () => status.current !== null && FINAL.has(status.current);
+    const connect = () => {
+      api
+        .streamExecution(
+          executionId,
+          (m) => {
+            attempt = 0;
+            setDisconnected(false);
+            if (m.kind === "event")
+              setEvents((es) =>
+                es.some((e) => e.id === m.data.id) ? es : [...es.slice(-199), m.data],
+              );
+            if (
+              m.kind === "notice" ||
+              (m.kind === "event" && /^(task|approval|mission)\./.test(m.data.type))
+            )
+              refresh();
+          },
+          ctrl.signal,
+        )
+        .then(
+          () => true,
+          (err: unknown) => {
+            // A rejected token ends the session; retrying would only repeat the 401.
+            if (!(err instanceof ApiError && err.status === 401)) return true;
+            report(err);
+            return false;
+          },
+        )
+        .then((retry) => {
+          if (!retry || ctrl.signal.aborted || isFinal()) return;
+          setDisconnected(true);
+          refresh();
+          const delay =
+            RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)] ?? 30_000;
+          attempt += 1;
+          timer = setTimeout(() => {
+            if (isFinal()) setDisconnected(false);
+            else connect();
+          }, delay);
+        });
+    };
+    connect();
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+    };
   }, [api, executionId, refresh]);
 
   const decide = (mimirApprovalId: string, action: string, decision: "approved" | "rejected") => {
@@ -134,6 +177,8 @@ function RunDetail({ executionId }: { executionId: string }) {
         const pending = d.approvals.filter(
           (a) => a.disposition === "inbox" && a.status === "pending",
         );
+        const escalated = d.tasks.filter((t) => t.escalation);
+        const plan = d.plan;
         return (
           <section aria-labelledby="run-title" className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
@@ -157,9 +202,55 @@ function RunDetail({ executionId }: { executionId: string }) {
                 </Button>
               ) : null}
             </div>
+            {disconnected && !FINAL.has(d.execution.status) ? (
+              <p
+                role="note"
+                aria-label="Live updates"
+                className="rounded border border-amber-500 p-2 text-sm"
+              >
+                Live updates disconnected — retrying. What you see may be out of date.
+              </p>
+            ) : null}
+            {d.execution.status === "replan_requested" ? (
+              <div
+                role="note"
+                aria-label="Replan requested"
+                className="space-y-2 rounded border-2 border-amber-500 p-3 text-sm"
+              >
+                <p>
+                  This run will not continue: a replan was requested. Revise the plan, approve it
+                  and execute it again.
+                </p>
+                {plan ? (
+                  <Button onClick={() => dispatch({ type: "plan/open", planId: plan.id })}>
+                    Open plan
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            {escalated.length > 0 ? (
+              <div
+                role="note"
+                aria-label="Tasks need a decision"
+                className="space-y-2 rounded border-2 border-amber-500 p-3 text-sm"
+              >
+                <p>
+                  {escalated.length === 1 ? "A task is" : `${escalated.length} tasks are`} escalated
+                  and waiting for your decision: {escalated.map((t) => t.planTaskId).join(", ")}.
+                  The run does not continue until you decide in Reviews.
+                </p>
+                <Button onClick={() => dispatch({ type: "navigate", view: "reviews" })}>
+                  Open Reviews
+                </Button>
+              </div>
+            ) : null}
             <Card title="Approvals awaiting you" headingLevel={3}>
               {pending.length === 0 ? (
-                <Empty>No gated actions are waiting.</Empty>
+                <Empty>
+                  {escalated.length > 0
+                    ? "No gated actions are waiting, but escalated tasks need a decision in Reviews."
+                    : "No gated actions are waiting."}
+                </Empty>
               ) : (
                 <ul className="space-y-2">
                   {pending.map((a) => (

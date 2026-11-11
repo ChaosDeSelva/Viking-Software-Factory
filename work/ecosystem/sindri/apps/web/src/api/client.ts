@@ -4,6 +4,14 @@ export interface KnowledgeProposal {
   status: "proposed" | "accepted" | "rejected";
   sourceRefs: { taskEvidenceId: string }[];
 }
+/** An earlier change request on a delivery, with the spec versions drafted for it. */
+export interface ReworkSummary {
+  id: string;
+  feedback: string;
+  createdAt: string;
+  baseCommits: string[];
+  specs: { id: string; version: number; status: string; title: string }[];
+}
 import type {
   BootstrapResult,
   Capabilities,
@@ -121,6 +129,9 @@ export function createApiClient(opts: ClientOptions) {
       call<{ rework: { id: string }; spec: Spec }>("POST", `/v1/deliveries/${enc(id)}/rework`, {
         feedback,
       }),
+    listReworks: async (id: string) =>
+      (await call<{ reworks: ReworkSummary[] }>("GET", `/v1/deliveries/${enc(id)}/reworks`))
+        .reworks,
     health: () => call<{ status: string }>("GET", "/v1/health"),
     capabilities: () => call<Capabilities>("GET", "/v1/capabilities"),
 
@@ -182,6 +193,10 @@ export function createApiClient(opts: ClientOptions) {
       return { principal: session.principal, expiresAt: session.expiresAt };
     },
     hasApprovalSession: () => approvalSecret !== null,
+    /** Sign-out and a rejected token end the approval session too. */
+    forgetApproval: () => {
+      approvalSecret = null;
+    },
     /** The approver is the server-side approval principal; flagged specs need acknowledgement. */
     approveSpec: async (id: string, opts: { acknowledgeUntrusted?: boolean } = {}) =>
       (

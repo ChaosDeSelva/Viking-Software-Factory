@@ -101,4 +101,19 @@ describe("KnowledgeScreen", () => {
     const hist = await screen.findByRole("list", { name: "History" });
     expect(within(hist).getByText("superseded")).toBeTruthy();
   });
+
+  it("says so when a delivery has no proposals (L1)", async () => {
+    const api = mockApi({
+      listKnowledge: [],
+      listDeliveries: [{ id: "e1", planVersion: 1, createdAt: "2026-01-01T00:00:00Z" }],
+      listProposals: [],
+    });
+    renderWithStore(ui, api);
+    await screen.findByRole("option", { name: /Plan v1/ });
+    expect(screen.queryByText("No proposals for this delivery.")).toBeNull();
+    await userEvent.selectOptions(screen.getByLabelText("Delivery"), "e1");
+    await userEvent.click(screen.getByRole("button", { name: "Load proposals" }));
+    expect(api.listProposals).toHaveBeenCalledWith("e1");
+    expect(await screen.findByText("No proposals for this delivery.")).toBeTruthy();
+  });
 });

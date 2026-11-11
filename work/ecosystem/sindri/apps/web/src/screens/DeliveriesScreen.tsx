@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import type { DeliveryReport, TraceNode, PrDelivery } from "../api/delivery-types.js";
 import { traceTree } from "../api/trace-tree.js";
@@ -77,6 +77,7 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
   const trace = useLoad(() => api.deliveryTrace(deliveryId), [deliveryId]);
   const local = useLoad(() => api.localDelivery(deliveryId), [deliveryId]);
   const [busy, setBusy] = useState(false);
+  const [assessing, setAssessing] = useState(false);
   const [exportRequest, setExportRequest] = useState<PrDelivery | null>(null);
   const [, setUnlockTick] = useState(0);
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
@@ -128,6 +129,26 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
                   }}
                 >
                   Export local result
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setAssessing(true);
+                    api
+                      .assessExecution(deliveryId)
+                      .then(() => {
+                        notify("Quality checks re-run");
+                        detail.reload();
+                      }, report)
+                      .finally(() => {
+                        setBusy(false);
+                        setAssessing(false);
+                      });
+                  }}
+                >
+                  {assessing ? "Re-running quality checks…" : "Re-run quality checks"}
                 </Button>
                 <p id="pr-hint" className="text-xs text-slate-600 dark:text-slate-300">
                   Requires passing quality gates and delivery approval. Download the patch and apply
@@ -382,8 +403,57 @@ function RequestChanges({ deliveryId }: { deliveryId: string }) {
   const report = useReportError();
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
+  const reworks = useLoad(() => api.listReworks(deliveryId), [deliveryId]);
+  // Drafting takes minutes: if the person has moved on, tell them but do not pull them away.
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
   return (
     <Card title="Request changes">
+      {reworks.state.status === "error" ? (
+        <div className="space-y-2 text-sm">
+          <p>Could not load earlier change requests: {reworks.state.error}</p>
+          <Button variant="secondary" onClick={reworks.reload}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+      {reworks.state.status === "ready" && reworks.state.data.length > 0 ? (
+        <section aria-label="Earlier change requests" className="space-y-1 text-sm">
+          <h3 className="font-medium">Earlier change requests</h3>
+          <ul className="space-y-2">
+            {reworks.state.data.map((r) => {
+              const latest = r.specs.reduce<(typeof r.specs)[number] | null>(
+                (a, b) => (!a || b.version > a.version ? b : a),
+                null,
+              );
+              return (
+                <li key={r.id} className="space-y-1">
+                  <p>
+                    <span className="text-xs text-slate-600 dark:text-slate-300">
+                      {new Date(r.createdAt).toLocaleString()}
+                    </span>{" "}
+                    {r.feedback}
+                  </p>
+                  {latest ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => dispatch({ type: "spec/open", specId: latest.id })}
+                    >
+                      Open spec v{latest.version} ({latest.status})
+                      <span className="sr-only"> for the request from {r.createdAt}</span>
+                    </Button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
       <form
         aria-label="Request changes to this delivery"
         className="space-y-2"
@@ -394,7 +464,10 @@ function RequestChanges({ deliveryId }: { deliveryId: string }) {
           api
             .requestRework(deliveryId, feedback.trim())
             .then(({ spec }) => {
-              setFeedback("");
+              if (mounted.current) {
+                setFeedback("");
+                reworks.reload();
+              }
               dispatch({
                 type: "notice",
                 notice: {
@@ -402,9 +475,11 @@ function RequestChanges({ deliveryId }: { deliveryId: string }) {
                   text: "A specification was drafted from your feedback. Review and approve it to continue from this delivery.",
                 },
               });
-              dispatch({ type: "spec/open", specId: spec.id });
+              if (mounted.current) dispatch({ type: "spec/open", specId: spec.id });
             }, report)
-            .finally(() => setBusy(false));
+            .finally(() => {
+              if (mounted.current) setBusy(false);
+            });
         }}
       >
         <Field

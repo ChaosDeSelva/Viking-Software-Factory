@@ -190,13 +190,21 @@ export function ContextList({ items }: { items: ContextItemView[] }) {
   );
 }
 
-export function BlockingQuestions(props: {
+/**
+ * Answer forms for a spec's open questions, blocking or not. Pass `answers`/`onAnswersChange` to
+ * keep typed text in the parent (each answer makes a new spec version, which may remount this).
+ */
+export function OpenQuestions(props: {
   questions: OpenQuestion[];
   busy: boolean;
   onAnswer: (questionId: string, answer: string) => void;
+  answers?: Record<string, string>;
+  onAnswersChange?: (answers: Record<string, string>) => void;
 }) {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  if (props.questions.length === 0) return <p className="text-sm">No blocking questions remain.</p>;
+  const [local, setLocal] = useState<Record<string, string>>({});
+  const answers = props.answers ?? local;
+  const setAnswers = props.onAnswersChange ?? setLocal;
+  if (props.questions.length === 0) return <p className="text-sm">No open questions remain.</p>;
   return (
     <div className="space-y-3">
       {props.questions.map((q) => {
@@ -206,12 +214,15 @@ export function BlockingQuestions(props: {
           <form
             key={q.id}
             aria-label={`Answer ${q.id}`}
-            className="space-y-2 rounded border border-amber-400 p-3"
+            className={`space-y-2 rounded border p-3 ${
+              q.blocking ? "border-amber-400" : "border-slate-300 dark:border-slate-700"
+            }`}
             onSubmit={(e) => {
               e.preventDefault();
               if (value.trim()) props.onAnswer(q.id, value.trim());
             }}
           >
+            {q.blocking ? <Badge tone="warn">blocking</Badge> : <Badge>non-blocking</Badge>}
             <Field label={`${q.id}: ${q.text}`} id={id}>
               <textarea
                 id={id}
@@ -222,7 +233,7 @@ export function BlockingQuestions(props: {
               />
             </Field>
             {q.recommendation && (
-              <div className="space-y-1 rounded bg-amber-50 p-2 text-sm text-slate-900">
+              <div className="space-y-1 rounded bg-amber-50 p-2 text-sm text-slate-900 dark:bg-amber-950 dark:text-amber-50">
                 <p>
                   <span className="font-semibold">Recommended answer:</span> {q.recommendation}
                 </p>
@@ -246,3 +257,6 @@ export function BlockingQuestions(props: {
     </div>
   );
 }
+
+/** The earlier name, from when only blocking questions could be answered. */
+export const BlockingQuestions = OpenQuestions;

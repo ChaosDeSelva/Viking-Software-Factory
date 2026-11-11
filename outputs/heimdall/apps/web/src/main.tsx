@@ -1,6 +1,17 @@
 import { Projects } from "./features/Projects";
 import { canControlMission } from "./features/missionState";
 import {
+  latestVersions,
+  orderedQuestions,
+  statusBadge,
+  actionBlock,
+  mergeEventPages,
+  projectKey,
+  mergeProjects,
+  projectAliases,
+  deliveryTitle,
+} from "./features/workflowState";
+import {
   RecordRow,
   TaskCard,
   MetricCard,
@@ -83,6 +94,8 @@ const ago = (v: any) =>
   v
     ? `${Math.max(0, Math.floor((Date.now() - new Date(v).getTime()) / 1000))}s ago`
     : "Not reported";
+// Set by the app: a 401 may mean the session ended, so it re-checks and returns to sign-in.
+let onUnauthorized: (() => void) | null = null;
 async function api(path: string, options: RequestInit = {}) {
   const r = await fetch("/api/" + path, {
     ...options,
@@ -93,8 +106,13 @@ async function api(path: string, options: RequestInit = {}) {
       ...options.headers,
     },
   });
+  if (r.status === 401 && path !== "login" && path !== "session")
+    onUnauthorized?.();
   const data = await r.json();
-  if (!r.ok) throw Error(data.message ?? `HTTP ${r.status}`);
+  if (!r.ok)
+    throw Object.assign(Error(data.message ?? `HTTP ${r.status}`), {
+      code: data.code,
+    });
   return data;
 }
 const post = (path: string, data: R) =>
@@ -141,7 +159,9 @@ function App() {
     ),
     [code, setCode] = useState(""),
     [pair, setPair] = useState(""),
-    [eventRows, setEventRows] = useState<R[]>([]);
+    [eventRows, setEventRows] = useState<R[]>([]),
+    [detailsNonce, setDetailsNonce] = useState(0);
+  const eventQuery = useRef("");
   useCommandShortcut(authenticated && !selected && !command, () =>
     setJumpOpen(true),
   );
@@ -172,6 +192,21 @@ function App() {
         setAuthenticated(true);
       })
       .catch(() => {});
+    // A source's own 401 is relayed with the same status, so only Heimdall's session decides.
+    onUnauthorized = () =>
+      void fetch("/api/session")
+        .then((r) => {
+          if (r.status !== 401) return;
+          setAuthenticated(false);
+          setState(null);
+          setSelected(null);
+          setCommand(null);
+          setLoginError("Your session ended. Sign in again.");
+        })
+        .catch(() => {});
+    return () => {
+      onUnauthorized = null;
+    };
   }, []);
   useEffect(() => {
     if (!authenticated) return;
@@ -183,7 +218,10 @@ function App() {
       setState(JSON.parse((e as MessageEvent).data));
       setStream("Live");
     });
-    es.onerror = () => setStream("Reconnecting · data may be delayed");
+    es.onerror = () => {
+      setStream("Reconnecting · data may be delayed");
+      onUnauthorized?.();
+    };
     return () => es.close();
   }, [authenticated]);
   useEffect(() => {
@@ -225,10 +263,12 @@ function App() {
     return () => {
       gone = true;
     };
-  }, [selected?.id, selected?.kind]);
+  }, [selected?.id, selected?.kind, detailsNonce]);
   useEffect(() => {
     if (page !== "Activity" || !authenticated) return;
-    setActivityPage(0);
+    // A new event refetches the first page too; only a changed filter starts over.
+    const query = [search, eventSource, eventType, eventMission].join("\n");
+    if (eventQuery.current !== query) setActivityPage(0);
     let gone = false;
     const timer = setTimeout(
       () =>
@@ -243,7 +283,11 @@ function App() {
             encodeURIComponent(search),
         )
           .then((d) => {
-            if (!gone) setEventRows(d.events);
+            if (gone) return;
+            if (eventQuery.current === query)
+              setEventRows((loaded) => mergeEventPages(d.events, loaded));
+            else setEventRows(d.events);
+            eventQuery.current = query;
           })
           .catch((e) => setNotice(e.message)),
       150,
@@ -293,9 +337,14 @@ function App() {
       setNotice("Source confirmed the request. Current state is shown below.");
       setCommand(null);
       setState(await api("snapshot"));
-      setDetails(result);
+      // The open record may have changed even when the command returns no record of its own.
+      setDetailsNonce((n) => n + 1);
       const sourceResult = result.result;
-      if (sourceResult?.spec) open("specs", sourceResult.spec);
+      // A started run also returns its plan, so test for the run first.
+      if (sourceResult?.execution) {
+        setPage("Pipeline");
+        setSelected(null);
+      } else if (sourceResult?.spec) open("specs", sourceResult.spec);
       else if (sourceResult?.plan) open("plans", sourceResult.plan);
       else if (sourceResult?.project) open("projects", sourceResult.project);
       else if (sourceResult?.intake) open("intakes", sourceResult.intake);
@@ -305,12 +354,13 @@ function App() {
           title: "Verification recheck",
           ...sourceResult,
         });
-      else if (sourceResult?.execution) {
-        setPage("Pipeline");
-        setSelected(null);
-      }
     } catch (e) {
       setNotice((e as Error).message);
+      if ((e as R).code === "pairing_required") {
+        // Sindri keeps its refusal for this key, so the attempt after pairing needs a new one.
+        commandAttempt.current = null;
+        void api("session").then(setSession).catch(() => {});
+      }
     } finally {
       setBusy(false);
     }
@@ -369,6 +419,7 @@ function App() {
             try {
               await post("login", { token });
               setToken("");
+              setLoginError("");
               setSession(await api("session"));
               setAuthenticated(true);
             } catch (e) {
@@ -398,17 +449,15 @@ function App() {
     s = state?.sindri ?? {},
     allTasks: R[] = m.tasks ?? [],
     allMissions: R[] = m.missions ?? [],
-    allProjects: R[] = [
-      ...(m.projects ?? []).map((p: R) => ({ ...p, name: (s.projects ?? []).find((sp: R) => p.repoPath && sp.repoPath === p.repoPath)?.name ?? p.name })),
-      ...(s.projects ?? []).filter(
-        (sp: R) =>
-          !(m.projects ?? []).some((mp: R) => mp.repoPath === sp.repoPath),
-      ),
-    ],
+    allProjects: R[] = mergeProjects(m.projects ?? [], s.projects ?? []),
     executions: R[] = s.executions ?? [];
   const archivedProjects: string[] = preferences.archivedProjects ?? [];
-  const activeProjects = allProjects.filter(p => !archivedProjects.includes(p.id));
-  const visibleProjectIds = new Set(activeProjects.filter(p => project === "all" || p.id === project).map(p => p.id));
+  // A Sindri-only project takes Mimir's ID once a run starts; its repository path does not change.
+  const isArchived = (p: R) =>
+    projectAliases(p, s.projects ?? []).some((id) => archivedProjects.includes(id));
+  const activeProjects = allProjects.filter((p) => !isArchived(p));
+  const projectFilter = activeProjects.some((p) => projectKey(p) === project) ? project : "all";
+  const visibleProjectIds = new Set(activeProjects.filter(p => projectFilter === "all" || projectKey(p) === projectFilter).map(p => p.id));
   const visibleRepos = new Set(activeProjects.filter(p => visibleProjectIds.has(p.id)).map(p => p.repoPath).filter(Boolean));
   const missions = allMissions.filter(r => visibleProjectIds.has(r.projectId));
   const missionIDs = new Set(missions.map((r) => r.id));
@@ -419,16 +468,17 @@ function App() {
   const crewIDs = new Set(crews.map((r) => r.id));
   const agents: R[] = (m.agents ?? []).filter((r: R) => crewIDs.has(r.crewId));
   const sindriProjects: R[] = s.projects ?? [];
-  const selectedRepo = allProjects.find((p) => p.id === project)?.repoPath;
   const sindriIDs = new Set(
     sindriProjects
       .filter((p) => visibleProjectIds.has(p.id) || (p.repoPath && visibleRepos.has(p.repoPath)))
       .map((p) => p.id),
   );
-  const specs: R[] = (s.specs ?? []).filter((r: R) =>
-      sindriIDs.has(r.projectId),
+  const specs: R[] = latestVersions(
+      (s.specs ?? []).filter((r: R) => sindriIDs.has(r.projectId)),
     ),
-    plans: R[] = (s.plans ?? []).filter((r: R) => sindriIDs.has(r.projectId)),
+    plans: R[] = latestVersions(
+      (s.plans ?? []).filter((r: R) => sindriIDs.has(r.projectId)),
+    ),
     intakes: R[] = (s.intakes ?? []).filter((r: R) =>
       sindriIDs.has(r.projectId),
     );
@@ -453,14 +503,15 @@ function App() {
         JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
     );
   const visibleTaskIds = new Set(tasks.map(task => task.id));
-  const visibleExecutionIds = new Set(executions.filter(e => missionIDs.has(e.execution.mimirMissionId)).map(e => e.execution.id));
+  const visibleExecutions = executions.filter(e => missionIDs.has(e.execution.mimirMissionId));
+  const visibleExecutionIds = new Set(visibleExecutions.map(e => e.execution.id));
   const inProjectView = (row: R) => {
     if (row.projectId) return visibleProjectIds.has(row.projectId) || sindriIDs.has(row.projectId);
     if (row.missionId) return missionIDs.has(row.missionId);
     if (row.taskId) return visibleTaskIds.has(row.taskId);
     if (row.crewId) return crewIDs.has(row.crewId);
     if (row.executionId) return visibleExecutionIds.has(row.executionId);
-    return project === "all";
+    return projectFilter === "all";
   };
   const visibleNotifications = (state?.notifications ?? []).filter((n: R) =>
     n.kind === "connection" || (n.kind === "missions" ? missionIDs.has(n.resourceId ?? n.row?.id) :
@@ -484,6 +535,9 @@ function App() {
             title={label(r)}
             description={
               <>
+                {["specs", "plans"].includes(kind) && r.version != null
+                  ? `v${r.version} · `
+                  : ""}
                 {r.id} {r.blockedReason ? ` · ${r.blockedReason}` : ""}
               </>
             }
@@ -592,6 +646,32 @@ function App() {
   const sourceOffline = Object.values(state?.sources ?? {}).some(
     (v: any) => v.status === "disconnected",
   );
+  const taskAgent = currentTask
+    ? (m.agents ?? []).find((a: R) => a.id === currentTask.agentId)
+    : null;
+  // Sindri-routed controls need the operator unlock and the Sindri pairing, like the server.
+  const sindriWhy = (action: string, status?: unknown) =>
+    actionBlock(action, status, session);
+  const operatorWhy = session.operator
+    ? ""
+    : "Unlock operator controls under Connections first.";
+  const why = (...reasons: string[]) => {
+    const list = [...new Set(reasons.filter(Boolean))];
+    return list.length ? <p className="muted">{list.join(" ")}</p> : null;
+  };
+  const openSpec: R | null =
+    selected?.kind === "specs" ? (details?.spec ?? dataRow) : null;
+  const acknowledgeWhy =
+    selected?.kind === "specs" &&
+    details?.meta?.untrustedInstructionDetected &&
+    !acknowledgeUntrusted
+      ? "Acknowledge the flagged source instructions below first."
+      : "";
+  const approvalWhy =
+    selected?.kind === "approvals" &&
+    executions.some((e) => e.execution.mimirMissionId === dataRow.missionId)
+      ? sindriWhy("approval.decide")
+      : operatorWhy;
   return (
     <div className="shell">
       <aside className={mobileMenu ? "sidebar menu-open" : "sidebar"}>
@@ -687,12 +767,12 @@ function App() {
             <Select
               aria-label="Filter by project"
               className="w-[220px] max-w-full"
-              value={project}
+              value={projectFilter}
               onValueChange={(value) => setProject(value)}
             >
               <Option value="all">All projects</Option>
               {activeProjects.map((p) => (
-                <Option key={p.id} value={p.id}>
+                <Option key={p.id} value={projectKey(p)}>
                   {p.name}
                 </Option>
               ))}
@@ -921,14 +1001,15 @@ function App() {
               </div>
             </>
           )}
-          {page === "Projects" && <Projects projects={allProjects.map(p => ({ id: p.id, name: p.name, repoPath: p.repoPath }))} archived={archivedProjects}
+          {page === "Projects" && <Projects projects={allProjects.map(p => ({ id: p.id, name: p.name, repoPath: p.repoPath }))} archived={allProjects.filter(isArchived).map(p => p.id)}
             onCreate={() => setPage("New work")}
-            onOpen={(id) => { setProject(id); setPage("Overview"); }}
+            onOpen={(id) => { setProject(projectKey(allProjects.find(p => p.id === id) ?? { id })); setPage("Overview"); }}
             onArchive={async (id, archive) => {
-              const next = archive ? [...new Set([...archivedProjects, id])] : archivedProjects.filter(value => value !== id);
+              const aliases = projectAliases(allProjects.find(p => p.id === id) ?? { id }, s.projects ?? []);
+              const next = archive ? [...new Set([...archivedProjects, id])] : archivedProjects.filter(value => !aliases.includes(value));
               const result = await post("preferences", { archivedProjects: next });
               setState(old => old ? { ...old, preferences: result.preferences } : old);
-              if (archive && project === id) setProject("all");
+              if (archive && aliases.some(alias => allProjects.some(p => p.id === alias && projectKey(p) === project))) setProject("all");
               setNotice(archive ? "Project archived. Files and history preserved." : "Project restored.");
             }} />}
           {page === "Pipeline" && (
@@ -955,7 +1036,9 @@ function App() {
                 [
                   "Building",
                   tasks.filter((x) =>
-                    ["running", "blocked", "failed"].includes(x.status),
+                    ["running", "blocked", "failed", "cancelled"].includes(
+                      x.status,
+                    ),
                   ),
                   "tasks",
                 ],
@@ -1010,10 +1093,19 @@ function App() {
                             )
                           }
                         >
-                          <strong>{label(r)}</strong>
-                          {/* Intakes carry only the tracker's status, which manual requests lack. */}
-                          <Badge value={r.status ?? (kind === "intakes" ? "received" : undefined)} />
-                          <small>{r.id}</small>
+                          <strong>
+                            {(kind === "deliveries" &&
+                              deliveryTitle(r, executions, s.specs ?? [])) ||
+                              label(r)}
+                          </strong>
+                          <Badge value={statusBadge(String(kind), r)} />
+                          <small>
+                            {["specs", "plans"].includes(String(kind)) &&
+                            r.version != null
+                              ? `v${r.version} · `
+                              : ""}
+                            {r.id}
+                          </small>
                         </Button>
                       ),
                     )}
@@ -1082,8 +1174,8 @@ function App() {
                   key={mission.id}
                   mission={mission}
                   title={
-                    specs.find(
-                      (spec) =>
+                    (s.specs ?? []).find(
+                      (spec: R) =>
                         spec.id ===
                         executions.find(
                           (e) => e.execution.mimirMissionId === mission.id,
@@ -1189,7 +1281,11 @@ function App() {
                         encodeURIComponent(search) +
                         "&before=" +
                         eventRows.at(-1)?.cacheSequence,
-                    ).then((d) => setEventRows([...eventRows, ...d.events]))
+                    )
+                      .then((d) =>
+                        setEventRows((loaded) => mergeEventPages(d.events, loaded)),
+                      )
+                      .catch((e) => setNotice(e.message))
                   }
                 >
                   Load older events
@@ -1222,9 +1318,7 @@ function App() {
               </Card>
               <Card className="panel">
                 <h2>Verification & delivery</h2>
-                {executions
-                  .filter((e) => missionIDs.has(e.execution.mimirMissionId))
-                  .map((e) => (
+                {visibleExecutions.map((e) => (
                     <div className="quality-run" key={e.execution.id}>
                       <Button variant="unstyled" className="verification-heading" onClick={() => open("execution", e.execution)}>
                         <strong>
@@ -1292,7 +1386,7 @@ function App() {
                       )}
                     </div>
                   ))}
-                {!executions.length && (
+                {!visibleExecutions.length && (
                   <div className="empty">No verification reports yet.</div>
                 )}
               </Card>
@@ -1541,11 +1635,16 @@ function App() {
               ? taskPlan.id.replaceAll("-", " ")
               : selected.kind === "missions"
                 ? missionTitle(dataRow)
+                : selected.kind === "deliveries" &&
+                    deliveryTitle(dataRow, executions, s.specs ?? [])
+                  ? deliveryTitle(dataRow, executions, s.specs ?? [])
                 : String(label(dataRow)).length > 180
                 ? String(label(dataRow)).slice(0, 177) + "…"
                 : label(dataRow)}
           </DialogTitle>
-          <Badge value={dataRow.status ?? dataRow.type} />
+          {statusBadge(selected.kind, dataRow) != null && (
+            <Badge value={statusBadge(selected.kind, dataRow)} />
+          )}
           {missingSelection && (
             <p className="warning">
               This record is absent from the latest source snapshot. These
@@ -1558,7 +1657,13 @@ function App() {
               Connections before acting.
             </p>
           )}
-          <p className="id">{selected.id}</p>
+          <p className="id">
+            {["specs", "plans"].includes(selected.kind) &&
+            (details?.spec ?? details?.plan ?? dataRow).version != null
+              ? `v${(details?.spec ?? details?.plan ?? dataRow).version} · `
+              : ""}
+            {selected.id}
+          </p>
           {detailError && (
             <p role="alert" className="warning">
               {detailError}
@@ -1733,12 +1838,15 @@ function App() {
                 <div>
                   <small>Agent</small>
                   <Button
-                    onClick={() => {
-                      const a = (m.agents ?? []).find(
-                        (a: R) => a.id === currentTask.agentId,
-                      );
-                      if (a) open("agents", a);
-                    }}
+                    disabled={!taskAgent}
+                    title={
+                      taskAgent
+                        ? undefined
+                        : currentTask.agentId
+                          ? "This agent is no longer in the source snapshot."
+                          : "No agent is assigned to this task yet."
+                    }
+                    onClick={() => taskAgent && open("agents", taskAgent)}
                   >
                     {currentTask.agentId ?? "Not assigned"}
                   </Button>
@@ -1855,7 +1963,8 @@ function App() {
               <div className="actions">
                 {["approved", "rejected"].map((decision) => (
                   <Button
-                    disabled={!session.operator}
+                    disabled={!!approvalWhy}
+                    title={approvalWhy || undefined}
                     key={decision}
                     onClick={() =>
                       propose("approval.decide", dataRow.id, {
@@ -1868,6 +1977,7 @@ function App() {
                   </Button>
                 ))}
               </div>
+              {why(approvalWhy)}
             </>
           )}
           {selected.kind === "intakes" && (
@@ -1876,7 +1986,8 @@ function App() {
                 {details?.intake?.body ?? dataRow.body}
               </p>
               <Button
-                disabled={!session.operator || !session.pairedSindri}
+                disabled={!!sindriWhy("spec.draft")}
+                title={sindriWhy("spec.draft") || undefined}
                 onClick={() =>
                   propose("spec.draft", "new", {
                     projectId: dataRow.projectId,
@@ -1887,39 +1998,48 @@ function App() {
               >
                 Draft specification from intake
               </Button>
+              {why(sindriWhy("spec.draft"))}
             </>
           )}
           {["specs", "plans"].includes(selected.kind) && (
             <>
-              <div className="actions">
-                <Button
-                  disabled={!session.operator}
-                  onClick={() =>
-                    propose(
-                      selected.kind === "specs" ? "spec.submit" : "plan.submit",
-                      dataRow.id,
-                    )
-                  }
-                >
-                  Submit for review
-                </Button>
-                <Button
-                  disabled={!session.operator}
-                  onClick={() =>
-                    propose(
-                      selected.kind === "specs"
-                        ? "spec.approve"
-                        : "plan.approve",
-                      dataRow.id,
-                      selected.kind === "specs" && acknowledgeUntrusted
-                        ? { acknowledgeUntrusted: true }
-                        : {},
-                    )
-                  }
-                >
-                  Approve {selected.kind === "specs" ? "specification" : "plan"}
-                </Button>
-              </div>
+              {(() => {
+                const resource = selected.kind === "specs" ? "spec" : "plan";
+                const submitWhy = sindriWhy(resource + ".submit", dataRow.status);
+                const approveWhy =
+                  sindriWhy(resource + ".approve", dataRow.status) ||
+                  acknowledgeWhy;
+                return (
+                  <>
+                    <div className="actions">
+                      <Button
+                        disabled={!!submitWhy}
+                        title={submitWhy || undefined}
+                        onClick={() => propose(resource + ".submit", dataRow.id)}
+                      >
+                        Submit for review
+                      </Button>
+                      <Button
+                        disabled={!!approveWhy}
+                        title={approveWhy || undefined}
+                        onClick={() =>
+                          propose(
+                            resource + ".approve",
+                            dataRow.id,
+                            selected.kind === "specs" && acknowledgeUntrusted
+                              ? { acknowledgeUntrusted: true }
+                              : {},
+                          )
+                        }
+                      >
+                        Approve{" "}
+                        {selected.kind === "specs" ? "specification" : "plan"}
+                      </Button>
+                    </div>
+                    {why(submitWhy, approveWhy)}
+                  </>
+                );
+              })()}
               {selected.kind === "specs" &&
                 details?.meta?.untrustedInstructionDetected && (
                   <Field className="warning">
@@ -1944,14 +2064,18 @@ function App() {
                   />
                 )}
               {selected.kind === "specs" && (
-                <Button
-                  disabled={!session.operator || dataRow.status !== "approved"}
-                  onClick={() =>
-                    propose("plan.propose", "new", { specId: dataRow.id })
-                  }
-                >
-                  Propose implementation plan
-                </Button>
+                <>
+                  <Button
+                    disabled={!!sindriWhy("plan.propose", dataRow.status)}
+                    title={sindriWhy("plan.propose", dataRow.status) || undefined}
+                    onClick={() =>
+                      propose("plan.propose", "new", { specId: dataRow.id })
+                    }
+                  >
+                    Propose implementation plan
+                  </Button>
+                  {why(sindriWhy("plan.propose", dataRow.status))}
+                </>
               )}
               {selected.kind === "plans" &&
                 (details?.plan ?? dataRow)?.tasks && (
@@ -1963,33 +2087,34 @@ function App() {
                   />
                 )}
               {selected.kind === "plans" && (
-                <Button
-                  disabled={!session.operator || dataRow.status !== "approved"}
-                  onClick={() =>
-                    propose("execution.create", "new", { planId: dataRow.id })
-                  }
-                >
-                  Start approved plan
-                </Button>
+                <>
+                  <Button
+                    disabled={!!sindriWhy("execution.create", dataRow.status)}
+                    title={
+                      sindriWhy("execution.create", dataRow.status) || undefined
+                    }
+                    onClick={() =>
+                      propose("execution.create", "new", { planId: dataRow.id })
+                    }
+                  >
+                    Start approved plan
+                  </Button>
+                  {why(sindriWhy("execution.create", dataRow.status))}
+                </>
               )}
-              {selected.kind === "specs" && (
-                <Button
-                  onClick={() =>
-                    void api("details/questions/" + dataRow.id)
-                      .then((d) => setDetails({ ...details, ...d }))
-                      .catch((e) => setNotice(e.message))
-                  }
-                >
-                  Load clarification questions
-                </Button>
+              {orderedQuestions(openSpec).length > 0 && (
+                <>
+                  <h3>Open questions</h3>
+                  {why(sindriWhy("spec.answer"))}
+                </>
               )}
-              {details?.questions?.map((q: R) => (
+              {orderedQuestions(openSpec).map((q: R) => (
                 <Question
                   key={q.id}
                   question={q}
-                  disabled={!session.operator}
+                  disabled={!!sindriWhy("spec.answer")}
                   answer={(answer: string) =>
-                    propose("spec.answer", dataRow.id, {
+                    propose("spec.answer", openSpec!.id, {
                       questionId: q.id,
                       answer,
                     })
@@ -2031,7 +2156,8 @@ function App() {
                 {["retry", "skip", "replan", "abort"].map((decision) => (
                   <Button
                     key={decision}
-                    disabled={!session.operator}
+                    disabled={!!sindriWhy("execution.resolve")}
+                    title={sindriWhy("execution.resolve") || undefined}
                     onClick={() =>
                       propose(
                         "execution.resolve",
@@ -2045,19 +2171,24 @@ function App() {
                   </Button>
                 ))}
               </div>
+              {why(sindriWhy("execution.resolve"))}
             </>
           )}
           {selected.kind === "deliveries" && (
             <>
               <div className="actions">
                 <Button
-                  disabled={!session.operator}
+                  disabled={!!sindriWhy("execution.assess")}
+                  title={sindriWhy("execution.assess") || undefined}
                   onClick={() => propose("execution.assess", dataRow.id)}
                 >
                   Reassess quality gates
                 </Button>
                 <Button
-                  disabled={!session.operator}
+                  disabled={!!sindriWhy("execution.export", dataRow.status)}
+                  title={
+                    sindriWhy("execution.export", dataRow.status) || undefined
+                  }
                   onClick={() => propose("execution.export", dataRow.id)}
                 >
                   Request local export
@@ -2068,38 +2199,53 @@ function App() {
                       .then((d) => {
                         if (!d.result)
                           throw Error("No local export is available yet.");
-                        setDetails(d);
+                        setDetails((old) => ({ ...old, ...d }));
                       })
                       .catch((e) => setNotice(e.message))
                   }
                 >
-                  View local patch
+                  View local delivery
                 </Button>
               </div>
+              {why(
+                sindriWhy("execution.assess"),
+                sindriWhy("execution.export", dataRow.status),
+              )}
               <RequestChanges
                 key={dataRow.id}
-                enabled={!!session.operator}
+                reason={sindriWhy("delivery.rework")}
                 submit={(feedback) => propose("delivery.rework", dataRow.id, { feedback })}
               />
-              {details?.result?.patch && (
+              {details?.result && (
                 <>
-                  <Button
-                    onClick={() => {
-                      const url = URL.createObjectURL(
-                        new Blob([details.result.patch], {
-                          type: "text/plain",
-                        }),
-                      );
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = "result.patch";
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                  >
-                    Download result.patch
-                  </Button>
-                  <CodeBlock>{details.result.patch}</CodeBlock>
+                  <h3>Local delivery</h3>
+                  <div className="facts">
+                    <div>
+                      <small>Result commit</small>
+                      {details.result.resultCommit}
+                    </div>
+                    <div>
+                      <small>Repository</small>
+                      {details.result.repoPath}
+                    </div>
+                  </div>
+                  <h3>Apply</h3>
+                  <CodeBlock>{details.result.apply}</CodeBlock>
+                  <h3>Undo</h3>
+                  <CodeBlock>{details.result.undo}</CodeBlock>
+                  {details.result.patch && (
+                    <Disclosure>
+                      <DisclosureTrigger>
+                        Preview (may be shortened or altered for display)
+                      </DisclosureTrigger>
+                      <p className="muted">
+                        This text is for reading only and may not apply as a
+                        patch. Use the commands above to take the verified
+                        commit.
+                      </p>
+                      <CodeBlock>{details.result.patch}</CodeBlock>
+                    </Disclosure>
+                  )}
                 </>
               )}
               <Raw
@@ -2202,10 +2348,11 @@ function App() {
 }
 /** Reviewer feedback on a delivery; Sindri drafts a follow-up specification from it. */
 function RequestChanges({
-  enabled,
+  reason,
   submit,
 }: {
-  enabled: boolean;
+  /** Why the request cannot be sent; empty when it can. */
+  reason: string;
   submit: (feedback: string) => void;
 }) {
   const [feedback, setFeedback] = useState("");
@@ -2221,9 +2368,14 @@ function RequestChanges({
         What should change
         <Textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} />
       </Field>
-      <Button disabled={!enabled || !feedback.trim()} onClick={() => submit(feedback.trim())}>
+      <Button
+        disabled={!!reason || !feedback.trim()}
+        title={reason || undefined}
+        onClick={() => submit(feedback.trim())}
+      >
         Review change request
       </Button>
+      {reason && <p className="muted">{reason}</p>}
     </Disclosure>
   );
 }
@@ -2239,6 +2391,9 @@ function Question({
   const [text, setText] = useState("");
   return (
     <div className="question">
+      {typeof q.blocking === "boolean" && (
+        <Badge value={q.blocking ? "blocking" : "non-blocking"} />
+      )}
       <p>{q.question ?? q.text ?? JSON.stringify(q)}</p>
       {q.recommendation && (
         <div className="recommendation">

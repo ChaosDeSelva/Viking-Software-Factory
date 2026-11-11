@@ -64,7 +64,7 @@ describe("DirectorScreen", () => {
     expect(banner.textContent).toMatch(/request/);
   });
 
-  it("answers a blocking question and shows the revised spec", async () => {
+  it("answers open questions, blocking or not, and shows the revised spec (M3)", async () => {
     const revised = spec({
       id: "s2",
       version: 2,
@@ -74,10 +74,11 @@ describe("DirectorScreen", () => {
         openQuestions: [{ id: "Q2", text: "File name?", blocking: false }],
       },
     });
+    const done = spec({ id: "s3", version: 3, body: { ...revised.body, openQuestions: [] } });
     const api = mockApi({
       listIntakes: [],
       draft: draftResult(),
-      answer: { spec: revised, meta: meta() },
+      answer: (id: string) => Promise.resolve({ spec: id === "s1" ? revised : done, meta: meta() }),
     });
     renderWithStore(ui, api);
     await userEvent.type(screen.getByLabelText("Request"), "Add CSV export");
@@ -86,8 +87,13 @@ describe("DirectorScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Submit answer to Q1" }));
     expect(api.answer).toHaveBeenCalledWith("s1", "Q1", "All");
     expect(await screen.findByText("Which columns? Answer: All")).toBeTruthy();
-    expect(screen.getByText("No blocking questions remain.")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toMatch(/revised to v2/);
+    const q2 = screen.getByRole("form", { name: "Answer Q2" });
+    expect(within(q2).getByText("non-blocking")).toBeTruthy();
+    await userEvent.type(screen.getByLabelText("Q2: File name?"), "report.csv");
+    await userEvent.click(screen.getByRole("button", { name: "Submit answer to Q2" }));
+    expect(api.answer).toHaveBeenLastCalledWith("s2", "Q2", "report.csv");
+    expect(await screen.findByText("No open questions remain.")).toBeTruthy();
   });
 
   it("reports provider errors", async () => {
@@ -100,5 +106,29 @@ describe("DirectorScreen", () => {
     await userEvent.type(screen.getByLabelText("Request"), "x");
     await userEvent.click(screen.getByRole("button", { name: "Draft spec" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/LLM provider unavailable/);
+  });
+
+  it("says it is drafting on every draft, not only the first (M9)", async () => {
+    const api = mockApi({ listIntakes: [] });
+    api.draft.mockResolvedValueOnce(draftResult()).mockReturnValue(new Promise(() => undefined));
+    renderWithStore(ui, api);
+    expect(screen.getByText(/Drafting can take several minutes/).textContent).toMatch(
+      /will appear in\s+Specs/,
+    );
+    await userEvent.type(screen.getByLabelText("Request"), "Add CSV export");
+    await userEvent.click(screen.getByRole("button", { name: "Draft spec" }));
+    await screen.findByRole("article", { name: /CSV export for reports/ });
+    await userEvent.click(screen.getByRole("button", { name: "Draft spec" }));
+    expect(screen.getByRole("button", { name: "Drafting…" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("starts from the inbox item handed over by the Inbox (L7)", async () => {
+    const api = mockApi({ listIntakes: [intake()], draft: draftResult() });
+    renderWithStore(ui, api, { directorSeed: { intakeId: "i1", request: "Add CSV" } });
+    await screen.findByRole("option", { name: "Add CSV" });
+    expect((screen.getByLabelText("Inbox item (optional)") as HTMLSelectElement).value).toBe("i1");
+    expect((screen.getByLabelText("Request") as HTMLTextAreaElement).value).toBe("Add CSV");
+    await userEvent.click(screen.getByRole("button", { name: "Draft spec" }));
+    expect(api.draft).toHaveBeenCalledWith({ projectId: "p1", request: "Add CSV", intakeId: "i1" });
   });
 });

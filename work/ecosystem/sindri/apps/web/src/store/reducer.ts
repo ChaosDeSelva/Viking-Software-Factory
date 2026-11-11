@@ -30,6 +30,8 @@ export interface State {
   planId: string | null;
   executionId: string | null;
   deliveryId: string | null;
+  /** Inbox item handed to the Director ("Draft spec from this"); the Director consumes it. */
+  directorSeed: { intakeId: string; request: string } | null;
   notice: Notice | null;
 }
 
@@ -46,6 +48,8 @@ export type Action =
   | { type: "plan/open"; planId: string }
   | { type: "execution/open"; executionId: string }
   | { type: "delivery/open"; deliveryId: string }
+  | { type: "director/open"; intakeId: string; request: string }
+  | { type: "director/seed-used" }
   | {
       type: "route";
       route: Partial<
@@ -67,6 +71,7 @@ export function initialState(init: { token?: string | null; theme?: Theme }): St
     planId: null,
     executionId: null,
     deliveryId: null,
+    directorSeed: null,
     notice: null,
   };
 }
@@ -93,7 +98,13 @@ export function reducer(state: State, action: Action): State {
     case "route":
       return { ...state, ...action.route, notice: keepErrors(state.notice) };
     case "project/select":
-      return { ...state, projectId: action.projectId, specId: null, ...NO_SELECTION };
+      return {
+        ...state,
+        projectId: action.projectId,
+        specId: null,
+        directorSeed: null,
+        ...NO_SELECTION,
+      };
     case "projects/loaded":
       return {
         ...state,
@@ -142,6 +153,15 @@ export function reducer(state: State, action: Action): State {
         deliveryId: action.deliveryId,
         notice: keepErrors(state.notice),
       };
+    case "director/open":
+      return {
+        ...state,
+        view: "director",
+        directorSeed: { intakeId: action.intakeId, request: action.request },
+        notice: keepErrors(state.notice),
+      };
+    case "director/seed-used":
+      return { ...state, directorSeed: null };
     case "notice":
       return { ...state, notice: action.notice };
     case "notice/dismiss":

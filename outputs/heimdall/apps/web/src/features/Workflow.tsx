@@ -10,6 +10,7 @@ import {
   DisclosureTrigger,
 } from "../components/ui";
 import { useEffect, useState } from "react";
+import { latestVersions, specRevision, statusBadge } from "./workflowState";
 type R = Record<string, any>;
 type Propose = (action: string, id: string, body?: R, extra?: R) => void;
 export function Workbench({
@@ -131,7 +132,10 @@ export function Workbench({
         {["intakes", "specs", "plans"].map((kind) => (
           <div key={kind}>
             <h3>{kind}</h3>
-            {(data[kind] ?? [])
+            {(kind === "intakes"
+              ? (data[kind] ?? [])
+              : latestVersions(data[kind] ?? [])
+            )
               .filter((r: R) => !project || r.projectId === project)
               .map((r: R) => (
                 <Button
@@ -142,9 +146,14 @@ export function Workbench({
                 >
                   <span>
                     {r.title ?? `Plan v${r.version}`}
-                    <small>{r.id}</small>
+                    <small>
+                      {kind === "specs" && r.version != null
+                        ? `v${r.version} · `
+                        : ""}
+                      {r.id}
+                    </small>
                   </span>
-                  <span className="badge">{r.status ?? "intake"}</span>
+                  <span className="badge">{statusBadge(kind, r)}</span>
                 </Button>
               ))}
           </div>
@@ -186,6 +195,12 @@ export function PlanEditor({
         Saving creates a new draft plan. Existing executions are unchanged.
         Priority changes are applied by Sindri when dispatching a newly approved
         plan; dependencies always take precedence.
+      </p>
+      <p className="warning">
+        Every task is saved exactly as shown here, including the ones you do not
+        edit. Text is cleaned for display before it reaches this editor, so
+        angle-bracket tags or very long text in the original plan may already
+        be removed or shortened. Check each task before saving.
       </p>
       {tasks.map((t, i) => (
         <fieldset key={t.id}>
@@ -332,6 +347,8 @@ export function SpecEditor({
   const [title, setTitle] = useState(spec.title),
     [problem, setProblem] = useState(spec.body.problem),
     [goals, setGoals] = useState((spec.body.goals ?? []).join("\n"));
+  // Unchanged fields stay out of the request: their text here is a display copy, not the stored one.
+  const revision = specRevision(spec, { title, problem, goals });
   return (
     <Disclosure className="editor">
       <DisclosureTrigger>
@@ -353,16 +370,17 @@ export function SpecEditor({
         <Textarea value={goals} onChange={(e) => setGoals(e.target.value)} />
       </Field>
       <Button
-        disabled={!enabled || !title.trim() || !problem.trim()}
-        onClick={() =>
-          propose("spec.revise", spec.id, {
-            title,
-            body: { problem, goals: goals.split("\n").filter(Boolean) },
-          })
-        }
+        disabled={!enabled || !title.trim() || !problem.trim() || !revision}
+        title={revision ? undefined : "Change the title, problem or goals first."}
+        onClick={() => revision && propose("spec.revise", spec.id, revision)}
       >
         Review new specification revision
       </Button>
+      <p className="muted">
+        {revision
+          ? "Only the fields you changed are sent; everything else keeps its stored text."
+          : "Change the title, problem or goals to create a revision."}
+      </p>
     </Disclosure>
   );
 }

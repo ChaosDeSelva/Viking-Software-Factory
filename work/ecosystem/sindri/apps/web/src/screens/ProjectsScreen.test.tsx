@@ -82,4 +82,26 @@ describe("ProjectsScreen", () => {
     expect(api.search).toHaveBeenCalledWith("p1", "frob");
     await waitFor(() => expect(screen.getByText(/docs\/guide.md#L3-L5/)).toBeTruthy());
   });
+
+  it("reports dropped secrets and unsafe git config from a bootstrap (L5)", async () => {
+    const api = mockApi({
+      listProjects: [PROJECT],
+      bootstrap: {
+        indexed: ["README.md"],
+        unchanged: [],
+        removed: [],
+        skipped: [],
+        secretsDropped: [
+          { path: "docs/a.md", startLine: 1, endLine: 2 },
+          { path: "docs/b.md", startLine: 4, endLine: 9 },
+        ],
+        unsafeGitConfig: ["core.fsmonitor", "core.sshCommand"],
+      },
+    });
+    renderWithStore(ui, api);
+    await userEvent.click(await screen.findByRole("button", { name: "Bootstrap Demo" }));
+    const summary = await screen.findByLabelText("Bootstrap result");
+    expect(summary.textContent).toMatch(/2 passages that\s+looked like secrets were left out/);
+    expect(within(summary).getByText("core.fsmonitor, core.sshCommand")).toBeTruthy();
+  });
 });

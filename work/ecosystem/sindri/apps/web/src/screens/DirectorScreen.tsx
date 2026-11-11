@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ContextItemView, Spec, SpecMeta } from "../api/types.js";
-import { BlockingQuestions, ContextList, SpecView } from "../components/SpecView.js";
+import { ContextList, OpenQuestions, SpecView } from "../components/SpecView.js";
 import { Button, Card, Empty, Field, inputClass } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
@@ -10,9 +10,16 @@ export function DirectorScreen() {
   const report = useReportError();
   const projectId = state.projectId;
   const intakes = useLoad(projectId ? () => api.listIntakes(projectId) : null, [projectId]);
-  const [request, setRequest] = useState("");
-  const [intakeId, setIntakeId] = useState("");
+  // "Draft spec from this" in the Inbox preselects the item; the server needs request text, so
+  // it starts as the item's title.
+  const seed = state.directorSeed;
+  const [request, setRequest] = useState(seed?.request ?? "");
+  const [intakeId, setIntakeId] = useState(seed?.intakeId ?? "");
+  useEffect(() => {
+    if (seed) dispatch({ type: "director/seed-used" });
+  }, []);
   const [busy, setBusy] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [result, setResult] = useState<{
     spec: Spec;
     meta: SpecMeta;
@@ -37,8 +44,9 @@ export function DirectorScreen() {
     }
   };
 
-  const draft = () =>
-    run(async () => {
+  const draft = () => {
+    setDrafting(true);
+    return run(async () => {
       const out = await api.draft({
         projectId,
         request: request.trim(),
@@ -49,7 +57,8 @@ export function DirectorScreen() {
         type: "notice",
         notice: { kind: "info", text: `Drafted "${out.spec.title}" (v${out.spec.version})` },
       });
-    });
+    }).finally(() => setDrafting(false));
+  };
 
   const answer = (questionId: string, text: string) =>
     run(async () => {
@@ -65,7 +74,7 @@ export function DirectorScreen() {
       });
     });
 
-  const blocking = result ? result.spec.body.openQuestions.filter((q) => q.blocking) : [];
+  const open = result ? result.spec.body.openQuestions : [];
   return (
     <div className="space-y-4">
       <Card title="Ask the Director">
@@ -109,8 +118,12 @@ export function DirectorScreen() {
             </select>
           </Field>
           <Button type="submit" disabled={busy || !request.trim()}>
-            {busy && !result ? "Drafting…" : "Draft spec"}
+            {drafting ? "Drafting…" : "Draft spec"}
           </Button>
+          <p className="text-xs text-slate-600 dark:text-slate-300">
+            Drafting can take several minutes. If you leave this screen, the draft will appear in
+            Specs when it is ready.
+          </p>
         </form>
       </Card>
       {result ? (
@@ -127,12 +140,8 @@ export function DirectorScreen() {
               </Button>
             </Card>
           </div>
-          <Card title="Blocking questions">
-            <BlockingQuestions
-              questions={blocking}
-              busy={busy}
-              onAnswer={(q, a) => void answer(q, a)}
-            />
+          <Card title="Open questions">
+            <OpenQuestions questions={open} busy={busy} onAnswer={(q, a) => void answer(q, a)} />
           </Card>
         </div>
       ) : null}

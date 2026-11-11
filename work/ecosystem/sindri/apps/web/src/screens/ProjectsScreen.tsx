@@ -230,6 +230,20 @@ function BootstrapSummary({ result }: { result: BootstrapResult }) {
         Indexed {result.indexed.length}, unchanged {result.unchanged.length}, removed{" "}
         {result.removed.length}, skipped {result.skipped.length}.
       </p>
+      {result.secretsDropped && result.secretsDropped.length > 0 ? (
+        <p>
+          {result.secretsDropped.length} passage{result.secretsDropped.length === 1 ? "" : "s"} that
+          looked like secrets {result.secretsDropped.length === 1 ? "was" : "were"} left out of the
+          index.
+        </p>
+      ) : null}
+      {result.unsafeGitConfig && result.unsafeGitConfig.length > 0 ? (
+        <p>
+          This repository&apos;s git config has settings that can run code, so git was not used and
+          files were listed directly:{" "}
+          <span className="font-mono text-xs">{result.unsafeGitConfig.join(", ")}</span>
+        </p>
+      ) : null}
       {result.skipped.length > 0 ? (
         <details>
           <summary className="cursor-pointer">Skipped files</summary>

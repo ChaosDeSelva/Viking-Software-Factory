@@ -49,6 +49,10 @@ export function AppProviders(props: {
     if (state.token) sessionStorage.setItem(TOKEN_KEY, state.token);
     else sessionStorage.removeItem(TOKEN_KEY);
   }, [state.token]);
+  // Sign-out and a rejected token also drop the approval secret held by the client (audit L8).
+  useEffect(() => {
+    if (!state.token) props.api.forgetApproval();
+  }, [state.token, props.api]);
 
   // URL hash routes (audit S-I1): state -> hash (a history entry per change), Back/Forward and
   // edited hashes -> state.

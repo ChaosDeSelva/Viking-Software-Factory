@@ -1,9 +1,10 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../api/client.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { delivery, trace } from "../test/delivery-fixtures.js";
+import { useStore } from "../store/context.js";
 import { mockApi, renderWithStore } from "../test/utils.js";
 import { DeliveriesScreen } from "./DeliveriesScreen.js";
 
@@ -13,6 +14,11 @@ const ui = (
     <DeliveriesScreen />
   </>
 );
+/** Where the store says the app is, so a test can assert navigation. */
+function Where() {
+  const { state } = useStore();
+  return <output data-testid="where">{`${state.view}:${state.specId ?? ""}`}</output>;
+}
 const summary = {
   id: "e1",
   executionId: "e1",
@@ -52,6 +58,50 @@ describe("DeliveriesScreen", () => {
       "a1",
       "approved",
       "Approve verified local export",
+    );
+  });
+
+  it("requests changes: sends the feedback, opens the drafted specification, and keeps the text on failure", async () => {
+    const base = {
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: null,
+      deliveryTrace: trace(),
+    };
+    const api = mockApi({
+      ...base,
+      requestRework: { rework: { id: "rwk_1" }, spec: { id: "s9" } },
+    });
+    const { unmount } = renderWithStore(
+      <>
+        {ui}
+        <Where />
+      </>,
+      api,
+      { deliveryId: "e1" },
+    );
+    const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
+    const send = within(form).getByRole("button", { name: "Request changes" });
+    expect(send).toHaveProperty("disabled", true);
+    await userEvent.type(within(form).getByLabelText("What should change"), "  Use ISO dates  ");
+    await userEvent.click(send);
+    expect(api.requestRework).toHaveBeenCalledWith("e1", "Use ISO dates");
+    expect(await screen.findByText(/A specification was drafted from your feedback/)).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("specs:s9");
+    unmount();
+
+    const failing = mockApi(base);
+    failing.requestRework.mockRejectedValue(new ApiError(409, "invalid_state", "no result yet"));
+    renderWithStore(ui, failing, { deliveryId: "e1" });
+    const again = await screen.findByRole("form", { name: "Request changes to this delivery" });
+    const box = within(again).getByLabelText("What should change") as HTMLTextAreaElement;
+    await userEvent.type(box, "Rename the column");
+    await userEvent.click(within(again).getByRole("button", { name: "Request changes" }));
+    expect(await screen.findByText(/no result yet/)).toBeTruthy();
+    expect(box.value).toBe("Rename the column");
+    expect(within(again).getByRole("button", { name: "Request changes" })).toHaveProperty(
+      "disabled",
+      false,
     );
   });
 
@@ -120,5 +170,78 @@ describe("DeliveriesScreen", () => {
     const button = await screen.findByRole("button", { name: "Export local result" });
     expect(button.hasAttribute("disabled")).toBe(true);
     expect(screen.getByLabelText("Approval pairing code")).toBeTruthy();
+  });
+
+  it("re-runs the quality checks and reloads the delivery (M11)", async () => {
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: null,
+      deliveryTrace: trace(),
+      listReworks: [],
+      assessExecution: () => new Promise(() => undefined),
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Re-run quality checks" }));
+    expect(api.assessExecution).toHaveBeenCalledWith("e1");
+    expect(
+      screen.getByRole("button", { name: "Re-running quality checks…" }).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+
+  it("reloads the delivery after the quality checks finish (M11)", async () => {
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: null,
+      deliveryTrace: trace(),
+      listReworks: [],
+      assessExecution: [],
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Re-run quality checks" }));
+    expect(await screen.findByText(/Quality checks re-run/)).toBeTruthy();
+    await waitFor(() => expect(api.getDelivery).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Re-run quality checks" })).toBeTruthy();
+  });
+
+  it("lists earlier change requests, links each to its latest spec and reloads after a new one (L3)", async () => {
+    const rework = {
+      id: "rwk_1",
+      feedback: "Use ISO dates",
+      createdAt: "2026-01-02T00:00:00Z",
+      baseCommits: ["abc"],
+      specs: [
+        { id: "s7", version: 1, status: "superseded", title: "ISO dates" },
+        { id: "s8", version: 2, status: "draft", title: "ISO dates" },
+      ],
+    };
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: null,
+      deliveryTrace: trace(),
+      listReworks: [rework],
+      requestRework: { rework: { id: "rwk_2" }, spec: { id: "s9" } },
+    });
+    renderWithStore(
+      <>
+        {ui}
+        <Where />
+      </>,
+      api,
+      { deliveryId: "e1" },
+    );
+    const earlier = await screen.findByRole("region", { name: "Earlier change requests" });
+    expect(within(earlier).getByText(/Use ISO dates/)).toBeTruthy();
+    await userEvent.click(within(earlier).getByRole("button", { name: /Open spec v2 \(draft\)/ }));
+    expect(screen.getByTestId("where").textContent).toBe("specs:s8");
+
+    expect(api.listReworks).toHaveBeenCalledTimes(1);
+    const form = screen.getByRole("form", { name: "Request changes to this delivery" });
+    await userEvent.type(within(form).getByLabelText("What should change"), "Rename the column");
+    await userEvent.click(within(form).getByRole("button", { name: "Request changes" }));
+    await waitFor(() => expect(api.listReworks).toHaveBeenCalledTimes(2));
+    expect(api.listReworks).toHaveBeenLastCalledWith("e1");
   });
 });

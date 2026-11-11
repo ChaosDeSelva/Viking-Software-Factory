@@ -1,5 +1,6 @@
 import { attentionRecords } from "./preferences.mjs";
 import { createHash } from "node:crypto";
+import { request as httpRequest } from "node:http";
 export function localUrl(value) {
   const u = new URL(value);
   if (
@@ -34,34 +35,93 @@ export function sanitizer(secrets) {
       }),
     );
 }
+// fetch gives up after 300 s without response headers, so long commands use node:http,
+// which has no such limit; only the caller's timeoutMs applies.
+function slowRequest(url, { method = "GET", headers, body, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const fail = (e) =>
+      reject(
+        signal.aborted
+          ? Object.assign(Error("Source did not answer in time"), {
+              name: "TimeoutError",
+            })
+          : e,
+      );
+    const req = httpRequest(
+      url,
+      {
+        method,
+        agent: false,
+        signal,
+        headers: {
+          ...headers,
+          ...(body == null ? {} : { "content-length": Buffer.byteLength(body) }),
+        },
+      },
+      (res) => {
+        const parts = [];
+        let size = 0;
+        res.on("data", (chunk) => {
+          size += chunk.length;
+          if (size > 12 * 1024 * 1024)
+            req.destroy(Error("Response exceeds display limit"));
+          else parts.push(chunk);
+        });
+        res.on("error", fail);
+        res.on("end", () =>
+          resolve({
+            status: res.statusCode,
+            text: Buffer.concat(parts).toString("utf8"),
+          }),
+        );
+      },
+    );
+    req.on("error", fail);
+    req.end(body ?? undefined);
+  });
+}
 export async function request(connection, path, options = {}) {
   if (!connection)
     throw Object.assign(Error("Source is not configured"), { status: 503 });
-  const r = await fetch(connection.url + path, {
-    ...options,
-    redirect: "error",
-    headers: {
-      authorization: `Bearer ${connection.token}`,
-      "content-type": "application/json",
-      ...options.headers,
-    },
-    signal: options.signal ?? AbortSignal.timeout(12000),
-  });
-  const text = await boundedText(r, 12 * 1024 * 1024);
+  const { timeoutMs, ...fetchOptions } = options;
+  const headers = {
+    authorization: `Bearer ${connection.token}`,
+    "content-type": "application/json",
+    ...options.headers,
+  };
+  let status, text;
+  if (timeoutMs)
+    ({ status, text } = await slowRequest(connection.url + path, {
+      method: options.method,
+      headers,
+      body: options.body,
+      timeoutMs,
+    }));
+  else {
+    const r = await fetch(connection.url + path, {
+      ...fetchOptions,
+      redirect: "error",
+      headers,
+      signal: options.signal ?? AbortSignal.timeout(12000),
+    });
+    status = r.status;
+    text = await boundedText(r, 12 * 1024 * 1024);
+  }
   let data;
   try {
     data = JSON.parse(text);
   } catch {
     data = { message: text.slice(0, 1000) };
   }
-  if (!r.ok)
+  if (status < 200 || status > 299)
     throw Object.assign(
       Error(
         data.error?.message ??
           data.message ??
-          `Source returned HTTP ${r.status}`,
+          `Source returned HTTP ${status}`,
       ),
-      { status: r.status },
+      { status, code: data.error?.code },
     );
   return data;
 }
@@ -132,7 +192,7 @@ export class Hub {
   async start() {
     await this.refresh();
     if (this.stopped) return;
-    this.timer = setInterval(() => void this.refresh(), 3000);
+    this.timer = setInterval(() => void this.refresh().catch(() => {}), 3000);
     if (this.connections.mimir) {
       await this.replayMimir();
       this.stream("mimir", "/v1/events/stream", "mimir");
@@ -184,88 +244,93 @@ export class Hub {
       return;
     }
     this.busy = true;
-    await Promise.all(
-      ["mimir", "sindri"].map(async (source) => {
-        const c = this.connections[source];
-        if (!c) {
-          this.state.sources[source] = { status: "not configured" };
-          return;
-        }
-        try {
-          if (source === "mimir")
-            this.state.mimir = await request(c, "/v1/snapshot");
-          else {
-            const { projects } = await request(c, "/v1/projects");
-            const next = {
-              projects,
-              specs: [],
-              plans: [],
-              intakes: [],
-              executions: [],
-              deliveries: [],
-            };
-            for (const p of projects) {
-              const parts = await Promise.all(
-                ["specs", "plans", "intakes", "executions", "deliveries"].map(
-                  (k) =>
-                    request(
-                      c,
-                      `/v1/${k}?projectId=${encodeURIComponent(p.id)}`,
-                    ).then((data) => [k, data[k]]),
+    // busy must be released on any failure, or every later refresh is skipped.
+    try {
+      await Promise.all(
+        ["mimir", "sindri"].map(async (source) => {
+          const c = this.connections[source];
+          if (!c) {
+            this.state.sources[source] = { status: "not configured" };
+            return;
+          }
+          try {
+            if (source === "mimir")
+              this.state.mimir = await request(c, "/v1/snapshot");
+            else {
+              const { projects } = await request(c, "/v1/projects");
+              const next = {
+                projects,
+                specs: [],
+                plans: [],
+                intakes: [],
+                executions: [],
+                deliveries: [],
+              };
+              for (const p of projects) {
+                const parts = await Promise.all(
+                  ["specs", "plans", "intakes", "executions", "deliveries"].map(
+                    (k) =>
+                      request(
+                        c,
+                        `/v1/${k}?projectId=${encodeURIComponent(p.id)}`,
+                      ).then((data) => [k, data[k]]),
+                  ),
+                );
+                for (const [k, rows] of parts) next[k].push(...rows);
+              }
+              // Execution details carry authoritative task mappings, gates, and escalations.
+              next.executions = await Promise.all(
+                next.executions.map((e) =>
+                  request(c, `/v1/executions/${encodeURIComponent(e.id)}`),
                 ),
               );
-              for (const [k, rows] of parts) next[k].push(...rows);
-            }
-            // Execution details carry authoritative task mappings, gates, and escalations.
-            next.executions = await Promise.all(
-              next.executions.map((e) =>
-                request(c, `/v1/executions/${encodeURIComponent(e.id)}`),
-              ),
-            );
-            this.state.sindri = next;
-            for (const { execution: e } of next.executions)
-              this.stream(
-                "sindri",
-                `/v1/executions/${encodeURIComponent(e.id)}/events`,
-                "sindri:" + e.id,
-                e.id,
+              this.state.sindri = next;
+              for (const { execution: e } of next.executions)
+                this.stream(
+                  "sindri",
+                  `/v1/executions/${encodeURIComponent(e.id)}/events`,
+                  "sindri:" + e.id,
+                  e.id,
+                );
+              const active = new Set(
+                next.executions.map((x) => "sindri:" + x.execution.id),
               );
-            const active = new Set(
-              next.executions.map((x) => "sindri:" + x.execution.id),
-            );
-            for (const [key, stream] of this.streams)
-              if (key.startsWith("sindri:") && !active.has(key)) {
-                stream.removed = true;
-                stream.controller?.abort();
-                this.streams.delete(key);
-              }
+              for (const [key, stream] of this.streams)
+                if (key.startsWith("sindri:") && !active.has(key)) {
+                  stream.removed = true;
+                  stream.controller?.abort();
+                  this.streams.delete(key);
+                }
+            }
+            this.state.sources[source] = {
+              ...this.state.sources[source],
+              url: c.url,
+              status: "connected",
+              lastSuccess: new Date().toISOString(),
+              error: null,
+            };
+          } catch (e) {
+            this.state.sources[source] = {
+              ...this.state.sources[source],
+              url: c.url,
+              status: "disconnected",
+              error: this.clean(e.message),
+            };
           }
-          this.state.sources[source] = {
-            ...this.state.sources[source],
-            url: c.url,
-            status: "connected",
-            lastSuccess: new Date().toISOString(),
-            error: null,
-          };
-        } catch (e) {
-          this.state.sources[source] = {
-            ...this.state.sources[source],
-            url: c.url,
-            status: "disconnected",
-            error: this.clean(e.message),
-          };
-        }
-      }),
-    );
-    if (this.stopped) {
-      this.busy = false;
+        }),
+      );
+      if (this.stopped) return;
+      this.store.updateNotifications(
+        attentionRecords(this.state).map(this.clean),
+      );
+      this.state.generatedAt = new Date().toISOString();
+    } catch (e) {
+      this.refreshError = this.clean(String(e?.message ?? e));
       return;
+    } finally {
+      this.busy = false;
     }
-    this.store.updateNotifications(
-      attentionRecords(this.state).map(this.clean),
-    );
-    this.state.generatedAt = new Date().toISOString();
-    this.busy = false;
+    this.refreshError = null;
     this.notify();
     if (this.refreshQueued && !this.stopped) {
       this.refreshQueued = false;

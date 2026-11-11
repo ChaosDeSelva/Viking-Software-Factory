@@ -47,7 +47,8 @@ export function PlansScreen() {
     );
 
   const approved = specs.state.status === "ready" ? specs.state.data : [];
-  const chosen = specId || approved[0]?.id || "";
+  // Only a spec from this project's approved list is ever sent.
+  const chosen = approved.some((s) => s.id === specId) ? specId : (approved[0]?.id ?? "");
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -90,7 +91,7 @@ export function PlansScreen() {
                 </select>
               </Field>
               <Button type="submit" disabled={busy || !chosen}>
-                Propose plan
+                {busy ? "Proposing plan…" : "Propose plan"}
               </Button>
             </form>
           )}
@@ -148,6 +149,7 @@ function PlanDetail({ planId, onChanged }: { planId: string; onChanged: () => vo
   const report = useReportError();
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [executing, setExecuting] = useState(false);
   const [, setUnlockTick] = useState(0);
   const detail = useLoad(() => api.getPlan(planId), [planId, tick]);
   const dry = useLoad(() => api.dryRunPlan(planId), [planId]);
@@ -231,16 +233,20 @@ function PlanDetail({ planId, onChanged }: { planId: string; onChanged: () => vo
                 disabled={busy}
                 onClick={() => {
                   setBusy(true);
+                  setExecuting(true);
                   api
                     .createExecution(plan.id)
                     .then(({ execution }) => {
                       dispatch({ type: "execution/open", executionId: execution.id });
                       notify(`Started run ${execution.id}`);
                     }, report)
-                    .finally(() => setBusy(false));
+                    .finally(() => {
+                      setBusy(false);
+                      setExecuting(false);
+                    });
                 }}
               >
-                Execute plan
+                {executing ? "Starting run…" : "Execute plan"}
               </Button>
             ) : null}
           </div>
@@ -270,6 +276,7 @@ function PlanDetail({ planId, onChanged }: { planId: string; onChanged: () => vo
             plan={plan}
             onSaved={(next) => {
               dispatch({ type: "plan/open", planId: next.id });
+              notify(`Saved budgets as draft plan v${next.version}`);
               onChanged();
             }}
           />
@@ -288,8 +295,8 @@ function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => v
     <Card title="Task budgets" headingLevel={3}>
       <p className="text-sm">
         Time limits stop local CLI workers. Tokens include cached input and are reported when an
-        agent session ends; a token limit blocks further sessions. Saving creates a new draft for
-        approval.
+        agent session ends; a token limit blocks further sessions. Leave tokens empty for no token
+        limit. Saving creates a new draft for approval.
       </p>
       <form
         className="space-y-3"
@@ -310,7 +317,6 @@ function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => v
                 id={`minutes-${task.id}`}
                 type="number"
                 min="1"
-                max="120"
                 required
                 value={task.budget.wallClockMinutes}
                 onChange={(e) =>
@@ -333,15 +339,17 @@ function PlanBudgets({ plan, onSaved }: { plan: Plan; onSaved: (plan: Plan) => v
                 id={`tokens-${task.id}`}
                 type="number"
                 min="1"
-                max="1000000"
                 value={task.budget.tokens ?? ""}
                 onChange={(e) =>
                   setTasks((current) =>
-                    current.map((t, i) =>
-                      i === index
-                        ? { ...t, budget: { ...t.budget, tokens: Number(e.target.value) } }
-                        : t,
-                    ),
+                    current.map((t, i) => {
+                      if (i !== index) return t;
+                      // An emptied field means "no token limit", not a limit of 0.
+                      const budget = { ...t.budget };
+                      if (e.target.value === "") delete budget.tokens;
+                      else budget.tokens = Number(e.target.value);
+                      return { ...t, budget };
+                    }),
                   )
                 }
               />

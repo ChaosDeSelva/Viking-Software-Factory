@@ -77,4 +77,13 @@ describe("approval session in the web client (audit M9)", () => {
     await expect(api.approveSpec("s1")).rejects.toMatchObject({ code: "approval_required" });
     expect(api.hasApprovalSession()).toBe(false);
   });
+
+  it("forgets the secret on request, as sign-out does (audit L8)", async () => {
+    const { api, sent } = client();
+    await api.unlockApprovals("ABCDE-FGH23");
+    api.forgetApproval();
+    expect(api.hasApprovalSession()).toBe(false);
+    await api.approveSpec("s1");
+    expect(sent()[1]!.approval).toBeNull();
+  });
 });

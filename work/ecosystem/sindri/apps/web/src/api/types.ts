@@ -13,6 +13,10 @@ export interface BootstrapResult {
   unchanged: string[];
   removed: string[];
   skipped: { path: string; reason: string }[];
+  /** Chunks left out of the index because they looked like secrets. */
+  secretsDropped?: { path: string; startLine: number; endLine: number }[];
+  /** Git config keys that were ignored as unsafe while listing files. */
+  unsafeGitConfig?: string[];
 }
 
 export interface SearchHit {

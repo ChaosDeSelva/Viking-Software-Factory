@@ -1,8 +1,9 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { ExecutionStreamMessage } from "../api/delivery-types.js";
 import { NoticeRegion } from "../components/Layout.js";
+import { useStore } from "../store/context.js";
 import { executionDetail } from "../test/delivery-fixtures.js";
 import { mockApi, renderWithStore } from "../test/utils.js";
 import { RunsScreen } from "./RunsScreen.js";
@@ -24,6 +25,17 @@ const summary = {
   finishedAt: null,
 };
 const idleStream = () => new Promise<void>(() => undefined);
+/** Where the store says the app is, so a test can assert navigation. */
+function Where() {
+  const { state } = useStore();
+  return <output data-testid="where">{`${state.view}:${state.planId ?? ""}`}</output>;
+}
+const withWhere = (
+  <>
+    {ui}
+    <Where />
+  </>
+);
 
 describe("RunsScreen", () => {
   it("shows an empty state", async () => {
@@ -156,5 +168,96 @@ describe("RunsScreen", () => {
     renderWithStore(ui, api, { executionId: "e1" });
     const table = await screen.findByRole("table", { name: "Tasks" });
     expect(table.textContent).toMatch(/failed: brokkr verification_report_missing/);
+  });
+
+  it("says when live updates drop, reconnects, and stops on unmount (M4)", async () => {
+    let push: ((m: ExecutionStreamMessage) => void) | undefined;
+    const api = mockApi({ listExecutions: [summary], getExecution: executionDetail() });
+    // The first stream ends at once (server restart); the second stays open.
+    api.streamExecution
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce((_id: string, on: (m: ExecutionStreamMessage) => void) => {
+        push = on;
+        return new Promise<void>(() => undefined);
+      });
+    const { unmount } = renderWithStore(ui, api, { executionId: "e1" });
+    const note = await screen.findByRole("note", { name: "Live updates" });
+    expect(note.textContent).toMatch(/Live updates disconnected — retrying/);
+    await waitFor(() => expect(api.streamExecution).toHaveBeenCalledTimes(2), { timeout: 5000 });
+    await waitFor(() => expect(push).toBeDefined());
+    act(() => push?.({ kind: "notice", data: { type: "status", executionId: "e1" } }));
+    await waitFor(() => expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull());
+    unmount();
+
+    // A stream that errors is retried too, and unmounting cancels the pending retry.
+    const failing = mockApi({
+      listExecutions: [summary],
+      getExecution: executionDetail(),
+      streamExecution: () => Promise.reject(new Error("network down")),
+    });
+    const second = renderWithStore(ui, failing, { executionId: "e1" });
+    await screen.findByRole("note", { name: "Live updates" });
+    expect(failing.streamExecution).toHaveBeenCalledTimes(1);
+    second.unmount();
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(failing.streamExecution).toHaveBeenCalledTimes(1);
+  }, 20_000);
+
+  it("does not reconnect or warn once the run is final", async () => {
+    const verified = executionDetail({
+      execution: { ...executionDetail().execution, status: "verified_pending_review" },
+      approvals: [],
+    });
+    const api = mockApi({
+      listExecutions: [{ ...summary, status: "verified_pending_review" }],
+      getExecution: verified,
+    });
+    let end: () => void = () => undefined;
+    api.streamExecution.mockImplementation(() => new Promise<void>((r) => (end = r)));
+    renderWithStore(ui, api, { executionId: "e1" });
+    await screen.findByRole("button", { name: "Open delivery" });
+    await act(async () => end());
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(api.streamExecution).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull();
+  }, 20_000);
+
+  it("points to Reviews when a task is escalated (M8)", async () => {
+    const api = mockApi({
+      listExecutions: [{ ...summary, status: "blocked" }],
+      getExecution: executionDetail({
+        execution: { ...executionDetail().execution, status: "blocked" },
+        approvals: [],
+        tasks: executionDetail().tasks.map((t) => ({
+          ...t,
+          escalation: "ask" as const,
+          escalationReason: "tests keep failing",
+        })),
+      }),
+      streamExecution: idleStream,
+    });
+    renderWithStore(withWhere, api, { executionId: "e1" });
+    const note = await screen.findByRole("note", { name: "Tasks need a decision" });
+    expect(note.textContent).toMatch(/implement-frontend/);
+    expect(screen.queryByText("No gated actions are waiting.")).toBeNull();
+    await userEvent.click(within(note).getByRole("button", { name: "Open Reviews" }));
+    expect(screen.getByTestId("where").textContent).toBe("reviews:");
+  });
+
+  it("explains a replan request and opens the plan to revise (H2)", async () => {
+    const api = mockApi({
+      listExecutions: [{ ...summary, status: "replan_requested" }],
+      getExecution: executionDetail({
+        execution: { ...executionDetail().execution, status: "replan_requested" },
+        approvals: [],
+      }),
+      streamExecution: idleStream,
+    });
+    renderWithStore(withWhere, api, { executionId: "e1" });
+    const note = await screen.findByRole("note", { name: "Replan requested" });
+    expect(note.textContent).toMatch(/This run will not continue/);
+    expect(note.textContent).toMatch(/Revise the plan/);
+    await userEvent.click(within(note).getByRole("button", { name: "Open plan" }));
+    expect(screen.getByTestId("where").textContent).toBe("plans:pl1");
   });
 });

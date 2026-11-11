@@ -151,13 +151,32 @@ export function InboxScreen() {
             }
           </LoadState>
         </Card>
-        {selected ? <IntakeDetail {...selected} /> : null}
+        {selected ? (
+          <IntakeDetail
+            {...selected}
+            onDraft={() =>
+              dispatch({
+                type: "director/open",
+                intakeId: selected.intake.id,
+                request: selected.intake.display.title,
+              })
+            }
+          />
+        ) : null}
       </div>
     </div>
   );
 }
 
-function IntakeDetail({ intake, comments }: { intake: Intake; comments: IntakeComment[] }) {
+function IntakeDetail({
+  intake,
+  comments,
+  onDraft,
+}: {
+  intake: Intake;
+  comments: IntakeComment[];
+  onDraft: () => void;
+}) {
   return (
     <Card title="Intake detail">
       <article aria-label="Intake detail" className="space-y-2">
@@ -188,6 +207,7 @@ function IntakeDetail({ intake, comments }: { intake: Intake; comments: IntakeCo
             </ul>
           </>
         ) : null}
+        <Button onClick={onDraft}>Draft spec from this</Button>
       </article>
     </Card>
   );

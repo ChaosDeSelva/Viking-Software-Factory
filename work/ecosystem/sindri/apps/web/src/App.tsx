@@ -19,14 +19,16 @@ import type { State } from "./store/reducer.js";
 function Shell() {
   const { state } = useStore();
   if (!state.token) return <TokenPrompt />;
+  // Keyed on the project: selections and results from one project never carry into another.
+  const project = state.projectId ?? "";
   const screen = {
     projects: <ProjectsScreen />,
-    inbox: <InboxScreen />,
-    director: <DirectorScreen />,
+    inbox: <InboxScreen key={project} />,
+    director: <DirectorScreen key={project} />,
     specs: <SpecsScreen />,
-    knowledge: <KnowledgeScreen />,
+    knowledge: <KnowledgeScreen key={project} />,
     settings: <SettingsScreen />,
-    plans: <PlansScreen />,
+    plans: <PlansScreen key={project} />,
     harnesses: <HarnessesScreen />,
     runs: <RunsScreen />,
     reviews: <ReviewsScreen />,

@@ -164,4 +164,47 @@ describe("PlansScreen", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
     expect(api.approvePlan).toHaveBeenCalledWith("pl1");
   });
+
+  it("sends an emptied token budget as unset and confirms the save (L2)", async () => {
+    const current = plan({
+      tasks: plan().tasks.map((t) => ({ ...t, budget: { ...t.budget, tokens: 1000 } })),
+    });
+    const next = plan({ id: "pl2", version: 2 });
+    const api = mockApi({
+      listPlans: [current],
+      listSpecs: [],
+      getPlan: detail(current),
+      dryRunPlan: dry,
+      revisePlan: next,
+    });
+    renderWithStore(ui, api, { planId: "pl1" });
+    const tokens = (await screen.findByLabelText("implement-frontend: tokens")) as HTMLInputElement;
+    expect(tokens.value).toBe("1000");
+    // The server sets no upper limit, so the form does not either.
+    expect(tokens.hasAttribute("max")).toBe(false);
+    expect(screen.getByLabelText("implement-frontend: minutes").hasAttribute("max")).toBe(false);
+    await userEvent.clear(tokens);
+    await userEvent.click(screen.getByRole("button", { name: "Save budgets as new draft" }));
+    const sent = (api.revisePlan.mock.calls[0] as [string, { id: string; budget: object }[]])[1];
+    const task = sent.find((t) => t.id === "implement-frontend");
+    expect(task?.budget).toEqual({ wallClockMinutes: 90 });
+    expect("tokens" in (task?.budget ?? {})).toBe(false);
+    expect(await screen.findByText(/Saved budgets as draft plan v2/)).toBeTruthy();
+  });
+
+  it("says a run is starting while Execute plan is in flight (M9)", async () => {
+    const approved = plan({ status: "approved" });
+    const api = mockApi({
+      listPlans: [approved],
+      listSpecs: [],
+      getPlan: detail(approved),
+      dryRunPlan: dry,
+      createExecution: () => new Promise(() => undefined),
+    });
+    renderWithStore(ui, api, { planId: "pl1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Execute plan" }));
+    expect(screen.getByRole("button", { name: "Starting run…" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+  });
 });

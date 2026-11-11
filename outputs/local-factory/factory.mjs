@@ -16,17 +16,21 @@ let mimir, sindri, heimdall, stopping = false;
 async function close() {
  if(process.env.FACTORY_ACCESS_FILE && existsSync(process.env.FACTORY_ACCESS_FILE)) unlinkSync(process.env.FACTORY_ACCESS_FILE);
  if(stopping)return; stopping=true;
- await heimdall?.close(); await sindri?.close(); await mimir?.close();
+ // One service failing to close must not leave the others (and Mimir's agent processes) running.
+ for(const service of [heimdall,sindri,mimir]){ try{ await service?.close(); }catch(error){ console.error('Shutdown error: '+error.message); } }
 }
-for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>void close().then(()=>process.exit(0)));
+// SIGHUP: closing the Terminal window must stop the services too.
+for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>void close().then(()=>process.exit(0)));
 try {
  const bundled='/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
  const codex=process.env.MIMIR_CODEX_BIN || (existsSync(bundled)?bundled:'codex');
  const claude=process.env.MIMIR_CLAUDE_BIN || 'claude';
- try { if(runtimeChoice !== 'ssh') execFileSync(codex,['login','status'],{stdio:'pipe',timeout:10000}); }
- catch { throw new Error('Codex is unavailable or signed out. Open Codex and sign in, then restart the factory.'); }
- try { if(!JSON.parse(execFileSync(claude,['auth','status'],{encoding:'utf8',stdio:'pipe',timeout:10000})).loggedIn)throw Error(); }
- catch { throw new Error('Claude Code is unavailable or signed out. Run claude auth login in Terminal, then restart the factory.'); }
+ // A slow CLI on a busy machine is not a signed-out CLI: say which it was.
+ const slow=error=>error?.code==='ETIMEDOUT'||error?.signal==='SIGTERM';
+ try { if(runtimeChoice !== 'ssh') execFileSync(codex,['login','status'],{stdio:'pipe',timeout:30000}); }
+ catch(error) { throw new Error(slow(error)?'Codex did not answer its login check within 30 seconds. Try starting the factory again.':'Codex is unavailable or signed out. Open Codex and sign in, then restart the factory.'); }
+ try { if(!JSON.parse(execFileSync(claude,['auth','status'],{encoding:'utf8',stdio:'pipe',timeout:30000})).loggedIn)throw Error(); }
+ catch(error) { throw new Error(slow(error)?'Claude Code did not answer its login check within 30 seconds. Try starting the factory again.':'Claude Code is unavailable or signed out. Run claude auth login in Terminal, then restart the factory.'); }
  console.log('Planner login and applicable local agent login checks passed. Runtime: '+runtimeChoice);
  mimir = await startMimir({...process.env,MIMIR_CODEX_BIN:codex,MIMIR_CLAUDE_BIN:claude,MIMIR_HOST:'127.0.0.1',MIMIR_PORT:process.env.MIMIR_PORT || '7700',MIMIR_RUNTIME:runtimeChoice,MIMIR_FLEET_CONFIG:fleetConfig,MIMIR_DATA_DIR:join(root,'mimir'),MIMIR_WORKTREE_ROOT:join(root,'worktrees'),MIMIR_LOG_LEVEL:'warn'});
  const mtoken=mimir.auth.token;

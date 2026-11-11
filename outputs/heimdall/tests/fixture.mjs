@@ -118,22 +118,65 @@ export async function fixture() {
       req.on("close", () => streams.delete(res));
       return;
     }
+    // Sindri planning records are opt-in: tests assign `workflow` to serve them.
+    const flow = api.workflow;
     if (req.url === "/v1/projects")
-      return res.end(JSON.stringify({ projects: data.projects }));
-    if (/^\/v1\/(specs|plans|intakes|deliveries)\?/.test(req.url))
       return res.end(
-        JSON.stringify({ [req.url.split("/")[2].split("?")[0]]: [] }),
+        JSON.stringify({ projects: flow?.projects ?? data.projects }),
       );
-    if (req.url.startsWith("/v1/executions?"))
-      return res.end(JSON.stringify({ executions: [{ id: "exe_demo" }] }));
-    if (req.url === "/v1/executions/exe_demo")
+    const listed = /^\/v1\/(specs|plans|intakes|deliveries)\?projectId=(.+)$/.exec(
+      req.url,
+    );
+    if (listed)
       return res.end(
         JSON.stringify({
-          execution: { id: "exe_demo", mimirMissionId: "msn_demo" },
-          tasks: [],
-          gates: [],
+          [listed[1]]: (flow?.[listed[1]] ?? []).filter(
+            (r) => r.projectId === decodeURIComponent(listed[2]),
+          ),
         }),
       );
+    if (req.url.startsWith("/v1/executions?"))
+      return res.end(
+        JSON.stringify({
+          executions:
+            flow && !req.url.endsWith("=prj_demo") ? [] : [{ id: "exe_demo" }],
+        }),
+      );
+    if (req.url === "/v1/executions/exe_demo")
+      return res.end(JSON.stringify(api.execution));
+    const record = /^\/v1\/(specs|plans|intakes|deliveries)\/([\w-]+)(\/local)?$/.exec(
+      req.url,
+    );
+    if (flow && record && req.method === "GET") {
+      const [, kind, id, local] = record;
+      const row = flow[kind].find((r) => r.id === id);
+      if (!row) {
+        res.writeHead(404);
+        return res.end('{"error":{"code":"not_found","message":"not found"}}');
+      }
+      return res.end(
+        JSON.stringify(
+          local
+            ? { result: flow.local ?? null }
+            : kind === "specs"
+              ? {
+                  spec: row,
+                  meta: flow.meta?.[row.lineageId] ?? {},
+                  lineage: flow.specs
+                    .filter((r) => r.lineageId === row.lineageId)
+                    .map(({ id, version, status, title }) => ({
+                      id,
+                      version,
+                      status,
+                      title,
+                    })),
+                }
+              : kind === "deliveries"
+                ? { deliveryService: "fixture", report: { executionId: id } }
+                : { [kind.slice(0, -1)]: row },
+        ),
+      );
+    }
     if (req.url === "/v1/executions/exe_demo/events") {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(": connected\n\n");
@@ -144,6 +187,8 @@ export async function fixture() {
     if (req.method === "POST") {
       let b = "";
       for await (const chunk of req) b += chunk;
+      // Tests set `intercept` to answer a command themselves (slow, failing or refused).
+      if (await api.intercept?.(req, res, b)) return;
       if (req.url === "/v1/approval-session") {
         if (JSON.parse(b).pairingCode !== "sindri-code") {
           res.writeHead(403);
@@ -153,6 +198,62 @@ export async function fixture() {
           JSON.stringify({
             approvalSecret: "sindri-human-secret",
             expiresAt: new Date(Date.now() + 3600000).toISOString(),
+          }),
+        );
+      }
+      const act = /^\/v1\/(specs|plans)\/([\w-]+)\/(submit|approve|answer)$/.exec(
+        req.url,
+      );
+      const target = act && flow?.[act[1]].find((r) => r.id === act[2]);
+      if (target) {
+        const [, kind, , verb] = act;
+        const refuse = (status, code, message) => {
+          res.writeHead(status);
+          res.end(JSON.stringify({ error: { code, message } }));
+        };
+        if (verb === "submit") {
+          if (target.status !== "draft")
+            return refuse(409, "invalid_state", "only drafts can be submitted");
+          target.status = "review";
+        } else if (verb === "approve") {
+          if (req.headers["x-sindri-approval"] !== "sindri-human-secret")
+            return refuse(403, "approval_required", "approvals need a valid approval secret");
+          if (target.status !== "review")
+            return refuse(409, "invalid_state", "only records in review can be approved");
+          if (
+            kind === "specs" &&
+            flow.meta?.[target.lineageId]?.untrustedInstructionDetected &&
+            JSON.parse(b).acknowledgeUntrusted !== true
+          )
+            return refuse(409, "untrusted_unacknowledged", "acknowledge the flagged instructions");
+          target.status = "approved";
+        } else {
+          // Like Sindri, an answer produces the next version of the specification.
+          const revised = {
+            ...target,
+            id: target.id + "x",
+            version: target.version + 1,
+            body: {
+              ...target.body,
+              openQuestions: target.body.openQuestions.filter(
+                (q) => q.id !== JSON.parse(b).questionId,
+              ),
+            },
+          };
+          flow.specs.push(revised);
+          res.writeHead(201);
+          return res.end(JSON.stringify({ spec: revised, meta: flow.meta?.[revised.lineageId] ?? {} }));
+        }
+        return res.end(JSON.stringify({ [kind.slice(0, -1)]: target }));
+      }
+      if (flow && req.url === "/v1/executions") {
+        const plan = flow.plans.find((r) => r.id === JSON.parse(b).planId);
+        res.writeHead(201);
+        return res.end(
+          JSON.stringify({
+            execution: { id: "exe_started", planId: plan.id, status: "running" },
+            plan,
+            tasks: [],
           }),
         );
       }
@@ -178,7 +279,14 @@ export async function fixture() {
     res.end("{}");
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  return {
+  const api = {
+    intercept: null,
+    workflow: null,
+    execution: {
+      execution: { id: "exe_demo", mimirMissionId: "msn_demo" },
+      tasks: [],
+      gates: [],
+    },
     data,
     requests,
     url: `http://127.0.0.1:${server.address().port}`,
@@ -207,7 +315,9 @@ export async function fixture() {
     },
     close: async () => {
       for (const s of streams) s.end();
+      server.closeAllConnections();
       await new Promise((r) => server.close(r));
     },
   };
+  return api;
 }

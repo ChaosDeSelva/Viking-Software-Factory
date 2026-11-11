@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
+import { ApiError } from "../api/client.js";
 import type { Spec, SpecDiff } from "../api/types.js";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
-import { BlockingQuestions, SpecView } from "../components/SpecView.js";
+import { OpenQuestions, SpecView } from "../components/SpecView.js";
 import { Badge, Button, Card, Empty, Field, LoadState, inputClass } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
@@ -22,6 +23,9 @@ export function SpecsScreen() {
   const { state, dispatch } = useStore();
   const projectId = state.projectId;
   const [listTick, setListTick] = useState(0);
+  // Typed answers live here, per lineage: each answer opens a new version, which remounts the
+  // detail panel, and text typed for the other questions must survive that.
+  const [answers, setAnswers] = useState<Record<string, Record<string, string>>>({});
   const list = useLoad(projectId ? () => api.listSpecs(projectId) : null, [projectId, listTick]);
 
   if (!projectId)
@@ -66,6 +70,8 @@ export function SpecsScreen() {
           <SpecDetailPanel
             key={state.specId}
             specId={state.specId}
+            answers={answers}
+            setAnswers={setAnswers}
             onChanged={() => setListTick((t) => t + 1)}
           />
         ) : (
@@ -78,7 +84,17 @@ export function SpecsScreen() {
   );
 }
 
-function SpecDetailPanel({ specId, onChanged }: { specId: string; onChanged: () => void }) {
+function SpecDetailPanel({
+  specId,
+  answers,
+  setAnswers,
+  onChanged,
+}: {
+  specId: string;
+  answers: Record<string, Record<string, string>>;
+  setAnswers: Dispatch<SetStateAction<Record<string, Record<string, string>>>>;
+  onChanged: () => void;
+}) {
   const api = useApi();
   const { dispatch } = useStore();
   const report = useReportError();
@@ -87,6 +103,15 @@ function SpecDetailPanel({ specId, onChanged }: { specId: string; onChanged: () 
   const [acknowledged, setAcknowledged] = useState(false);
   const [, setUnlockTick] = useState(0);
   const [markdown, setMarkdown] = useState<string | null>(null);
+  const [markdownError, setMarkdownError] = useState<string | null>(null);
+  const [proposing, setProposing] = useState(false);
+  const loadMarkdown = () => {
+    setMarkdownError(null);
+    api.renderSpec(specId).then(setMarkdown, (e: unknown) => {
+      if (e instanceof ApiError && e.status === 401) report(e);
+      setMarkdownError(e instanceof Error ? e.message : String(e));
+    });
+  };
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [diff, setDiff] = useState<SpecDiff | null>(null);
@@ -114,7 +139,9 @@ function SpecDetailPanel({ specId, onChanged }: { specId: string; onChanged: () 
         {({ spec, meta, lineage }) => {
           const latest = Math.max(...lineage.map((l) => l.version));
           const isLatest = spec.version === latest;
-          const blocking = spec.body.openQuestions.filter((q) => q.blocking);
+          const open = spec.body.openQuestions;
+          const blocking = open.filter((q) => q.blocking);
+          const typed = answers[spec.lineageId] ?? {};
           return (
             <div className="space-y-4">
               <nav aria-label="Versions">
@@ -202,15 +229,58 @@ function SpecDetailPanel({ specId, onChanged }: { specId: string; onChanged: () 
                     </Button>
                   </div>
                 ) : (
-                  <p className="text-sm">This version is {spec.status}.</p>
+                  <div className="space-y-2">
+                    <p className="text-sm">This version is {spec.status}.</p>
+                    {spec.status === "approved" ? (
+                      <Button
+                        disabled={busy}
+                        onClick={() => {
+                          setProposing(true);
+                          void run(async () => {
+                            const { plan } = await api.proposePlan(spec.id);
+                            dispatch({ type: "plan/open", planId: plan.id });
+                            dispatch({
+                              type: "notice",
+                              notice: { kind: "info", text: `Proposed plan v${plan.version}` },
+                            });
+                          }).finally(() => setProposing(false));
+                        }}
+                      >
+                        {proposing ? "Proposing plan…" : "Propose plan"}
+                      </Button>
+                    ) : null}
+                  </div>
                 )}
-                {isLatest && blocking.length > 0 && spec.status !== "approved" ? (
-                  <BlockingQuestions
-                    questions={blocking}
+                {isLatest && (spec.status === "draft" || spec.status === "review") ? (
+                  <EditSpec
+                    key={spec.id}
+                    spec={spec}
                     busy={busy}
+                    onSave={(patch) =>
+                      void run(async () => {
+                        const s = await api.reviseSpec(spec.id, patch);
+                        moveTo(s, `Saved your edits as v${s.version}`);
+                      })
+                    }
+                  />
+                ) : null}
+                {isLatest && open.length > 0 && spec.status !== "approved" ? (
+                  <OpenQuestions
+                    questions={open}
+                    busy={busy}
+                    answers={typed}
+                    onAnswersChange={(next) =>
+                      setAnswers((all) => ({ ...all, [spec.lineageId]: next }))
+                    }
                     onAnswer={(q, a) =>
                       void run(async () => {
                         const out = await api.answer(spec.id, q, a);
+                        setAnswers((all) => ({
+                          ...all,
+                          [spec.lineageId]: Object.fromEntries(
+                            Object.entries(all[spec.lineageId] ?? {}).filter(([id]) => id !== q),
+                          ),
+                        }));
                         moveTo(out.spec, `Answered ${q}; spec revised to v${out.spec.version}`);
                       })
                     }
@@ -266,20 +336,105 @@ function SpecDetailPanel({ specId, onChanged }: { specId: string; onChanged: () 
 
               <details
                 onToggle={(e) => {
-                  if ((e.target as HTMLDetailsElement).open && markdown === null)
-                    void run(async () => setMarkdown(await api.renderSpec(spec.id)));
+                  if ((e.target as HTMLDetailsElement).open && markdown === null) loadMarkdown();
                 }}
               >
                 <summary className="cursor-pointer font-semibold">Rendered Markdown</summary>
-                <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-slate-100 p-2 text-xs dark:bg-slate-800">
-                  {markdown ?? "Loading…"}
-                </pre>
+                {markdownError !== null && markdown === null ? (
+                  <div className="mt-2 space-y-2 text-sm">
+                    <p>Could not render the spec: {markdownError}</p>
+                    <Button variant="secondary" onClick={loadMarkdown}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-slate-100 p-2 text-xs dark:bg-slate-800">
+                    {markdown ?? "Loading…"}
+                  </pre>
+                )}
               </details>
             </div>
           );
         }}
       </LoadState>
     </Card>
+  );
+}
+
+/** A small edit form: saving creates a new draft version (the server never edits in place). */
+function EditSpec(props: {
+  spec: Spec;
+  busy: boolean;
+  onSave: (patch: { title: string; body: { problem: string; goals: string[] } }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(props.spec.title);
+  const [problem, setProblem] = useState(props.spec.body.problem);
+  const [goals, setGoals] = useState(props.spec.body.goals.join("\n"));
+  if (!open)
+    return (
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        Edit
+      </Button>
+    );
+  return (
+    <form
+      aria-label="Edit specification"
+      className="space-y-2 rounded border border-slate-300 p-3 dark:border-slate-700"
+      onSubmit={(e) => {
+        e.preventDefault();
+        props.onSave({
+          title: title.trim(),
+          body: {
+            problem: problem.trim(),
+            goals: goals
+              .split("\n")
+              .map((g) => g.trim())
+              .filter(Boolean),
+          },
+        });
+      }}
+    >
+      <Field label="Title" id="edit-spec-title">
+        <input
+          id="edit-spec-title"
+          className={inputClass}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </Field>
+      <Field label="Problem" id="edit-spec-problem">
+        <textarea
+          id="edit-spec-problem"
+          rows={3}
+          className={inputClass}
+          value={problem}
+          onChange={(e) => setProblem(e.target.value)}
+        />
+      </Field>
+      <Field
+        label="Goals"
+        id="edit-spec-goals"
+        hint="One per line. Saving creates a new draft version."
+      >
+        <textarea
+          id="edit-spec-goals"
+          aria-describedby="edit-spec-goals-hint"
+          rows={4}
+          className={inputClass}
+          value={goals}
+          onChange={(e) => setGoals(e.target.value)}
+        />
+      </Field>
+      <div className="flex gap-2">
+        <Button type="submit" disabled={props.busy || !title.trim() || !problem.trim()}>
+          Save as new version
+        </Button>
+        <Button variant="secondary" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 

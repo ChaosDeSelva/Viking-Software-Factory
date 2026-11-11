@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { useStore } from "../store/context.js";
+import { useApi, useReportError, useStore } from "../store/context.js";
 import type { View } from "../store/reducer.js";
 import { Button, inputClass } from "./ui.js";
 
@@ -55,6 +55,15 @@ export function NoticeRegion() {
 
 export function Layout(props: { children: ReactNode }) {
   const { state, dispatch } = useStore();
+  const api = useApi();
+  const report = useReportError();
+
+  // The header's project selector needs the list on every screen, not only on Projects (which
+  // loads and refreshes it itself). Layout mounts once per sign-in.
+  useEffect(() => {
+    if (state.view === "projects") return;
+    api.listProjects().then((projects) => dispatch({ type: "projects/loaded", projects }), report);
+  }, [api]);
 
   // Keyboard-first: Alt+1..9, Alt+0 switch screens. `code` keeps it working where Alt
   // changes the produced character (macOS).
@@ -89,7 +98,12 @@ export function Layout(props: { children: ReactNode }) {
       </a>
       <header className="border-b border-slate-300 dark:border-slate-700">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <h1 className="project-brand text-2xl font-semibold"><span className="project-initial" aria-hidden="true">S</span>Sindri</h1>
+          <h1 className="project-brand text-2xl font-semibold">
+            <span className="project-initial" aria-hidden="true">
+              S
+            </span>
+            Sindri
+          </h1>
           <nav aria-label="Main" aria-describedby="nav-shortcuts" className="flex-1">
             <ul className="flex flex-wrap gap-1">
               {VIEWS.map((v, i) => (

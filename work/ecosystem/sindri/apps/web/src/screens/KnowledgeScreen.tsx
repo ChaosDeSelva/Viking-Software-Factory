@@ -19,7 +19,8 @@ export function KnowledgeScreen() {
   const projectId = state.projectId;
   const [executionId, setExecutionId] = useState("");
   const deliveries = useLoad(projectId ? () => api.listDeliveries(projectId) : null, [projectId]);
-  const [proposals, setProposals] = useState<KnowledgeProposal[]>([]);
+  /** `null` until proposals have been loaded for the selected delivery. */
+  const [proposals, setProposals] = useState<KnowledgeProposal[] | null>(null);
   const [filter, setFilter] = useState("");
   const [applied, setApplied] = useState("");
   const list = useLoad(
@@ -74,7 +75,7 @@ export function KnowledgeScreen() {
           value={executionId}
           onChange={(e) => {
             setExecutionId(e.target.value);
-            setProposals([]);
+            setProposals(null);
           }}
         >
           <option value="">Select a delivery</option>
@@ -104,8 +105,9 @@ export function KnowledgeScreen() {
         >
           Propose from delivery
         </Button>
+        {proposals?.length === 0 ? <Empty>No proposals for this delivery.</Empty> : null}
         <ul>
-          {proposals.map((p) => (
+          {(proposals ?? []).map((p) => (
             <li key={p.id} className="my-3">
               <p>{p.claim}</p>
               <p>

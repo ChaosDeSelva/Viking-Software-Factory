@@ -1,3 +1,13 @@
+// Drafting and planning read the repository and Sindri allows them 600 s, so wait longer than that.
+const TIMEOUTS = {
+  "spec.draft": 900000,
+  "plan.propose": 900000,
+  "delivery.rework": 900000,
+  "task.verify": 180000,
+  "execution.create": 120000,
+  "plan.revise": 120000,
+};
+export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
 export function commandRoute(c) {
   const id = String(c.id ?? "");
   if (!/^[\w-]{1,200}$/.test(id)) throw Error("Invalid resource ID");

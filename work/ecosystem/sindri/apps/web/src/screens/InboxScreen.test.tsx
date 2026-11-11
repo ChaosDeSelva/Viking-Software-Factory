@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { intake } from "../test/fixtures.js";
+import { useStore } from "../store/context.js";
 import { mockApi, renderWithStore } from "../test/utils.js";
 import { InboxScreen } from "./InboxScreen.js";
 
@@ -83,5 +84,27 @@ describe("InboxScreen", () => {
     const detail = await screen.findByRole("article", { name: "Intake detail" });
     expect(within(detail).getByText("Hi")).toBeTruthy();
     expect(detail.querySelector("img")).toBeNull();
+  });
+
+  it("hands an item to the Director with its title as the request (L7)", async () => {
+    function Where() {
+      const { state } = useStore();
+      const seed = state.directorSeed;
+      return (
+        <output data-testid="where">{`${state.view}:${seed?.intakeId}:${seed?.request}`}</output>
+      );
+    }
+    const rec = intake();
+    const api = mockApi({ listIntakes: [rec], getIntake: { intake: rec, comments: [] } });
+    renderWithStore(
+      <>
+        {ui}
+        <Where />
+      </>,
+      api,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Add CSV/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Draft spec from this" }));
+    expect(screen.getByTestId("where").textContent).toBe("director:i1:Add CSV");
   });
 });

@@ -13,6 +13,7 @@
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "node tests/browser.mjs",
     "test:components": "node tests/components.mjs",
+    "test:workflow": "node tests/workflow.mjs",
     "test:stress": "node tests/stress.mjs",
     "release:local": "node scripts/release.mjs",
     "test:integration": "node tests/integration.mjs",

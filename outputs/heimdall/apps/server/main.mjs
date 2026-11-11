@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Store } from "./storage.mjs";
 import { Hub, localUrl, request } from "./connectors.mjs";
-import { commandRoute } from "./commands.mjs";
+import { commandRoute, commandTimeout } from "./commands.mjs";
 const hash = (v) => createHash("sha256").update(v).digest("hex");
 const equals = (a, b) =>
   timingSafeEqual(Buffer.from(hash(a ?? "")), Buffer.from(hash(b ?? "")));
@@ -66,7 +66,8 @@ export async function startHeimdall(options = {}) {
     }
   const store = new Store(dataDir),
     clients = new Set(),
-    sessions = new Map();
+    sessions = new Map(),
+    inFlight = new Set();
   const token = env.HEIMDALL_TOKEN ?? randomBytes(24).toString("base64url"),
     operatorCode = options.operatorCode ?? randomBytes(8).toString("hex");
   let timer;
@@ -148,6 +149,7 @@ export async function startHeimdall(options = {}) {
           }
           throw Object.assign(Error("Invalid access token"), { status: 401 });
         }
+        loginFailures = 0;
         const sid = randomBytes(32).toString("base64url");
         sessions.set(sid, {
           expires: Date.now() + 12 * 3600000,
@@ -195,6 +197,7 @@ export async function startHeimdall(options = {}) {
             status: 403,
           });
         }
+        loginFailures = 0;
         session.operator = true;
         store.audit({
           actor: "local operator",
@@ -512,10 +515,16 @@ export async function startHeimdall(options = {}) {
             ),
             { status: 403 },
           );
-        store.receiptPut(key, fingerprint, 409, {
-          message:
-            "Command is pending or outcome is uncertain. Inspect source state before retrying.",
-        });
+        // Only final outcomes get a receipt. A resend after a timeout or source error is
+        // forwarded with the same key, and the source's own idempotency answers it.
+        if (inFlight.has(key))
+          throw Object.assign(
+            Error(
+              "This command is still waiting for the source. Its outcome will appear here; check the Pipeline before sending again.",
+            ),
+            { status: 409 },
+          );
+        inFlight.add(key);
         store.audit({
           actor: "local operator",
           action: c.action,
@@ -524,6 +533,7 @@ export async function startHeimdall(options = {}) {
           key,
           outcome: "requested",
         });
+        const timeoutMs = options.commandTimeout?.(c.action) ?? commandTimeout(c.action);
         try {
           const result = await request(connections[route.source], route.path, {
             method: "POST",
@@ -535,11 +545,7 @@ export async function startHeimdall(options = {}) {
                 : {}),
             },
             body: JSON.stringify(route.body),
-            signal: AbortSignal.timeout(
-              ["spec.draft", "plan.propose", "task.verify"].includes(c.action)
-                ? 180000
-                : 30000,
-            ),
+            timeoutMs,
           });
           const response = hub.clean({
             confirmed: true,
@@ -557,18 +563,39 @@ export async function startHeimdall(options = {}) {
           await hub.refresh();
           return json(res, 200, response);
         } catch (e) {
-          const status = e.status ?? 502;
-          const response = { message: hub.clean(e.message), confirmed: false };
-          store.receiptPut(key, fingerprint, status, response);
+          const timedOut = e.name === "TimeoutError";
+          const status = timedOut ? 504 : (e.status ?? 502);
+          const unpaired =
+            route.source === "sindri" &&
+            e.status === 403 &&
+            e.code === "approval_required";
+          if (unpaired) session.approvalSecret = null;
+          const working = e.code === "idempotency_in_progress";
+          const final = !unpaired && !working && status < 500;
+          const response = {
+            message: timedOut
+              ? `The source did not answer within ${Math.round(timeoutMs / 60000) || 1} minute(s). The work may still be running: check the Pipeline before retrying. Sending again with the same details continues this request instead of starting a second one.`
+              : working
+                ? "The source is still working on this request. Check the Pipeline, and send again later to collect the result."
+                : unpaired
+                  ? "Sindri no longer accepts this approval pairing. Pair again under Connections, then send again."
+                  : hub.clean(e.message),
+            confirmed: false,
+            ...(final ? {} : { retryable: true }),
+            ...(unpaired ? { code: "pairing_required" } : {}),
+          };
+          if (final) store.receiptPut(key, fingerprint, status, response);
           store.audit({
             actor: "local operator",
             action: c.action,
             id: c.id,
             key,
-            outcome: "failed or unconfirmed",
+            outcome: final ? "failed" : "unconfirmed; may be retried",
             status,
           });
           return json(res, status, response);
+        } finally {
+          inFlight.delete(key);
         }
       }
       throw Object.assign(Error("Not found"), { status: 404 });

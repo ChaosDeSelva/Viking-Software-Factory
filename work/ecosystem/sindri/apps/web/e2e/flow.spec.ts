@@ -87,7 +87,9 @@ test("create project, bootstrap, intake, draft, answer, approve, plan, execute, 
     .fill("Date, invoice number and total");
   await page.getByRole("button", { name: "Submit answer to Q1" }).click();
   await expect(page.getByRole("status")).toContainText("spec revised to v2");
-  await expect(page.getByText("No blocking questions remain.")).toBeVisible();
+  // Q1 is answered; the non-blocking Q2 stays open and answerable.
+  await expect(page.getByRole("form", { name: "Answer Q1" })).toHaveCount(0);
+  await expect(page.getByRole("form", { name: "Answer Q2" })).toBeVisible();
   await expect(article).toContainText("Date, invoice number and total");
 
   // Specs: submit + approve v2.

@@ -44,6 +44,12 @@ export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): M
     "getSettings",
     "putSettings",
     "exportData",
+    "requestRework",
+    "listReworks",
+    "listProposals",
+    "proposeKnowledge",
+    "decideProposal",
+    "forgetApproval",
     ...DELIVERY_METHOD_NAMES,
   ];
   const api = {} as MockApi;
@@ -59,6 +65,7 @@ export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): M
   }
   // Approvals are unlocked unless a test says otherwise (audit M9 has its own tests).
   if (over.hasApprovalSession === undefined) api.hasApprovalSession = vi.fn(() => true);
+  if (over.forgetApproval === undefined) api.forgetApproval = vi.fn();
   if (over.unlockApprovals === undefined)
     api.unlockApprovals = vi.fn(() =>
       Promise.resolve({ principal: "local:test/web#aps_1", expiresAt: "" }),

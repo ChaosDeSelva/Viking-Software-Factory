@@ -78,4 +78,16 @@ describe("api client", () => {
     const api = createApiClient({ baseUrl: "", getToken: () => "t", fetch });
     await expect(api.listProjects()).rejects.toMatchObject({ code: "network_error", status: 0 });
   });
+
+  it("lists the change requests made on a delivery", async () => {
+    const reworks = [
+      { id: "rwk_1", feedback: "Use ISO dates", createdAt: "t", baseCommits: [], specs: [] },
+    ];
+    const fetch = vi.fn(async () => json(200, { reworks }));
+    const api = createApiClient({ baseUrl: "", getToken: () => "tok", fetch });
+    await expect(api.listReworks("e/1")).resolves.toEqual(reworks);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/v1/deliveries/e%2F1/reworks");
+    expect(init.method).toBe("GET");
+  });
 });
