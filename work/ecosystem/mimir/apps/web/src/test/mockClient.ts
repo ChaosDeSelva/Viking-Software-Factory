@@ -110,8 +110,15 @@ export function mockClient(over: Partial<MimirClient> = {}): MockClient {
       create: vi.fn(),
       start: vi.fn(async () => accepted()),
       cancel: vi.fn(async () => accepted()),
+      updateBudget: vi.fn(),
     },
-    crews: { list: vi.fn(async () => ({ crews: [] })), create: vi.fn(), pause: vi.fn(), resume: vi.fn() },
+    crews: {
+      list: vi.fn(async () => ({ crews: [] })),
+      create: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      updateBudget: vi.fn(),
+    },
     tasks: {
       get: vi.fn(),
       verify: vi.fn(),
