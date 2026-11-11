@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { NoticeRegion } from "../components/Layout.js";
@@ -11,6 +11,14 @@ const ui = (
     <SettingsScreen />
   </>
 );
+/** The check's result (the card around it carries the same name as its title). */
+const result = () => document.querySelector<HTMLElement>('section[aria-label="Mimir connection"]');
+const shown = () =>
+  waitFor(() => {
+    const r = result();
+    if (!r) throw new Error("no Mimir connection result yet");
+    return r;
+  });
 const loaded = {
   settings: {
     provider: "null",
@@ -53,9 +61,7 @@ describe("SettingsScreen: Mimir and Brokkr", () => {
     });
     renderWithStore(ui, api);
     await userEvent.click(await screen.findByRole("button", { name: "Test Mimir connection" }));
-    expect((await screen.findByLabelText("Mimir connection")).textContent).toMatch(
-      /Connected to Mimir 0\.1\.0/,
-    );
+    expect((await shown()).textContent).toMatch(/Connected to Mimir 0\.1\.0/);
   });
 
   it("explains an unconfigured or blocked Mimir", async () => {
@@ -73,7 +79,7 @@ describe("SettingsScreen: Mimir and Brokkr", () => {
     });
     renderWithStore(ui, api);
     await userEvent.click(await screen.findByRole("button", { name: "Test Mimir connection" }));
-    expect((await screen.findByLabelText("Mimir connection")).textContent).toMatch(/local-only/);
+    expect((await shown()).textContent).toMatch(/local-only/);
   });
 
   it("warns about egress when a remote provider is chosen", async () => {

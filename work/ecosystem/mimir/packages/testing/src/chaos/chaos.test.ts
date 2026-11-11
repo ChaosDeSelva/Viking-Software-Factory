@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { newId, type EventEnvelope } from "@mimir/protocol";
@@ -52,6 +52,32 @@ describe("spawnMimir", () => {
     await expect(spawnMimir({ entry, dataDir: dir })).rejects.toThrow(/exited.*3[\s\S]*boom/);
   });
 
+  it("rejects and kills a process that never prints the ready line", async () => {
+    const entry = stubEntry(`setInterval(() => {}, 1000);`);
+    await expect(spawnMimir({ entry, dataDir: dir, readyTimeoutMs: 300 })).rejects.toThrow(
+      /no output matching .* within 300ms/,
+    );
+  });
+
+  it("kill() after the process exited on its own returns that exit; waitForLine then rejects", async () => {
+    const p = await spawnMimir({
+      entry: stubEntry(
+        `console.log("mimir server listening on http://127.0.0.1:4321"); setTimeout(() => process.exit(0), 50);`,
+      ),
+      dataDir: dir,
+    });
+    const exit = await p.exited;
+    expect(exit).toEqual({ code: 0, signal: null });
+    await expect(p.kill("SIGTERM")).resolves.toEqual(exit);
+    await expect(p.waitForLine(/never printed/)).rejects.toThrow(/exited before printing/);
+  });
+
+  it("runMimirToExit kills a process that outlives its timeout", async () => {
+    const entry = stubEntry(`setInterval(() => {}, 1000);`);
+    const r = await runMimirToExit({ entry, dataDir: dir, timeoutMs: 200 });
+    expect(r).toMatchObject({ code: null, signal: "SIGKILL" });
+  });
+
   it("runMimirToExit returns the exit code and output", async () => {
     const entry = stubEntry(`console.error("nope"); process.exit(2);`);
     const r = await runMimirToExit({ entry, dataDir: dir });
@@ -70,6 +96,15 @@ describe("findSecretsInFiles", () => {
     writeFileSync(join(dir, "b.db"), "clean");
     expect(findSecretsInFiles(dir, CREDENTIAL_SAMPLES)).toEqual([
       { file: join(dir, "a.db-wal"), secret: sample },
+    ]);
+  });
+
+  it("searches nested directories", () => {
+    const sample = CREDENTIAL_SAMPLES[0] as string;
+    mkdirSync(join(dir, "logs", "old"), { recursive: true });
+    writeFileSync(join(dir, "logs", "old", "server.log"), `x ${sample} y`);
+    expect(findSecretsInFiles(dir, [sample])).toEqual([
+      { file: join(dir, "logs", "old", "server.log"), secret: sample },
     ]);
   });
 
@@ -101,6 +136,22 @@ describe("injectCorruptEventRow", () => {
     expect(insert?.args).toContain("s1");
     const payload = insert?.args.at(-1) as string;
     expect(() => JSON.parse(payload) as unknown).toThrow();
+  });
+
+  it("writes to the chaos-corrupt stream by default", () => {
+    const inserted: unknown[][] = [];
+    const db: SqlDb = {
+      prepare: (sql) => ({
+        get: () => (sql.includes("counters") ? { value: 1 } : { last_sequence: 1 }),
+        run: (...args) => {
+          if (sql.startsWith("INSERT INTO events")) inserted.push(args);
+          return {};
+        },
+      }),
+      transaction: (fn) => () => fn(),
+    };
+    injectCorruptEventRow(db);
+    expect(inserted[0]).toContain("chaos-corrupt");
   });
 });
 

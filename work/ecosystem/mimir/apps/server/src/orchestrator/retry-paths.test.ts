@@ -2,7 +2,15 @@ import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { FakeRuntime } from "@mimir/fake-runtime";
-import { MimirError, type RuntimeAdapter, type RuntimeSessionSpec } from "@mimir/protocol";
+import {
+  MimirError,
+  newId,
+  type CrewId,
+  type MissionId,
+  type RuntimeAdapter,
+  type RuntimeSessionSpec,
+  type TaskId,
+} from "@mimir/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { argvFor } from "../templates.js";
 import { CAPACITY_RETRY_MS, EVENT_OUTPUT_CAP, verificationFailureNote } from "./orchestrator.js";
@@ -619,6 +627,54 @@ describe("the brief of an attempt after a failed verification (A7)", () => {
     expect(before).toEqual([expect.objectContaining({ command: "make test", exitCode: 2 })]);
     await h.restart();
     expect(h.app.mimir.readModel.verificationFailure(t)).toEqual(before);
+  });
+
+  it("briefs a task recorded without a brief (older event logs) with its title and acceptance", async () => {
+    const specs: RuntimeSessionSpec[] = [];
+    const h = await track({
+      overrides: { verifier: new ScriptedVerifier(["pass"]) },
+      wrapRuntime: (fake) => launching(fake, (spec) => specs.push(spec)),
+    });
+    const p = await h.post("/v1/projects", {
+      name: "demo",
+      repoPath: h.repo,
+      settings: { testCommand: FAST_TEST_COMMAND },
+    });
+    const m = await h.post("/v1/missions", { projectId: p.json.project.id, objective: "o" });
+    const missionId = m.json.mission.id as MissionId;
+    const c = await h.post("/v1/crews", {
+      missionId,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "codex" }],
+    });
+    const crewId = c.json.crew.id as CrewId;
+    const legacy = (id: TaskId, title: string, acceptance: string) => {
+      const at = h.app.mimir.now().toISOString();
+      h.store.append({
+        streamId: `task:${id}`,
+        type: "task.created",
+        source: "test",
+        provenance: "observed",
+        occurredAt: at,
+        observedAt: at,
+        missionId,
+        taskId: id,
+        crewId,
+        payload: { missionId, crewId, title, acceptance, dependsOn: [] },
+      });
+    };
+    const withAcceptance = newId("tsk");
+    const titleOnly = newId("tsk");
+    legacy(withAcceptance, "Add a flag", "The flag is documented");
+    legacy(titleOnly, "Rename the module", "");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await until(h, withAcceptance, "completed");
+    await until(h, titleOnly, "completed");
+    const argvs = specs.map((s) => s.argv);
+    expect(argvs).toContainEqual(
+      argvFor("codex", "implementer", "Add a flag\n\nThe flag is documented"),
+    );
+    expect(argvs).toContainEqual(argvFor("codex", "implementer", "Rename the module"));
   });
 
   it("bounds the note", () => {

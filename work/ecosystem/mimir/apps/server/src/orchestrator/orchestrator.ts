@@ -2217,10 +2217,18 @@ export class Orchestrator {
     };
     for (const budget of this.rm.budgets.values()) {
       const r = budgetGuard.evaluate(toBudgetPolicy(budget), usage, attribution);
-      const unit = budget.limitTokens !== null ? ("tokens" as const) : ("cost" as const);
-      const limit = unit === "tokens" ? budget.limitTokens : budget.limitCost;
-      if (limit === null) continue;
-      const used = unit === "tokens" ? r.spentTokens : r.spentCost;
+      // Report the dimension closest to (or furthest past) its limit: with both limits set, the
+      // one that warned or ran out.
+      const dims = [
+        { unit: "tokens" as const, limit: budget.limitTokens, used: r.spentTokens },
+        { unit: "cost" as const, limit: budget.limitCost, used: r.spentCost },
+      ].filter((d): d is typeof d & { limit: number } => d.limit !== null);
+      const top = dims.reduce<(typeof dims)[number] | undefined>(
+        (best, d) => (best === undefined || d.used / d.limit > best.used / best.limit ? d : best),
+        undefined,
+      );
+      if (top === undefined) continue;
+      const { unit, limit, used } = top;
       const ids = {
         ...(budget.missionId ? { missionId: budget.missionId } : {}),
         ...(budget.crewId ? { crewId: budget.crewId } : {}),

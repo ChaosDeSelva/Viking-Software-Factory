@@ -86,6 +86,17 @@ export class FeedbackGraphClient {
         ? fail("timeout", `Feedback Graph did not answer within ${this.#timeoutMs} ms`)
         : fail("unreachable", "Feedback Graph is not reachable");
     }
+    // The status line decides a failure: an error body (a proxy's page, possibly huge or never
+    // ending) is not read, so it cannot turn a rejected token into "too large" or "timeout".
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
+      return res.status === 401 || res.status === 403
+        ? fail(
+            "unauthorized",
+            `Feedback Graph rejected the token (${res.status}): check the token stored under the configured secret name`,
+          )
+        : fail("http_error", `Feedback Graph answered ${res.status}`);
+    }
     let text: string;
     try {
       text = await readCapped(res, this.#maxBytes);
@@ -96,12 +107,6 @@ export class FeedbackGraphClient {
         ? fail("timeout", `Feedback Graph did not answer within ${this.#timeoutMs} ms`)
         : fail("unreachable", "Feedback Graph closed the connection");
     }
-    if (res.status === 401 || res.status === 403)
-      return fail(
-        "unauthorized",
-        `Feedback Graph rejected the token (${res.status}): check the token stored under the configured secret name`,
-      );
-    if (!res.ok) return fail("http_error", `Feedback Graph answered ${res.status}`);
     try {
       return { ok: true, value: JSON.parse(text) as unknown };
     } catch {

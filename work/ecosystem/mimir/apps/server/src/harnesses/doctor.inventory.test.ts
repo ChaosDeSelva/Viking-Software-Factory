@@ -70,7 +70,8 @@ it("inventories every harness, probing versions only when asked", async () => {
   ]);
   expect(quick.every((h) => h.version === null)).toBe(true);
 
-  const byKind = Object.fromEntries((await harnessInventory(true)).map((h) => [h.kind, h]));
+  // A generous probe limit: a loaded host can take seconds to start the stub shells.
+  const byKind = Object.fromEntries((await harnessInventory(true, 60_000)).map((h) => [h.kind, h]));
   expect(byKind["codex"]).toMatchObject({
     version: "0.51.0-alpha.2",
     lifecycleObservation: "turn_end_notification",

@@ -42,6 +42,7 @@ describe("defects found in the sweep", () => {
         </AppProviders>
       </StrictMode>,
     );
+    await userEvent.click(await screen.findByRole("tab", { name: "Request changes" }));
     const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
     const box = within(form).getByLabelText("What should change") as HTMLTextAreaElement;
     await userEvent.type(box, "Use ISO dates");
@@ -50,7 +51,8 @@ describe("defects found in the sweep", () => {
     expect(await screen.findByText(/A specification was drafted from your feedback/)).toBeTruthy();
     await waitFor(() => expect(box.value).toBe(""));
     expect(within(form).queryByRole("button", { name: "Drafting specification…" })).toBeNull();
-    expect(within(form).getByRole("button", { name: "Request changes" })).toBeTruthy();
+    // Back to its idle state: available again once there is new feedback.
+    expect(within(form).getByRole("button", { name: /^Request changes/ })).toBeTruthy();
   });
 
   it("says so when the approved specs cannot be loaded, instead of 'approve a spec first'", async () => {

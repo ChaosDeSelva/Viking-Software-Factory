@@ -69,7 +69,7 @@ describe("RunsScreen", () => {
     expect(link.getAttribute("href")).toBe("http://127.0.0.1:7700/missions/msn_1");
     expect(link.getAttribute("rel")).toMatch(/noreferrer/);
     const table = screen.getByRole("table", { name: "Tasks" });
-    expect(table.textContent).toMatch(/implement-frontend.*blocked/);
+    expect(table.textContent).toMatch(/implement-frontend.*Blocked/);
     expect(
       screen.getByRole("button", { name: "Approve fs.write for implement-frontend" }),
     ).toBeTruthy();
@@ -111,12 +111,17 @@ describe("RunsScreen", () => {
     const approve = await screen.findByRole("button", {
       name: "Approve fs.write for implement-frontend",
     });
-    expect(approve.hasAttribute("disabled")).toBe(true);
+    // Soft-disabled: still focusable, and the reason is announced and shown as a tooltip.
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
+    const reason = document.getElementById(approve.getAttribute("aria-describedby") ?? "");
+    expect(reason?.textContent).toMatch(/pairing code/);
     expect(
       screen
         .getByRole("button", { name: "Reject fs.write for implement-frontend" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
+    await userEvent.click(approve);
+    expect(api.decideApproval).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Approval pairing code")).toBeTruthy();
   });
 
@@ -182,7 +187,10 @@ describe("RunsScreen", () => {
     });
     renderWithStore(ui, api, { executionId: "e1" });
     const table = await screen.findByRole("table", { name: "Tasks" });
-    expect(table.textContent).toMatch(/failed: brokkr verification_report_missing/);
+    expect(table.textContent).toMatch(/FailedVerification report missing/);
+    expect(
+      table.querySelector('[data-reason-code="brokkr verification_report_missing"]')?.textContent,
+    ).toBe("Verification report missing");
   });
 
   it("says when live updates drop, reconnects, and stops on unmount (M4)", async () => {
@@ -269,8 +277,8 @@ describe("RunsScreen", () => {
     const note = await screen.findByRole("note", { name: "Tasks need a decision" });
     expect(note.textContent).toMatch(/implement-frontend/);
     expect(screen.queryByText("No gated actions are waiting.")).toBeNull();
-    await userEvent.click(within(note).getByRole("button", { name: "Open Reviews" }));
-    expect(screen.getByTestId("where").textContent).toBe("reviews:");
+    await userEvent.click(within(note).getByRole("button", { name: "Open Needs you" }));
+    expect(screen.getByTestId("where").textContent).toBe("needs-you:");
   });
 
   it("explains a replan request and opens the plan to revise (H2)", async () => {
@@ -320,8 +328,8 @@ describe("RunsScreen", () => {
     expect(screen.getByRole("status").textContent).toMatch(/Run cancelled/);
     expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
     // The list is reloaded, so it shows the new status too.
-    const item = await screen.findByRole("button", { name: /e1/, pressed: true });
-    expect(item.textContent).toMatch(/cancelled/);
+    const item = await screen.findByRole("button", { name: /Run 1 · Plan v1/, pressed: true });
+    await waitFor(() => expect(item.textContent).toMatch(/Cancelled/));
   });
 
   it("sends no reason when none is given, and reports a refused cancel", async () => {
@@ -408,5 +416,54 @@ describe("RunsScreen", () => {
     vi.useRealTimers();
     await userEvent.click(within(note).getByRole("button", { name: "Open plan" }));
     expect(screen.getByTestId("where").textContent).toBe("plans:pl1");
+  });
+});
+
+describe("RunsScreen layout", () => {
+  it("names runs by number and plan, and opens the most recent from the empty detail", async () => {
+    const older = { ...summary, id: "e0", createdAt: "2025-12-01T00:00:00Z", status: "cancelled" };
+    const api = mockApi({
+      listExecutions: [older, summary],
+      getExecution: executionDetail(),
+      streamExecution: idleStream,
+    });
+    renderWithStore(withWhere, api);
+    expect(await screen.findByRole("heading", { level: 1, name: "Runs" })).toBeTruthy();
+    const rows = within(screen.getByRole("list", { name: "Runs" })).getAllByRole("button");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^Run 2 · Plan v1.*Needs you/),
+      expect.stringMatching(/^Run 1 · Plan v1.*Cancelled/),
+    ]);
+    await userEvent.click(screen.getByRole("button", { name: "Open the most recent run" }));
+    expect(await screen.findByRole("heading", { name: "Run 2 · Plan v1" })).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("runs:");
+  });
+
+  it("explains task columns with glossary hints", async () => {
+    const api = mockApi({
+      listExecutions: [summary],
+      getExecution: executionDetail(),
+      streamExecution: idleStream,
+    });
+    renderWithStore(ui, api, { executionId: "e1" });
+    // jsdom has no ResizeObserver; the hint's popover positioning needs one.
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    const table = await screen.findByRole("table", { name: "Tasks" });
+    await userEvent.click(within(table).getByRole("button", { name: "What is Failed attempts?" }));
+    expect((await screen.findByRole("dialog")).textContent).toMatch(/attempt/i);
+    vi.unstubAllGlobals();
+  });
+
+  it("offers the plans screen when there are no runs", async () => {
+    renderWithStore(withWhere, mockApi({ listExecutions: [] }));
+    await userEvent.click(await screen.findByRole("button", { name: "Open Plans" }));
+    expect(screen.getByTestId("where").textContent).toBe("plans:");
   });
 });

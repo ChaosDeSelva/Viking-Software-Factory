@@ -6,7 +6,8 @@ import { mockClient, page } from "../test/mockClient.js";
 import { initialState, reducer } from "../store/reducer.js";
 import { StoreProvider } from "../store/StoreProvider.js";
 import { deriveAttention, filterEvents } from "./derive.js";
-import { getThemePref, resolveTheme, setThemePref, subscribeThemePref } from "./theme.js";
+import { useTheme } from "@factory/ui";
+import { migrateLegacyTheme } from "./theme.js";
 import { useAsync } from "./useAsync.js";
 import {
   HISTORY_MAX_PAGES,
@@ -17,7 +18,6 @@ import {
 } from "./useEventHistory.js";
 import { useNow } from "./useNow.js";
 import { useShortcuts } from "./useShortcuts.js";
-import { useThemePref } from "./useTheme.js";
 
 const NOW = Date.parse("2026-10-14T12:00:00.000Z");
 
@@ -136,67 +136,28 @@ describe("filterEvents by mission, crew and session", () => {
   });
 });
 
-describe("theme preference store", () => {
-  it("falls back to light when the browser has no matchMedia", () => {
-    vi.stubGlobal("matchMedia", undefined);
-    expect(resolveTheme("system")).toBe("light");
-  });
-
-  it("notifies subscribers, persists and applies a new preference", () => {
-    const listener = vi.fn();
-    const unsubscribe = subscribeThemePref(listener);
-    setThemePref("dark");
-    expect(listener).toHaveBeenCalledTimes(1);
-    expect(getThemePref()).toBe("dark");
-    expect(localStorage.getItem("mimir.theme")).toBe("dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    unsubscribe();
-    setThemePref("light");
-    expect(listener).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("useThemePref", () => {
+describe("shared theme (@factory/ui useTheme)", () => {
   function ThemeProbe() {
-    const [pref] = useThemePref();
-    return <span data-testid="pref">{pref}</span>;
+    const [pref, setPref] = useTheme();
+    return (
+      <button type="button" onClick={() => setPref(pref === "dark" ? "system" : "dark")}>
+        {pref}
+      </button>
+    );
   }
 
-  it("follows OS scheme changes while on system, and stops listening afterwards", () => {
-    let dark = false;
-    const listeners = new Set<() => void>();
-    vi.stubGlobal("matchMedia", () => ({
-      get matches() {
-        return dark;
-      },
-      addEventListener: (_: string, l: () => void) => listeners.add(l),
-      removeEventListener: (_: string, l: () => void) => listeners.delete(l),
-    }));
-    act(() => setThemePref("system"));
-    const { unmount } = render(<ThemeProbe />);
-    expect(screen.getByTestId("pref").textContent).toBe("system");
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
-    expect(listeners.size).toBe(1);
-    dark = true;
-    for (const l of listeners) l();
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    act(() => setThemePref("light"));
-    expect(listeners.size).toBe(0);
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
-    unmount();
-  });
-
-  it("works on system without matchMedia or without its event API", () => {
-    vi.stubGlobal("matchMedia", undefined);
-    act(() => setThemePref("system"));
-    const first = render(<ThemeProbe />);
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
-    first.unmount();
-    vi.stubGlobal("matchMedia", () => ({ matches: true }));
-    const second = render(<ThemeProbe />);
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    second.unmount();
-    act(() => setThemePref("light"));
+  it("starts on system after an old 'system' choice is migrated, persists and applies dark", () => {
+    localStorage.setItem("mimir.theme", "system");
+    migrateLegacyTheme();
+    render(<ThemeProbe />);
+    expect(screen.getByRole("button").textContent).toBe("system");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    fireEvent.click(screen.getByRole("button"));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(localStorage.getItem("factory-theme")).toBe("dark");
+    // Back to system: the attribute goes, so prefers-color-scheme decides.
+    fireEvent.click(screen.getByRole("button"));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 });
 

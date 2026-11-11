@@ -26,14 +26,15 @@ describe("BlockingQuestions", () => {
     // A question the drafter had no suggestion for offers nothing to accept.
     expect(screen.queryByRole("button", { name: "Use recommendation for Q2" })).toBeNull();
 
-    const submit = screen.getByRole("button", { name: "Submit answer to Q1" });
-    expect(submit).toHaveProperty("disabled", true);
+    // Unavailable until there is an answer; the reason is its description, not its name.
+    const submit = () => screen.getByRole("button", { name: /^Submit answer to Q1/ });
+    expect(submit().getAttribute("aria-disabled")).toBe("true");
     await userEvent.click(screen.getByRole("button", { name: "Use recommendation for Q1" }));
     const box = screen.getByLabelText("Q1: Which columns?") as HTMLTextAreaElement;
     expect(box.value).toBe("Date and total");
     // Accepting is a starting point: the person can still edit before submitting.
     await userEvent.type(box, " and customer");
-    await userEvent.click(submit);
+    await userEvent.click(submit());
     expect(onAnswer).toHaveBeenCalledWith("Q1", "Date and total and customer");
     expect(onAnswer).toHaveBeenCalledTimes(1);
   });

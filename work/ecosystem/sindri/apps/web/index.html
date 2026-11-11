@@ -4,7 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sindri</title>
-  <link rel="icon" href="/icon.svg" type="image/svg+xml" /></head>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- Saved theme before first paint (same key as @factory/ui themeScript; old Sindri key as fallback). -->
+    <script>
+      try {
+        var t = localStorage.getItem("factory-theme") || localStorage.getItem("sindri.theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

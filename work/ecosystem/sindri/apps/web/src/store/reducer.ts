@@ -1,19 +1,26 @@
 import type { Project } from "../api/types.js";
 
+/**
+ * Hash-routed screens. Project tabs (top bar): overview … project-settings. Global pages (bottom
+ * bar): projects, harnesses, autonomy-all, settings, docs. Ids match `@factory/docs` NAV.
+ */
 export type View =
-  | "projects"
+  | "overview"
   | "inbox"
   | "director"
   | "specs"
-  | "knowledge"
-  | "settings"
   | "plans"
-  | "harnesses"
   | "runs"
-  | "reviews"
+  | "needs-you"
   | "deliveries"
-  | "autonomy";
-export type Theme = "light" | "dark";
+  | "knowledge"
+  | "autonomy"
+  | "project-settings"
+  | "projects"
+  | "harnesses"
+  | "autonomy-all"
+  | "settings"
+  | "docs";
 export interface Notice {
   kind: "info" | "error";
   text: string;
@@ -22,7 +29,6 @@ export interface Notice {
 export interface State {
   token: string | null;
   view: View;
-  theme: Theme;
   projects: Project[];
   projectId: string | null;
   /** Spec selected in the specs view. */
@@ -31,6 +37,9 @@ export interface State {
   planId: string | null;
   executionId: string | null;
   deliveryId: string | null;
+  /** Docs page slug and heading anchor (`#/docs/<slug>?section=<anchor>`). */
+  docsSlug: string | null;
+  docsSection: string | null;
   /** Inbox item handed to the Director ("Draft spec from this"); the Director consumes it. */
   directorSeed: { intakeId: string; request: string } | null;
   notice: Notice | null;
@@ -54,24 +63,35 @@ export type Action =
   | {
       type: "route";
       route: Partial<
-        Pick<State, "view" | "projectId" | "specId" | "planId" | "executionId" | "deliveryId">
+        Pick<
+          State,
+          | "view"
+          | "projectId"
+          | "specId"
+          | "planId"
+          | "executionId"
+          | "deliveryId"
+          | "docsSlug"
+          | "docsSection"
+        >
       >;
     }
+  | { type: "docs/open"; slug: string; section?: string | null }
   | { type: "notice"; notice: Notice }
-  | { type: "notice/dismiss" }
-  | { type: "theme/toggle" };
+  | { type: "notice/dismiss" };
 
-export function initialState(init: { token?: string | null; theme?: Theme }): State {
+export function initialState(init: { token?: string | null }): State {
   return {
     token: init.token ?? null,
-    view: "projects",
-    theme: init.theme ?? "light",
+    view: "overview",
     projects: [],
     projectId: null,
     specId: null,
     planId: null,
     executionId: null,
     deliveryId: null,
+    docsSlug: null,
+    docsSection: null,
     directorSeed: null,
     notice: null,
   };
@@ -167,13 +187,19 @@ export function reducer(state: State, action: Action): State {
         directorSeed: { intakeId: action.intakeId, request: action.request },
         notice: keepErrors(state.notice),
       };
+    case "docs/open":
+      return {
+        ...state,
+        view: "docs",
+        docsSlug: action.slug,
+        docsSection: action.section ?? null,
+        notice: keepErrors(state.notice),
+      };
     case "director/seed-used":
       return { ...state, directorSeed: null };
     case "notice":
       return { ...state, notice: action.notice };
     case "notice/dismiss":
       return { ...state, notice: null };
-    case "theme/toggle":
-      return { ...state, theme: state.theme === "dark" ? "light" : "dark" };
   }
 }

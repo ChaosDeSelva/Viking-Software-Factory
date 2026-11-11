@@ -1,4 +1,4 @@
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { describe, expect, it } from "vitest";
@@ -209,5 +209,55 @@ describe("caller paths named like '..x' inside the workspace (fix round 2, minor
         configFile: join(s.workspace, "..x", "config.yaml"),
       }),
     ).rejects.toMatchObject({ message: expect.stringMatching(/inside the verified workspace/) });
+  });
+});
+
+describe("loadContract: caller inputs that do not exist", () => {
+  async function untrustedWith(policyFile: string, builtin = true) {
+    const s = setup();
+    const config = join(s.outside, "config.yaml");
+    writeFileSync(
+      config,
+      stringify({ version: 1, harnesses: [{ name: "e2e-react", version: "^1.0.0" }] }),
+    );
+    return loadContract({
+      workspace: realpathSync(s.workspace),
+      home: s.home,
+      ...(builtin ? { builtinDir: s.builtinDir } : {}),
+      configFile: config,
+      policyFile: policyFile.replace("<ws>", realpathSync(s.workspace)),
+    });
+  }
+
+  it("refuses a missing caller file inside the workspace (the work under test could create it)", async () => {
+    await expect(untrustedWith("<ws>/later/policy.yaml")).rejects.toMatchObject({
+      code: "invalid-config",
+      message: expect.stringMatching(
+        /policy file .*later\/policy\.yaml is inside the verified workspace/,
+      ),
+    });
+  });
+
+  it("reports a missing caller file outside the workspace as missing", async () => {
+    const missing = join(tmp("brokkr-caller-"), "nope.yaml");
+    await expect(untrustedWith(missing)).rejects.toMatchObject({
+      code: "invalid-config",
+      message: expect.stringMatching(/^policy file .*brokkr-caller-.*\/nope\.yaml does not exist$/),
+    });
+  });
+
+  it("a requested profile is not found when there is no built-in library", async () => {
+    const s = setup();
+    await expect(
+      loadContract({
+        workspace: s.workspace,
+        home: s.home,
+        trust: "developer",
+        profile: "frontend-strict",
+      }),
+    ).rejects.toMatchObject({
+      code: "not-found",
+      message: expect.stringMatching(/profile 'frontend-strict' is not defined/),
+    });
   });
 });

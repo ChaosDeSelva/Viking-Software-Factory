@@ -484,6 +484,12 @@ export async function readReport(
       problems.push(`${EVIDENCE_MANIFEST} is not valid JSON`);
     }
   }
+  // The manifest is untrusted until its signature verifies: any other JSON value
+  // (null, false, 0, "", an array) must fail integrity, never skip the checks.
+  if (manifest !== undefined && (typeof manifest !== "object" || manifest === null)) {
+    problems.push(`${EVIDENCE_MANIFEST} is not a JSON object`);
+    manifest = undefined;
+  }
   if (manifest && !Array.isArray(manifest.artifacts)) {
     problems.push(`${EVIDENCE_MANIFEST} has no artifact list`);
     manifest = undefined;
@@ -493,7 +499,7 @@ export async function readReport(
     else {
       const key = options.key ?? (await signingKey(options.home));
       const expected = manifestSignature(key, manifest);
-      const a = Buffer.from(manifest.signature);
+      const a = Buffer.from(typeof manifest.signature === "string" ? manifest.signature : "");
       const b = Buffer.from(expected);
       if (a.length !== b.length || !timingSafeEqual(a, b))
         problems.push(
@@ -513,14 +519,23 @@ export async function readReport(
       if (options.workspace && manifest.workspaceKey !== workspaceKey(options.workspace))
         problems.push("run belongs to another workspace");
     }
-    const listed = new Map(manifest.artifacts.map((a) => [a.path, a]));
+    const artifacts = manifest.artifacts.filter(
+      (a): a is ManifestArtifact =>
+        typeof a === "object" &&
+        a !== null &&
+        typeof a.path === "string" &&
+        typeof a.sha256 === "string",
+    );
+    if (artifacts.length !== manifest.artifacts.length)
+      problems.push(`${EVIDENCE_MANIFEST} has a malformed artifact entry`);
+    const listed = new Map(artifacts.map((a) => [a.path, a]));
     if (!listed.has(REPORT_JSON)) problems.push(`${REPORT_JSON} is not listed in the manifest`);
     for (const e of report.evidence) {
       const m = listed.get(e.path);
       if (!m || m.sha256 !== e.sha256)
         problems.push(`${e.path}: report evidence does not match the manifest`);
     }
-    for (const artifact of manifest.artifacts) {
+    for (const artifact of artifacts) {
       const abs = join(runDir, artifact.path);
       if (relative(runDir, abs).startsWith("..")) {
         problems.push(`${artifact.path}: path escapes the run directory`);

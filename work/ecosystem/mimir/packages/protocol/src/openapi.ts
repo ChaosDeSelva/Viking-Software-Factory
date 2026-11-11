@@ -12,6 +12,7 @@ import {
   type RouteConfig,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { withExactOptionalKeys } from "./openapi-required.js";
 import {
   ApprovalDecisionRequestSchema,
   ApprovalIdParamsSchema,
@@ -406,7 +407,8 @@ export function generateOpenApi(): OpenApiDocument {
     const request: NonNullable<RouteConfig["request"]> = {};
     if (e.params) request.params = e.params;
     if (e.query) request.query = e.query;
-    if (e.method === "post") request.headers = IdempotencyHeadersSchema;
+    // The server refuses every mutation (POST, PATCH, ...) without the header.
+    if (e.method !== "get") request.headers = IdempotencyHeadersSchema;
     if (e.body) {
       // Bodies whose fields are all optional (start/cancel/retry) may be omitted.
       const required = !e.body.safeParse({}).success;
@@ -435,16 +437,22 @@ export function generateOpenApi(): OpenApiDocument {
     });
   }
 
-  return new OpenApiGeneratorV31(registry.definitions).generateDocument({
-    openapi: "3.1.0",
-    info: {
-      title: "Mimir API",
-      version: PROTOCOL_PACKAGE_VERSION,
-      description:
-        "Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body.",
-    },
-    servers: [{ url: "http://127.0.0.1:7700" }],
-  });
+  const roots = [
+    ...ENDPOINTS.flatMap((e) => [e.params, e.query, e.body, e.response]),
+    ...Object.values(OPENAPI_COMPONENTS),
+  ];
+  return withExactOptionalKeys(roots, () =>
+    new OpenApiGeneratorV31(registry.definitions).generateDocument({
+      openapi: "3.1.0",
+      info: {
+        title: "Mimir API",
+        version: PROTOCOL_PACKAGE_VERSION,
+        description:
+          "Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body.",
+      },
+      servers: [{ url: "http://127.0.0.1:7700" }],
+    }),
+  );
 }
 
 /** JSON Schema (draft 2020-12) for the event envelope. Pure; no I/O. */

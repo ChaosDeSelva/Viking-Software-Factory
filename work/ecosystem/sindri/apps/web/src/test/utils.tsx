@@ -5,6 +5,7 @@ import type { ApiClient } from "../api/client.js";
 import { DELIVERY_METHOD_NAMES } from "../api/delivery-client.js";
 import { STEWARD_METHOD_NAMES } from "../api/steward-client.js";
 import type { Project } from "../api/types.js";
+import { SindriLinks } from "../components/Layout.js";
 import { AppProviders } from "../store/context.js";
 import type { State } from "../store/reducer.js";
 
@@ -14,6 +15,7 @@ export type MockApi = { [K in keyof ApiClient]: Mock };
 export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): MockApi {
   const names: (keyof ApiClient)[] = [
     "health",
+    "askGuide",
     "capabilities",
     "listProjects",
     "getProject",
@@ -85,7 +87,7 @@ export function renderWithStore(ui: ReactElement, api: MockApi, initial: Partial
       api={api as unknown as ApiClient}
       initial={{ token: "tok", projects: [PROJECT], projectId: PROJECT.id, ...initial }}
     >
-      {ui}
+      <SindriLinks>{ui}</SindriLinks>
     </AppProviders>,
   );
 }

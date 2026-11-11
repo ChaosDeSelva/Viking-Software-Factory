@@ -24,7 +24,7 @@ describe("store reducer: plans, runs and deliveries", () => {
   });
 
   it("navigates to the new views", () => {
-    for (const view of ["plans", "harnesses", "runs", "reviews", "deliveries"] as const)
+    for (const view of ["plans", "harnesses", "runs", "needs-you", "deliveries"] as const)
       expect(reducer(base(), { type: "navigate", view }).view).toBe(view);
   });
 

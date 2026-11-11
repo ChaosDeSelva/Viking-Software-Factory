@@ -80,7 +80,9 @@ describe("MissionDetail", () => {
     expect(screen.getByText("1 of 2 tasks completed")).toBeTruthy();
     const svg = screen.getByRole("img", { name: /dependency graph/i });
     expect(within(svg as unknown as HTMLElement).getByText("Alpha")).toBeTruthy();
-    expect(svg.querySelectorAll("line").length).toBe(1);
+    expect(svg.querySelectorAll("path[data-edge]").length).toBe(1);
+    const table = screen.getByRole("table", { name: "Tasks" });
+    expect(within(table).getByRole("img", { name: "Status: Running" })).toBeTruthy();
     await expectNoSeriousA11yViolations(container);
   });
 
@@ -88,7 +90,7 @@ describe("MissionDetail", () => {
     const user = userEvent.setup();
     const { m, client } = setup();
     renderDetail(client, m.id);
-    const plan = await screen.findByRole("tab", { name: "Plan" });
+    const plan = await screen.findByRole("tab", { name: /^Plan/ });
     expect(plan.getAttribute("aria-selected")).toBe("true");
     plan.focus();
     await user.keyboard("{ArrowRight}");
@@ -114,11 +116,15 @@ describe("MissionDetail", () => {
       ),
     );
     await waitFor(() => expect(within(list()).getByText("task.ready")).toBeTruthy());
-    await user.selectOptions(within(panel).getByLabelText("Type"), "test.run_completed");
+    const choose = async (filter: string, option: string) => {
+      await user.click(within(panel).getByRole("combobox", { name: filter }));
+      await user.click(await screen.findByRole("option", { name: option }));
+    };
+    await choose("Type", "test.run_completed");
     expect(within(list()).queryByText("summary.created")).toBeNull();
     expect(within(list()).getByText("test.run_completed")).toBeTruthy();
-    await user.selectOptions(within(panel).getByLabelText("Type"), "");
-    await user.selectOptions(within(panel).getByLabelText("Task"), a.id);
+    await choose("Type", "All types");
+    await choose("Task", "Alpha");
     expect(within(list()).queryByText("task.started")).toBeNull();
     expect(within(list()).getByText("task.ready")).toBeTruthy();
   });
@@ -127,7 +133,7 @@ describe("MissionDetail", () => {
     const user = userEvent.setup();
     const { m, ag, client } = setup();
     renderDetail(client, m.id);
-    await user.click(await screen.findByRole("tab", { name: "Agents" }));
+    await user.click(await screen.findByRole("tab", { name: /^Agents/ }));
     const link = screen.getByRole("link", { name: new RegExp(ag.runtimeSessionId as string) });
     expect(link.getAttribute("href")).toBe(`/agents/${ag.runtimeSessionId}`);
   });
@@ -172,5 +178,27 @@ describe("MissionDetail", () => {
     const { client } = setup();
     renderDetail(client, newId("msn"));
     expect(await screen.findByText(/Mission not found/)).toBeTruthy();
+  });
+
+  it("says why a task is blocked in plain words, the raw reason one hover away", async () => {
+    const m = mission({ objective: "Build feature" });
+    const t = task({
+      missionId: m.id,
+      title: "Gamma",
+      status: "blocked",
+      blockedReason: "budget_exceeded",
+    });
+    const client = mockClient({
+      snapshot: vi.fn(async () => snapshot({ missions: [m], tasks: [t] })),
+    });
+    vi.mocked(client.events.list).mockResolvedValue(page([], null));
+    renderDetail(client, m.id);
+    const table = await screen.findByRole("table", { name: "Tasks" });
+    const reason = within(table).getByText("Budget used up");
+    expect(reason.dataset.blockedReason).toBe("budget_exceeded");
+    expect(table.textContent).not.toContain("budget_exceeded");
+    const svg = screen.getByRole("img", { name: /dependency graph/i });
+    expect(svg.textContent).toContain("Budget used up");
+    expect(svg.querySelector("title")?.textContent).toContain("[budget_exceeded]");
   });
 });

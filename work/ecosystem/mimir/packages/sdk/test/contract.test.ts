@@ -143,8 +143,9 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "POST /v1/missions/{id}/start": () => client.missions.start(mission.id),
       "POST /v1/missions/{id}/cancel": () => client.missions.cancel(mission.id, { reason: "done" }),
       "POST /v1/crews": () =>
+        // `mission` is cancelled by an earlier call; a terminal mission takes no new crews (409).
         client.crews.create({
-          missionId: mission.id,
+          missionId: open.id,
           template: "pair",
           members: [{ role: "reviewer", agentKind: "codex", name: "rev" }],
         }),

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {workerInput,actions} from '../packages/contracts/worker.mjs';
+import {workerInput,actions,projectSnapshot} from '../packages/contracts/worker.mjs';
 import {Simulator} from '../packages/providers/simulator.mjs';
 import {Store} from '../apps/api/store.mjs';
 
@@ -48,4 +48,14 @@ test('the store keeps records in order, replaces by identity and rolls back a fa
   store.saveArtifact({id:'f1',data:'AA=='});assert.deepEqual(store.artifact('f1'),{id:'f1',data:'AA=='});assert.equal(store.artifacts().length,1);
   assert.throws(()=>store.saveArtifact({id:'f1',data:'BB=='}));assert.equal(store.artifact('f1').data,'AA==');
  }finally{store.close();}
+});
+
+test('worker projects are optional, trimmed and validated; snapshots filter by them',()=>{
+ assert.deepEqual(workerInput({name:'a',template:'node',minutes:5,project:' demo-app '}),{name:'a',template:'node',minutes:5,project:'demo-app'});
+ for(const project of [undefined,null,'','  '])assert.equal('project' in workerInput({name:'a',template:'node',minutes:5,project}),false);
+ for(const project of [7,'-x','a b','../up','a'.repeat(101)])assert.throws(()=>workerInput({name:'a',template:'node',minutes:5,project}),/Project must be/,String(project));
+ const snapshot={workers:[{id:'1',project:'p',state:'running'},{id:'2',state:'running'},{id:'3',project:'p',state:'terminated'}],events:[{workerId:'1'},{workerId:'2'}],commands:[{workerId:'2'}],terminals:[],artifacts:[{workerId:'3'}],maxWorkers:5};
+ assert.equal(projectSnapshot(snapshot,undefined),snapshot);
+ const scoped=projectSnapshot(snapshot,'p');
+ assert.deepEqual(scoped.workers.map(w=>w.id),['1','3']);assert.deepEqual(scoped.events,[{workerId:'1'}]);assert.deepEqual(scoped.commands,[]);assert.deepEqual(scoped.artifacts,[{workerId:'3'}]);assert.equal(scoped.fleetActive,2);
 });

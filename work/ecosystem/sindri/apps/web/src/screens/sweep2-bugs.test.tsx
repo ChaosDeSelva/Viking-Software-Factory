@@ -7,6 +7,7 @@ import { intake } from "../test/fixtures.js";
 import { mockApi, PROJECT, renderWithStore } from "../test/utils.js";
 import { InboxScreen } from "./InboxScreen.js";
 import { KnowledgeScreen } from "./KnowledgeScreen.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 import { ProjectsScreen } from "./ProjectsScreen.js";
 
 /** A promise the test settles by hand. */
@@ -30,10 +31,12 @@ describe("defects found in the second sweep", { timeout: 20_000 }, () => {
       <>
         <NoticeRegion />
         <ProjectsScreen />
+        <ProjectSettingsScreen />
       </>,
       api,
       { projects: [PROJECT, TWO] },
     );
+    await userEvent.click(screen.getByRole("tab", { name: "Repository & index" }));
     await userEvent.type(screen.getByLabelText("Search the project index"), "one");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(api.search).toHaveBeenCalledWith("p1", "one");
@@ -71,10 +74,12 @@ describe("defects found in the second sweep", { timeout: 20_000 }, () => {
     await userEvent.type(screen.getByLabelText("Claim"), "CSV uses papaparse");
     await userEvent.type(screen.getByLabelText("Source URL"), "https://example.com/doc");
     await userEvent.click(screen.getByRole("button", { name: "Add URL" }));
-    const add = screen.getByRole("button", { name: "Add entry" });
-    expect(add).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Add entry" }).hasAttribute("aria-disabled")).toBe(
+      false,
+    );
     await userEvent.clear(screen.getByLabelText("Confidence (0 to 1)"));
-    expect(add).toHaveProperty("disabled", true);
+    const add = screen.getByRole("button", { name: /^Add entry/ });
+    expect(add.getAttribute("aria-disabled")).toBe("true");
     await userEvent.click(add);
     expect(api.addKnowledge).not.toHaveBeenCalled();
   });
@@ -89,7 +94,7 @@ describe("defects found in the second sweep", { timeout: 20_000 }, () => {
     renderWithStore(
       <>
         <NoticeRegion />
-        <ProjectsScreen />
+        <ProjectSettingsScreen />
       </>,
       api,
     );

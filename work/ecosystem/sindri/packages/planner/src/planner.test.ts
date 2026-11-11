@@ -100,6 +100,43 @@ describe("planner", () => {
     svc: HarnessService = harnesses,
   ) => planner.propose(spec, { provider, harnesses: svc });
 
+  describe("stored rows written outside the planner", () => {
+    it("refuses an approved spec whose stored body has no acceptance criteria", async () => {
+      // The specs API refuses to approve such a spec; a row edited before approval is the only way.
+      const s = specs.createDraft({
+        projectId,
+        intakeId,
+        title: "x",
+        body: fullstack().body,
+        provenance: fullstack().provenance,
+      });
+      const body = { ...s.body, acceptanceCriteria: [] };
+      db.prepare(
+        "UPDATE specifications SET body_json = ?, status = 'approved', approved_by = 'x' WHERE id = ?",
+      ).run(JSON.stringify(body), s.id);
+      await expect(propose({ ...s, status: "approved" })).rejects.toThrow(
+        /no work area could be derived/,
+      );
+      expect(db.prepare("SELECT COUNT(*) AS n FROM plans").get()).toEqual({ n: 0 });
+    });
+
+    it("reads a flagged plan stored without findings as flagged with none", async () => {
+      const p = await propose(fullstack());
+      const body = JSON.parse(
+        (db.prepare("SELECT body_json FROM plans WHERE id = ?").get(p.id) as { body_json: string })
+          .body_json,
+      ) as Record<string, unknown>;
+      db.prepare("UPDATE plans SET body_json = ? WHERE id = ?").run(
+        JSON.stringify({ ...body, untrustedInstructionDetected: true }),
+        p.id,
+      );
+      expect(planner.get(p.id)).toMatchObject({
+        untrustedInstructionDetected: true,
+        injectionFindings: [],
+      });
+    });
+  });
+
   describe("propose", () => {
     it("refuses a specification that is not approved", async () => {
       const s = specs.createDraft({

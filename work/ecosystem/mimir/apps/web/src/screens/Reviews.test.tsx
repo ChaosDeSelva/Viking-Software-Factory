@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { expectNoSeriousA11yViolations } from "../test/axe.js";
-import { approval, event, mission, snapshot, task } from "../test/fixtures.js";
+import { approval, event, mission, project, snapshot, task } from "../test/fixtures.js";
 import { accepted, mockClient, page } from "../test/mockClient.js";
 import { renderWithStore } from "../test/render.js";
 import { Reviews } from "./Reviews.js";
@@ -48,10 +48,13 @@ describe("Reviews", () => {
   it("lists pending approvals with context and is accessible", async () => {
     const { pending, client } = setup();
     const { container } = renderWithStore(<Reviews />, { client });
-    const inbox = await screen.findByRole("region", { name: "Pending approvals" });
+    const inbox = await screen.findByRole("region", { name: /Pending approvals/ });
     expect(within(inbox).getByText("shell.destructive")).toBeTruthy();
     expect(within(inbox).getByText("rm -rf dist")).toBeTruthy();
     expect(within(inbox).getByRole("link", { name: "Cleanup" })).toBeTruthy();
+    expect(within(inbox).getByRole("link", { name: "Mission R" }).getAttribute("href")).toBe(
+      `/missions/${pending.missionId}`,
+    );
     expect(within(inbox).getByRole("button", { name: `Approve ${pending.id}` })).toBeTruthy();
     await expectNoSeriousA11yViolations(container);
   });
@@ -62,7 +65,7 @@ describe("Reviews", () => {
     renderWithStore(<Reviews />, { client });
     await user.click(await screen.findByRole("button", { name: `Approve ${pending.id}` }));
     expect(client.approvals.decide).toHaveBeenCalledWith(pending.id, { decision: "approved" });
-    const status = await screen.findByText(/Approved/);
+    const status = await screen.findByText(new RegExp(`Approved ${pending.id}`));
     expect(status.textContent).toMatch(/operation op_/);
   });
 
@@ -89,7 +92,7 @@ describe("Reviews", () => {
       expect(screen.queryByRole("button", { name: `Approve ${pending.id}` })).toBeNull(),
     );
     await act(async () => resolveDecide?.(accepted()));
-    const decisions = screen.getByRole("region", { name: "Recent decisions" });
+    const decisions = screen.getByRole("region", { name: /Recent decisions/ });
     await waitFor(() =>
       expect(within(decisions).getByText(new RegExp(`Approved ${pending.id}`)).textContent).toMatch(
         /operation op_/,
@@ -129,17 +132,24 @@ describe("Reviews", () => {
   });
 
   it("shows failing tests, diffs, high-risk commands and recent decisions", async () => {
+    const user = userEvent.setup();
     const { client } = setup();
     renderWithStore(<Reviews />, { client });
-    const tests = await screen.findByRole("region", { name: "Test results" });
+    const tests = await screen.findByRole("region", { name: /Test results/ });
     await waitFor(() => expect(within(tests).getByText("pnpm test")).toBeTruthy());
     expect(within(tests).getByText(/1 of 4 failed/)).toBeTruthy();
-    expect(within(screen.getByRole("region", { name: "Diffs" })).getByText("diff")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: /Diffs/ }));
+    const diffs = screen.getByRole("region", { name: /Diffs/ });
+    expect(within(diffs).getByText("diff")).toBeTruthy();
+    expect(within(diffs).getByRole("link", { name: "Open files" }).getAttribute("href")).toMatch(
+      /\?tab=files$/,
+    );
+    await user.click(screen.getByRole("tab", { name: /High-risk/ }));
     expect(
-      within(screen.getByRole("region", { name: "High-risk commands" })).getByText(/git.push/),
+      within(screen.getByRole("region", { name: /High-risk commands/ })).getByText(/git.push/),
     ).toBeTruthy();
     expect(
-      within(screen.getByRole("region", { name: "Recent decisions" })).getByText("pr.create"),
+      within(screen.getByRole("region", { name: /Recent decisions/ })).getByText("pr.create"),
     ).toBeTruthy();
   });
 
@@ -158,5 +168,61 @@ describe("Reviews", () => {
   it("shows empty inbox", async () => {
     renderWithStore(<Reviews />, { client: mockClient() });
     expect(await screen.findByText(/No pending approvals/)).toBeTruthy();
+  });
+});
+
+describe("Reviews: grouping and project scope", () => {
+  it("groups repeated runs of one command into a single row with counts", async () => {
+    const m = mission({ objective: "Mission G" });
+    const t = task({ missionId: m.id, title: "build-api: Build the API. Then more." });
+    const runs = [false, false, true].map((passed) =>
+      event(
+        "test.run_completed",
+        { command: "npm test", passed },
+        { missionId: m.id, taskId: t.id },
+      ),
+    );
+    const client = mockClient({
+      snapshot: vi.fn(async () => snapshot({ missions: [m], tasks: [t] })),
+    });
+    vi.mocked(client.events.list).mockResolvedValue(page(runs, null));
+    renderWithStore(<Reviews />, { client });
+    const tests = await screen.findByRole("region", { name: /Test results/ });
+    await waitFor(() => expect(within(tests).getAllByText("npm test")).toHaveLength(1));
+    expect(within(tests).getByText(/×3 runs/)).toBeTruthy();
+    expect(within(tests).getByText(/1 passed · 2 failed/)).toBeTruthy();
+    // The latest run passed.
+    expect(within(tests).getByRole("img", { name: /Status: Passed/i })).toBeTruthy();
+    expect(within(tests).getByRole("link", { name: "Mission G" })).toBeTruthy();
+    expect(within(tests).getByText(/build-api · Build the API/)).toBeTruthy();
+  });
+
+  it("loads history per mission of the selected project and hides other projects", async () => {
+    const p1 = project({ name: "alpha" });
+    const p2 = project({ name: "beta" });
+    const m1 = mission({ projectId: p1.id, objective: "Alpha mission" });
+    const m2 = mission({ projectId: p2.id, objective: "Beta mission" });
+    const a1 = approval({ action: "shell.alpha", missionId: m1.id });
+    const a2 = approval({ action: "shell.beta", missionId: m2.id });
+    localStorage.setItem("mimir.project", p1.id);
+    const client = mockClient({
+      snapshot: vi.fn(async () =>
+        snapshot({ projects: [p1, p2], missions: [m1, m2], approvals: [a1, a2] }),
+      ),
+    });
+    renderWithStore(<Reviews />, { client });
+    const inbox = await screen.findByRole("region", { name: /Pending approvals/ });
+    await waitFor(() =>
+      expect(within(inbox).getAllByText("shell.alpha").length).toBeGreaterThan(0),
+    );
+    expect(within(inbox).queryByText("shell.beta")).toBeNull();
+    await waitFor(() =>
+      expect(client.events.list).toHaveBeenCalledWith(
+        expect.objectContaining({ missionId: m1.id, types: expect.any(Array) }),
+      ),
+    );
+    expect(client.events.list).not.toHaveBeenCalledWith(
+      expect.objectContaining({ missionId: m2.id }),
+    );
   });
 });

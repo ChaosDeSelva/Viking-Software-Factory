@@ -53,8 +53,10 @@ describe("M-I5: cancel mission confirmation", () => {
     });
     await userEvent.click(await screen.findByRole("button", { name: "Cancel mission" }));
     expect(client.missions.cancel).not.toHaveBeenCalled();
-    const confirm = screen.getByRole("button", { name: "Confirm cancel mission" });
-    expect(document.activeElement).toBe(confirm);
+    // Focus moves into the alert dialog; confirming takes a deliberate second click.
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Confirm cancel mission" })).toBeTruthy();
+    expect(dialog.contains(document.activeElement)).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "Keep mission" }));
     expect(client.missions.cancel).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel mission" }));
@@ -121,7 +123,7 @@ describe("M-I6/M-m5: focus management in Reviews", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: `Approve ${pending.id}` })).toBeNull(),
     );
-    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Pending approvals" }));
+    expect(document.activeElement).toBe(screen.getByRole("heading", { name: /Pending approvals/ }));
   });
 });
 
@@ -150,8 +152,10 @@ describe("AgentInspector", () => {
   it("M-I6: force-stop confirm moves focus and restores it", async () => {
     setup("running");
     await userEvent.click(await screen.findByRole("button", { name: "Force stop…" }));
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Confirm force stop" }));
-    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const dialog = screen.getByRole("alertdialog");
+    expect(within(dialog).getByRole("button", { name: "Confirm force stop" })).toBeTruthy();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Force stop…" }));
   });
 
@@ -172,8 +176,8 @@ describe("M-I8: shortcut setting", () => {
     localStorage.removeItem("mimir.shortcuts");
     const client = mockClient();
     renderWithStore(<Settings />, { client });
-    const box = await screen.findByRole("checkbox", { name: /single-key keyboard shortcuts/i });
-    expect((box as HTMLInputElement).checked).toBe(true);
+    const box = await screen.findByRole("switch", { name: /single-key keyboard shortcuts/i });
+    expect(box.getAttribute("aria-checked")).toBe("true");
     await userEvent.click(box);
     expect(localStorage.getItem("mimir.shortcuts")).toBe("off");
     await userEvent.click(box);
@@ -198,6 +202,7 @@ describe("M-m8: capability load errors are shown", () => {
     const client = mockClient({ snapshot: vi.fn(async () => snapshot({ missions: [m] })) });
     vi.mocked(client.capabilities).mockRejectedValue(new Error("caps down"));
     renderWithStore(<Crews />, { client });
+    await userEvent.click(await screen.findByRole("button", { name: "New crew" }));
     expect((await screen.findAllByText(/caps down/)).length).toBeGreaterThan(0);
   });
 });
@@ -209,7 +214,7 @@ describe("M-m9: start error sits on its mission row", () => {
     vi.mocked(client.missions.start).mockRejectedValue(new Error("cannot start"));
     renderWithStore(<Missions />, { client });
     await userEvent.click(await screen.findByRole("button", { name: "Start Row mission" }));
-    const row = (await screen.findByText(/cannot start/)).closest("li");
+    const row = (await screen.findByText(/cannot start/)).closest("tr");
     expect(row?.textContent).toMatch(/Row mission/);
   });
 });

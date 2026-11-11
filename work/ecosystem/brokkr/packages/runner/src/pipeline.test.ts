@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
@@ -972,5 +980,138 @@ symlinkSync("/etc/hosts", process.env.PLANT);
     ]);
     expect(report.verdict).toBe("failed");
     expect(report.reasons.join()).not.toMatch(/harness_tampered/);
+  });
+});
+
+describe("artifact scanning after the checks", () => {
+  it("leaves clean, binary, oversize and linked artifacts alone and tolerates a removed artifact root", async () => {
+    const outside = join(tmp("brokkr-outside-"), "target.txt");
+    const secret = `leak ${"AKIA" + "IOSFODNN7EXAMPLE"}\n`;
+    writeFileSync(outside, secret);
+    const h = harness([
+      check("a", ["node", "check.mjs"]),
+      check("b", ["node", "check.mjs"], { required: false }),
+    ]);
+    const executor = new FakeExecutor((req) => {
+      if (req.checkId === "b") {
+        // The last check removes the screenshots root: the scan must cope with it missing.
+        rmSync(dirname(req.env.BROKKR_SCREENSHOTS_DIR!), { recursive: true });
+        return {};
+      }
+      const dir = req.env.BROKKR_TEST_RESULTS_DIR!;
+      mkdirSync(join(dir, "nested"), { recursive: true });
+      writeFileSync(join(dir, "nested", "junit.xml"), "<testsuite/>\n");
+      writeFileSync(join(dir, "shot.bin"), Buffer.from([0, 1, 2, 3]));
+      writeFileSync(join(dir, "huge.txt"), "");
+      truncateSync(join(dir, "huge.txt"), 32 * 1024 * 1024 + 1);
+      symlinkSync(outside, join(dir, "linked.txt"));
+      return {};
+    });
+    const { report, runDir } = await verify(h, executor);
+    expect(report.verdict).toBe("passed");
+    expect(report.checks[1]).not.toHaveProperty("requiredBy");
+    expect(readFileSync(join(runDir, "test-results", "a", "nested", "junit.xml"), "utf8")).toBe(
+      "<testsuite/>\n",
+    );
+    // The link is never followed: the file it points at is neither read nor redacted.
+    expect(readFileSync(outside, "utf8")).toBe(secret);
+    expect(existsSync(join(runDir, "screenshots"))).toBe(false);
+  });
+});
+
+describe("caller options reach the report", () => {
+  it("records ids, policy sources, review state and clean bundle reads", async () => {
+    const h = harness([check("a", ["node", "check.mjs"])]);
+    const executor = new FakeExecutor(() => ({ error: "exited 0 with a note" }));
+    const runsRoot = join(tmp("brokkr-runs-"), "runs");
+    const sources = [
+      {
+        kind: "organization-policy" as const,
+        path: "org.yaml",
+        origin: "workspace_supplied" as const,
+        digest: `sha256:${"e".repeat(64)}`,
+      },
+      {
+        kind: "project-policy" as const,
+        path: "/etc/brokkr/project.yaml",
+        origin: "external" as const,
+        digest: `sha256:${"f".repeat(64)}`,
+      },
+    ];
+    const { report, runDir } = await verify(h, executor, {
+      projectId: "proj-1",
+      executionId: "exec-1",
+      workspaceId: "ws-1",
+      runsRoot,
+      maxLogBytes: 4096,
+      killGraceMs: 50,
+      reviewRecorded: true,
+      policySources: sources,
+      composed: { ...h.composed, harnesses: [] },
+      task: {
+        id: "T-1",
+        title: "t",
+        description: "d",
+        tags: [],
+        policies: { reviewRequired: true },
+      },
+      readBundles: async () => ({
+        files: [{ file: "CLAUDE.md", text: "plain text\n" }],
+        warnings: [],
+      }),
+    });
+    expect(runDir.startsWith(runsRoot)).toBe(true);
+    expect(report).toMatchObject({
+      projectId: "proj-1",
+      executionId: "exec-1",
+      taskId: "T-1",
+      repository: { workspaceId: "ws-1" },
+      harness: { name: "none", version: "none" },
+      policySources: sources,
+      verdict: "passed",
+    });
+    expect(report.checks[0]!.message).toBe("exited 0 with a note");
+    expect(executor.requests[0]).toMatchObject({ maxLogBytes: 4096, killGraceMs: 50 });
+    const sourceDecisions = report.policyDecisions.filter((d) => d.policy === "policy-source");
+    expect(sourceDecisions).toEqual([
+      expect.objectContaining({ layer: "organization", outcome: "warn" }),
+    ]);
+  });
+
+  it("defaults the clock, the executor and the caller environment", async () => {
+    const ws = workspace();
+    writeFileSync(join(ws, "ok.mjs"), "console.log('fine');\n");
+    const h = harness([check("ok", [process.execPath, "ok.mjs"])]);
+    const before = Date.now();
+    const outcome = await runVerification({
+      workspace: ws,
+      set: h.set,
+      composed: h.composed,
+      lockDigest: `sha256:${"9".repeat(64)}`,
+      trustMode: "developer",
+    });
+    expect(outcome.report.verdict).toBe("passed");
+    expect(Date.parse(outcome.report.startedAt)).toBeGreaterThanOrEqual(before - 1000);
+    expect(readFileSync(join(outcome.runDir, "logs", "ok.log"), "utf8")).toContain("fine");
+  });
+});
+
+describe("harness change descriptions", () => {
+  it("names at most ten changed files and counts the rest", async () => {
+    const ws = workspace();
+    const h = harness([check("unit", ["node", "first.mjs"])]);
+    writeFileSync(join(h.dir, "keep.txt"), "unchanged\n");
+    writeFileSync(
+      join(ws, "first.mjs"),
+      `import { writeFileSync } from "node:fs";
+for (let i = 0; i < 12; i++) writeFileSync(${JSON.stringify(h.dir)} + "/f" + String(i).padStart(2, "0"), "x");
+`,
+    );
+    const { report } = await verify(h, new LocalProcessExecutor(), { workspace: ws });
+    const reason = report.reasons.find((r) => r.includes("harness_tampered"))!;
+    expect(reason).toContain(
+      "added f00; added f01; added f02; added f03; added f04; added f05; added f06; added f07; added f08; added f09; and 2 more",
+    );
+    expect(reason).not.toContain("keep.txt");
   });
 });

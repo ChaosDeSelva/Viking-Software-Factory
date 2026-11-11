@@ -8,6 +8,8 @@ import { createFactory, type FactoryOptions } from "./factory.js";
 import { deliveryRoutes } from "./routes/deliveries.js";
 import { executionRoutes } from "./routes/executions.js";
 import { feedbackGraphRoutes } from "./routes/feedback-graph.js";
+import type { DocsSource } from "@sindri/director";
+import { GUIDE_CLIENT_HEADER, guideRoutes } from "./routes/guide.js";
 import { harnessRoutes } from "./routes/harnesses.js";
 import { intakeRoutes } from "./routes/intakes.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
@@ -47,10 +49,12 @@ export interface BuildServerOptions extends ServiceOptions, FactoryOptions {
   approval?: ApprovalOptions;
   /** The steward loop (docs/steward.md). */
   steward?: StewardServerOptions;
+  /** Docs the read-only Guide answers from. Default: none, and it says so; `startServer` passes `@factory/docs`. */
+  docs?: DocsSource;
 }
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-const ALLOWED_HEADERS = `authorization, content-type, idempotency-key, ${APPROVAL_HEADER}`;
+const ALLOWED_HEADERS = `authorization, content-type, idempotency-key, ${APPROVAL_HEADER}, ${GUIDE_CLIENT_HEADER}`;
 const REDACT = [
   "req.headers.authorization",
   `req.headers["${APPROVAL_HEADER}"]`,
@@ -257,6 +261,10 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   });
   planRoutes(app, services, factory, approvals);
   harnessRoutes(app, services, factory);
+  guideRoutes(app, services, factory, {
+    ...(opts.docs ? { docs: opts.docs } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
+  });
   executionRoutes(app, services, factory, factory.hub, factory.delivery, approvals);
   // Resume runs interrupted by a restart, without waiting for a client (review I2).
   app.addHook("onReady", async () => {

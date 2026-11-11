@@ -5,12 +5,12 @@ import { ApiError } from "../api/client.js";
 import type { ExecutionProfile } from "../api/types.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { mockApi, PROJECT, renderWithStore } from "../test/utils.js";
-import { ProjectsScreen } from "./ProjectsScreen.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 
 const ui = (
   <>
     <NoticeRegion />
-    <ProjectsScreen />
+    <ProjectSettingsScreen />
   </>
 );
 const value = (el: HTMLElement) => (el as HTMLInputElement).value;
@@ -35,7 +35,7 @@ const GO: ExecutionProfile = {
   verificationTimeoutMs: 2_700_000,
 };
 
-describe("ProjectsScreen execution profile", () => {
+describe("Project settings: execution profile", () => {
   it("loads and shows the selected project's profile", async () => {
     const api = mockApi({ listProjects: [PROJECT], getProfile: GO });
     renderWithStore(ui, api);
@@ -202,8 +202,10 @@ describe("ProjectsScreen execution profile", () => {
     });
     renderWithStore(ui, api);
     const f = await form();
-    const save = within(f).getByRole("button", { name: "Save profile" });
-    expect(save.hasAttribute("disabled")).toBe(true);
+    // Locked: aria-disabled with its reason, so the button stays focusable and explains itself.
+    const save = within(f).getByRole("button", { name: /^Save profile/ });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(save.textContent).toContain("needs the approval pairing code");
     type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     expect(await within(f).findByRole("button", { name: "Save profile" })).toHaveProperty(

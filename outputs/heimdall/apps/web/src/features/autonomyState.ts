@@ -31,7 +31,9 @@ export const DECISION_TYPES = Object.keys(TYPE_LABELS);
 
 /** A label for a known value; an unknown one is returned exactly as Sindri sent it. */
 const labelOf = (labels: Record<string, string>, value: unknown) =>
-  Object.hasOwn(labels, String(value)) ? labels[String(value)] : String(value ?? "unknown");
+  Object.hasOwn(labels, String(value))
+    ? labels[String(value)]
+    : String(value ?? "unknown");
 export const modeLabel = (mode: unknown) => labelOf(MODE_LABELS, mode);
 export const typeLabel = (type: unknown) => labelOf(TYPE_LABELS, type);
 export const statusLabel = (status: unknown) => labelOf(STATUS_LABELS, status);
@@ -45,13 +47,18 @@ export const acceptIsApproval = (type: unknown) =>
 
 /** Running or paused; null when the status has not loaded or `running` is not a boolean. */
 export const runningLabel = (status: R | null | undefined): string | null =>
-  typeof status?.running === "boolean" ? (status.running ? "running" : "paused") : null;
+  typeof status?.running === "boolean"
+    ? status.running
+      ? "running"
+      : "paused"
+    : null;
 
 /** Why switching a type to `mode` cannot be proposed; empty when it can. */
 export function modeBlock(row: R, mode: string, session: Session): string {
   const base = actionBlock("steward.mode", undefined, session);
   if (base) return base;
-  if (!(STEWARD_MODES as readonly string[]).includes(mode)) return `Unknown mode ${mode}.`;
+  if (!(STEWARD_MODES as readonly string[]).includes(mode))
+    return `Unknown mode ${mode}.`;
   if (row.mode === mode) return `Already ${modeLabel(mode).toLowerCase()}.`;
   if (mode === "auto" && row.autoAllowed !== true)
     return APPROVAL_TYPES.includes(row.type)
@@ -62,7 +69,8 @@ export function modeBlock(row: R, mode: string, session: Session): string {
 
 /** Track-record figures for one type, formatted; missing numbers show as a dash. */
 export function trackRecord(stats: R | null | undefined) {
-  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? String(v) : "—");
+  const n = (v: unknown) =>
+    typeof v === "number" && Number.isFinite(v) ? String(v) : "—";
   const accuracy = stats?.accuracy;
   return {
     decided: n(stats?.decided),
@@ -83,11 +91,19 @@ export const confidenceLabel = (value: unknown) =>
     ? Math.round(Math.min(1, Math.max(0, value)) * 100) + "%"
     : "not reported";
 
-export type EntryActions = { accept: string; reject: string; rollback: string; note: string };
+export type EntryActions = {
+  accept: string;
+  reject: string;
+  rollback: string;
+  note: string;
+};
 /** For each entry action, why it cannot be sent now; empty strings for the allowed ones. */
 export function entryActions(d: R, session: Session): EntryActions {
   const base = actionBlock("steward.accept", undefined, session);
-  const pending = d.status === "pending" ? "" : `Only a decision awaiting you can be decided (status is ${d.status ?? "not reported"}).`;
+  const pending =
+    d.status === "pending"
+      ? ""
+      : `Only a decision awaiting you can be decided (status is ${d.status ?? "not reported"}).`;
   const rollback =
     d.reversible !== true
       ? "This decision cannot be reversed."
@@ -106,10 +122,16 @@ export function entryActions(d: R, session: Session): EntryActions {
 export function acceptBody(d: R, edited: string | null | undefined): R {
   if (d.type !== "spec.answer" || edited == null) return {};
   const value = edited.trim();
-  return value && value !== String(d.recommendation?.value ?? "").trim() ? { value } : {};
+  return value && value !== String(d.recommendation?.value ?? "").trim()
+    ? { value }
+    : {};
 }
 
-export type DecisionFilter = { projectIds: string[] | null; type: string; status: string };
+export type DecisionFilter = {
+  projectIds: string[] | null;
+  type: string;
+  status: string;
+};
 /**
  * The decisions query for the chosen project (null = all projects), type and status. One Sindri
  * project is asked for directly; several (one repository registered twice) are filtered here.
@@ -135,16 +157,24 @@ export function filterDecisions(rows: R[], f: DecisionFilter): R[] {
  * Sindri projects behind the app's project selection, which is keyed by repository path:
  * null for "all", otherwise every Sindri project registered for that repository.
  */
-export function stewardProjects(selection: string, sindriProjects: R[]): string[] | null {
+export function stewardProjects(
+  selection: string,
+  sindriProjects: R[],
+): string[] | null {
   if (selection === "all") return null;
   return sindriProjects
-    .filter((p) => p.id === selection || (p.repoPath && p.repoPath === selection))
+    .filter(
+      (p) => p.id === selection || (p.repoPath && p.repoPath === selection),
+    )
     .map((p) => p.id);
 }
 
 /** Notes for the selection: that project's and the global ones; all of them for "all". */
 export const filterNotes = (notes: R[], projectIds: string[] | null) =>
-  notes.filter((n) => !projectIds || n.projectId == null || projectIds.includes(n.projectId));
+  notes.filter(
+    (n) =>
+      !projectIds || n.projectId == null || projectIds.includes(n.projectId),
+  );
 
 const LINK_LABELS: Record<string, string> = {
   auto: "Matched automatically",
@@ -154,28 +184,63 @@ const LINK_LABELS: Record<string, string> = {
 export const linkLabel = (source: unknown) => labelOf(LINK_LABELS, source);
 
 /** One badge value and a sentence for Sindri's Feedback Graph status. */
-export function feedbackGraphSummary(s: R | null | undefined): { badge: string; text: string } {
-  if (!s) return { badge: "unknown", text: "Sindri has not reported Feedback Graph status." };
-  if (!s.configured) return { badge: "not configured", text: "Feedback Graph is not configured in Sindri's settings." };
-  if (!s.enabled) return { badge: "disabled", text: "Feedback Graph is configured but turned off in Sindri." };
-  if (s.reachable === true) return { badge: "connected", text: `Sindri reaches Feedback Graph at ${s.url ?? "its configured address"}.` };
+export function feedbackGraphSummary(s: R | null | undefined): {
+  badge: string;
+  text: string;
+} {
+  if (!s)
+    return {
+      badge: "unknown",
+      text: "Sindri has not reported Feedback Graph status.",
+    };
+  if (!s.configured)
+    return {
+      badge: "not configured",
+      text: "Feedback Graph is not configured in Sindri's settings.",
+    };
+  if (!s.enabled)
+    return {
+      badge: "disabled",
+      text: "Feedback Graph is configured but turned off in Sindri.",
+    };
+  if (s.reachable === true)
+    return {
+      badge: "connected",
+      text: `Sindri reaches Feedback Graph at ${s.url ?? "its configured address"}.`,
+    };
   if (s.reachable === false)
-    return { badge: "unreachable", text: `Sindri cannot reach Feedback Graph${s.error ? ": " + s.error : "."}` };
-  return { badge: "not checked", text: "Sindri has not checked Feedback Graph yet." };
+    return {
+      badge: "unreachable",
+      text: `Sindri cannot reach Feedback Graph${s.error ? ": " + s.error : "."}`,
+    };
+  return {
+    badge: "not checked",
+    text: "Sindri has not checked Feedback Graph yet.",
+  };
 }
 
 /** Why a link override cannot be proposed; empty when it can. */
-export function linkBlock(key: string, current: R | null | undefined, session: Session): string {
+export function linkBlock(
+  key: string,
+  current: R | null | undefined,
+  session: Session,
+): string {
   const base = actionBlock("project.feedbackGraph", undefined, session);
   if (base) return base;
   if (!current) return "The current link has not loaded yet.";
   if (!key.trim()) return "Enter a Feedback Graph project key.";
-  if (current.source === "override" && current.projectKey === key.trim()) return "This key is already set.";
+  if (current.source === "override" && current.projectKey === key.trim())
+    return "This key is already set.";
   return "";
 }
-export function clearLinkBlock(current: R | null | undefined, session: Session): string {
+export function clearLinkBlock(
+  current: R | null | undefined,
+  session: Session,
+): string {
   return (
     actionBlock("project.feedbackGraph", undefined, session) ||
-    (current?.source === "override" ? "" : "There is no operator override to clear.")
+    (current?.source === "override"
+      ? ""
+      : "There is no operator override to clear.")
   );
 }

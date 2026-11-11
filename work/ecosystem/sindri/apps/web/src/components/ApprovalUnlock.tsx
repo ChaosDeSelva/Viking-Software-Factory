@@ -15,7 +15,7 @@ export function ApprovalUnlock({ id, onUnlocked }: { id: string; onUnlocked: () 
   if (api.hasApprovalSession()) return null;
   return (
     <form
-      className="space-y-2"
+      className="flex max-w-md flex-col gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (!code.trim()) return;
@@ -33,6 +33,7 @@ export function ApprovalUnlock({ id, onUnlocked }: { id: string; onUnlocked: () 
       <Field
         label="Approval pairing code"
         id={id}
+        term="Approval pairing code"
         hint="Shown in the terminal that ran `sindri start`. Approving needs it so an agent with the API token cannot approve on its own. Never paste it into an agent."
       >
         <input
@@ -45,9 +46,17 @@ export function ApprovalUnlock({ id, onUnlocked }: { id: string; onUnlocked: () 
           onChange={(e) => setCode(e.target.value)}
         />
       </Field>
-      <Button type="submit" variant="secondary" disabled={busy || !code.trim()}>
-        Unlock approvals
-      </Button>
+      <div>
+        <Button
+          type="submit"
+          variant="secondary"
+          icon="unlock"
+          loading={busy}
+          {...(!code.trim() ? { disabledReason: "Enter the pairing code first" } : {})}
+        >
+          Unlock approvals
+        </Button>
+      </div>
     </form>
   );
 }

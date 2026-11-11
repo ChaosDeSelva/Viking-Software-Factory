@@ -331,6 +331,14 @@ describe("taskMachine.transition: blockedReason", () => {
     expect(next.blockedReason).toBe(reason);
   });
 
+  it.each(["runtime_blocked", "approval_needed"] as const)(
+    "%s with an empty reason records the event type",
+    (type) => {
+      const next = taskMachine.transition(taskIn("running"), { type, reason: "" });
+      expect(next.blockedReason).toBe(type);
+    },
+  );
+
   it("budget_exceeded with reason budget_uncertain records budget_uncertain", () => {
     const next = taskMachine.transition(taskIn("ready"), {
       type: "budget_exceeded",

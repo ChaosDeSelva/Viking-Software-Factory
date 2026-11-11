@@ -63,6 +63,10 @@ describe("errors", () => {
       error: { code: "not_found", message: "no such mission", details: { id: "msn_x" } },
     });
     expect(ApiErrorBodySchema.parse(withDetails.toBody())).toEqual(withDetails.toBody());
+    // Without details the body has no `details` key at all (not `details: undefined`).
+    const plain = new MimirError("conflict", "version changed").toBody();
+    expect(plain).toStrictEqual({ error: { code: "conflict", message: "version changed" } });
+    expect(Object.hasOwn(plain.error, "details")).toBe(false);
   });
 
   it("ApiErrorBodySchema rejects malformed bodies at the right path", () => {

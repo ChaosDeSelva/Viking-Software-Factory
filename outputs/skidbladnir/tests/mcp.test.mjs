@@ -37,6 +37,7 @@ test('each tool maps to one authenticated local request',async()=>{
   ['skidbladnir_execute',{workerId:'aws-1',command:'printf hi',requestKey:'key-2'},'/api/workers/aws-1/commands',{command:'printf hi'},'key-2'],
   ['skidbladnir_collect_artifact',{workerId:'aws-1',path:'out/result.json'},'/api/workers/aws-1/artifacts',{path:'out/result.json'},undefined],
   ['skidbladnir_command',{commandId:'key-2',action:'cancel'},'/api/commands/key-2/cancel',{},undefined],
+ ['skidbladnir_launch',{name:'w',template:'node',minutes:5,project:'demo-app',requestKey:'key-3'},'/api/workers',{name:'w',template:'node',minutes:5,project:'demo-app'},'key-3'],
  ];
  for(const [name,args,path,body,key] of cases){
   const {calls,request}=recorder({echo:name});const result=await callTool(name,args,env,request);
@@ -47,6 +48,8 @@ test('each tool maps to one authenticated local request',async()=>{
  }
  const {calls,request}=recorder({workers:[]});await callTool('skidbladnir_workers',undefined,{SKIDBLADNIR_URL:env.SKIDBLADNIR_URL},request);
  assert.equal(calls.length,1);assert.equal(calls[0].url,'http://127.0.0.1:4999/api/snapshot');assert.equal(calls[0].method,'GET');assert.deepEqual(calls[0].headers,{});assert.equal(calls[0].body,undefined);
+ const scoped=recorder({workers:[]});await callTool('skidbladnir_workers',{project:'demo-app'},{SKIDBLADNIR_URL:env.SKIDBLADNIR_URL},scoped.request);
+ assert.equal(scoped.calls[0].url,'http://127.0.0.1:4999/api/snapshot?project=demo-app');
 });
 
 test('arguments are validated before any request is made',async()=>{

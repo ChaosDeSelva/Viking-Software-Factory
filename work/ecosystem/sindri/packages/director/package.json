@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
+    "@factory/docs": "file:../../vendor/factory/factory-docs-0.1.2.tgz",
     "@sindri/intake": "workspace:*",
     "@sindri/knowledge": "workspace:*",
     "@sindri/specs": "workspace:*",

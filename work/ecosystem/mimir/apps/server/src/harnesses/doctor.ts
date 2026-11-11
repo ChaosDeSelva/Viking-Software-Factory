@@ -35,7 +35,8 @@ export function resolveHarness(
   }
   return null;
 }
-export async function harnessInventory(versions = false) {
+/** `probeTimeoutMs` bounds each `--version` probe; a slower one reports version null. */
+export async function harnessInventory(versions = false, probeTimeoutMs = 2000) {
   return Promise.all(
     INTERACTIVE_HARNESSES.map(async (kind) => {
       const executable = resolveHarness(kind);
@@ -43,7 +44,7 @@ export async function harnessInventory(versions = false) {
       if (versions && executable) {
         try {
           const result = await execute(executable, ["--version"], {
-            timeout: 2000,
+            timeout: probeTimeoutMs,
             maxBuffer: 16384,
           });
           version = result.stdout.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0] ?? null;

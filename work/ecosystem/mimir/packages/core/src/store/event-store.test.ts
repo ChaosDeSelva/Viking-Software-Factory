@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import Database from "better-sqlite3";
 import { EventEnvelopeSchema, MimirError, newId, type EventEnvelope } from "@mimir/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "./db.js";
 import { EventStore, decodeCursor, encodeCursor, openEventStore } from "./event-store.js";
 import { migrate } from "./migrate.js";
@@ -730,6 +730,22 @@ describe("T14a chaos: corrupt event rows", () => {
     store.append(eventInput({ payload: { title: "after" } }));
     return { store, corrupt, path };
   }
+
+  it("reports a refused row through console.error when no onCorruptRow is given", () => {
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const path = join(tmp.dir, "events.db");
+      const store = track(openEventStore(path));
+      injectRow(path, { payload: '{"title":"trunc' });
+      expect(store.read({ limit: 10 }).events).toEqual([]);
+      expect(logged).toHaveBeenCalledWith(
+        "mimir event store: refused corrupt event row",
+        expect.objectContaining({ cursor: encodeCursor(1) }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+  });
 
   it("read() refuses a row whose payload is truncated JSON, reports it, and serves the rest", () => {
     const { store, corrupt } = setup();

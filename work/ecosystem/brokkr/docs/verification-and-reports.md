@@ -10,7 +10,7 @@
 4. **Per check:** waiver, network policy, then preflight: `{{harnessDir}}` expansion, working directory, `when` conditions, executable on `PATH`, package script present, `pnpm exec` binary installed. A failed preflight skips the check with a reason and a diagnostic.
 5. **Execute** through the `CheckExecutor`: argv only, filtered environment, own process group, timeout (SIGTERM, then SIGKILL), bounded logs, streaming secret redaction. Consecutive `parallel: true` checks run concurrently; the rest run in order.
 6. **Evaluate after execution.** Secrets in output, artifacts or generated bundles block the run; `requiredCheckIds` and review requirements are checked.
-7. **Verdict and evidence.** The report and an evidence manifest are written to `.brokkr/runs/run_<ulid>/`.
+7. **Verdict and evidence.** The report and a signed evidence manifest are written to `<home>/.brokkr/runs/<sha256(workspace realpath)>/run_<ulid>/`, outside the verified workspace (`<home>` is `$BROKKR_HOME` or the user's home directory).
 
 ## Check states (spec §8.2)
 
@@ -59,13 +59,13 @@ The canonical report follows spec §10.2 with additions. JSON Schema: `packages/
 ## Evidence
 
 ```
-.brokkr/runs/run_<ulid>/
+<home>/.brokkr/runs/<sha256(workspace realpath)>/run_<ulid>/
   report.json  report.md  evidence-manifest.json
   logs/<checkId>.log
   test-results/<checkId>/   screenshots/<checkId>/
 ```
 
-Checks receive `BROKKR_TEST_RESULTS_DIR` and `BROKKR_SCREENSHOTS_DIR` to write artifacts. Every artifact is listed with its SHA-256 in `evidence-manifest.json`. `brokkr report` and `Brokkr.readReport` re hash everything and flag `integrity_failed` on any change; checksums prove evidence has not changed since it was recorded, not who produced it.
+Checks receive `BROKKR_TEST_RESULTS_DIR` and `BROKKR_SCREENSHOTS_DIR` to write artifacts. Text artifacts are secret-scanned and redacted at rest after the checks; files containing a NUL byte (treated as binary) and files over 32 MiB are not scanned. Every artifact is listed with its SHA-256 in `evidence-manifest.json`, which is HMAC-signed with the installation key (`<home>/.brokkr/key`) and bound to the workspace and runs root. `brokkr report` and `Brokkr.readReport` check the signature, re hash everything and flag `integrity_failed` on any change or on a missing, unsigned or malformed manifest; the signature proves the run was written by this installation, not that a check's output is honest.
 
 ## Formats
 

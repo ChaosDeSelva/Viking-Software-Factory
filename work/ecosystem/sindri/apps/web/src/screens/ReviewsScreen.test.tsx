@@ -66,12 +66,20 @@ describe("ReviewsScreen", () => {
       await screen.findByRole("button", { name: "Reject fs.write for implement-frontend" }),
     );
     expect(api.decideApproval).toHaveBeenCalledWith("e1", "apr_1", "rejected");
-    // A reason is required before deciding an escalation.
-    expect(screen.getByRole("button", { name: "Retry qa" }).hasAttribute("disabled")).toBe(true);
+    // A reason is required before deciding an escalation: the button says why and sends nothing.
+    const retry = screen.getByRole("button", { name: "Retry qa" });
+    expect(retry.getAttribute("aria-disabled")).toBe("true");
+    expect(retry.textContent).toContain("Give a reason first");
+    await userEvent.click(retry);
+    expect(api.resolveEscalation).not.toHaveBeenCalled();
     await userEvent.type(screen.getByLabelText("Reason for qa"), "runner was flaky");
-    await userEvent.click(screen.getByRole("button", { name: "Retry qa" }));
+    const ready = screen.getByRole("button", { name: "Retry qa" });
+    expect(ready.getAttribute("aria-disabled")).toBeNull();
+    await userEvent.click(ready);
     expect(api.resolveEscalation).toHaveBeenCalledWith("e1", "qa", "retry", "runner was flaky");
-    expect(screen.getByText(/verification_report_missing/)).toBeTruthy();
+    expect(screen.getByText("Verification report missing").dataset.reasonCode).toBe(
+      "brokkr verification_report_missing",
+    );
     expect(screen.getByText(/Missing header row/)).toBeTruthy();
   });
 });

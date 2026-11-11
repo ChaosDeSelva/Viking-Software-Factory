@@ -6,7 +6,7 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 
 * Base `http://127.0.0.1:7800`. Loopback only unless `SINDRI_ALLOW_REMOTE=1` with TLS.
 * Every `/v1/*` route except `GET /v1/health` needs `Authorization: Bearer <token>` (`sindri token show`).
-* `POST`, `PUT` and `DELETE` need an `Idempotency-Key` header (422 `idempotency_key_required` otherwise), except `POST /v1/approval-session`, whose response holds a secret and is never stored. The same key with the same request replays the stored response with `Idempotency-Replayed: true`; the same key with a different request is 409 `idempotency_mismatch`; a request still running is 409 `idempotency_in_progress`; 5xx outcomes release the key.
+* `POST`, `PUT` and `DELETE` need an `Idempotency-Key` header (422 `idempotency_key_required` otherwise), except `POST /v1/approval-session`, whose response holds a secret and is never stored, and the read-only `POST /v1/guide/ask`. The same key with the same request replays the stored response with `Idempotency-Replayed: true`; the same key with a different request is 409 `idempotency_mismatch`; a request still running is 409 `idempotency_in_progress`; 5xx outcomes release the key.
 * Approvals (spec approve, plan approve, PR request) also need `X-Sindri-Approval: <approval secret>` from `POST /v1/approval-session`, which trades the pairing code printed by `sindri start` for a secret. Without it: 403 `approval_required`.
 * A request with an `Origin` outside the allowlist gets 403 `origin_forbidden`; a non loopback `Host` gets 403 `host_forbidden`.
 * Errors use `{ "error": { "code", "message", "details?" } }`. JSON responses (except settings) are display sanitized server side: markup is stripped and strings are cut at 64 KB. The one exception inside a response is the `patch` field of `GET /v1/deliveries/:id/local`, which is served byte for byte so it applies; render it as text.
@@ -19,7 +19,7 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | 404    | `not_found`                                                                                                   |
 | 409    | `invalid_state`, `idempotency_*`, `invalid_plan`, `submission_mismatch`                                       |
 | 422    | `validation_failed`, `invalid_json`, `idempotency_key_required`, `confirmation_required`, `no_connector`, `local_only` (settings) |
-| 429    | `approval_locked` (too many wrong pairing codes; restart the server)                                          |
+| 429    | `approval_locked` (too many wrong pairing codes; restart the server), `rate_limited` (Guide)                  |
 | 501    | `not_supported` (harness install, pin, verify: Brokkr operations)                                             |
 | 502    | `mimir_error` (Mimir answered with a local delivery result Sindri cannot read)                                |
 | 503    | `local_only`, `mimir_unavailable` (not configured or not reachable), `mimir_error`, `provider_unavailable`, `provider_error`, `not_connected` |
@@ -150,6 +150,14 @@ The steward's decision log, modes, notes and guidance ([steward.md](steward.md))
 | POST   | `/v1/steward/notes`                      | `{projectId: string\|null, text}` (`null` is a global note)         | 201 `{note}`; 404 unknown project                                                          |
 | GET    | `/v1/steward/guidance`                   | `?projectId=`                                                       | `{guidance:[{id, projectId, type, rule, decisionIds, status, entryId, decidedBy, decidedAt, reason, createdAt}]}` |
 | POST   | `/v1/steward/guidance/:id/decision`      | `{decision:"accepted"\|"rejected", reason?}` + `X-Sindri-Approval`  | `{guidance}`; accepting records task evidence and a knowledge entry; 409 when already decided |
+
+## Guide
+
+The read-only Guide answers an operator's question from the factory docs (`BuildServerOptions.docs`, a `DocsSource`; without it the answer says the docs are not installed) and a redacted snapshot of the factory state: per project, counts by status of specs, plans, runs and deliveries, waiting approval requests, pending steward decisions, open escalations and budget blocks, with titles only. Ticket titles and labels go to the provider in data blocks, with injected instructions removed. It has no tools and calls no mutating service; links point at the screen where the operator acts.
+
+| Method | Path            | Body or query                                                                                                   | Response                                                                                                                                                       |
+| ------ | --------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/v1/guide/ask` | `{question (1-2000 chars), context?:{app:"sindri"\|"heimdall"\|"mimir"\|"skidbladnir", screen?, projectId?}}`; no `Idempotency-Key`; optional `X-Guide-Client` (1-128 chars of `A-Za-z0-9_-`) gives each client behind a shared token its own rate-limit bucket | `{answer (markdown), links:[{label, href}], sources}`. `href` is a Sindri web hash route (`#/reviews?project=…&execution=…`), only to real views and ids in the snapshot; `sources` are `docs:<slug>`, `glossary:<term>`, `state`. 422 `validation_failed` (bad body or `X-Guide-Client`; neither counts against the limit); 429 `rate_limited` (30 per minute per token and `X-Guide-Client`, with `Retry-After`); 503 `provider_unavailable` / `provider_error` |
 
 Web app routes `GET /` and `GET /*` are public when started with `sindri start`; static responses
 set nosniff, and unmatched `/v1/*` requests remain API errors.

@@ -22,7 +22,7 @@ import {
   type Heuristic,
 } from "./producers.js";
 import { recommendationRequest } from "./prompt.js";
-import { tokens } from "./similarity.js";
+import { jaccard, tokens } from "./similarity.js";
 import { StewardStore, type ListFilter, type StoredDecision } from "./store.js";
 import {
   APPROVAL_TYPES,
@@ -81,6 +81,9 @@ export interface StewardStatus {
 const STEWARD = "steward";
 const CORRECTED = new Set(["changed", "rejected", "rolled_back"]);
 const APPLIED = new Set(["accepted", "changed", "applied"]);
+const AUTO_APPLY_FAILED = "auto apply failed: ";
+/** Word overlap (Jaccard) at which a past subject counts as similar. */
+const SIMILAR = 0.3;
 
 const clip = (s: string, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const errorText = (e: unknown): string =>
@@ -284,13 +287,17 @@ export class Steward {
     });
     const inputs = [...subjectInputs(c), ...learningInputs(learning)];
     const h = heuristic(c);
-    const corrected = learning.past.filter(
-      (p) => p.score >= 0.3 && CORRECTED.has(p.decision.status),
+    // "Similar" compares subjects with subjects: the retrieval score also counts the subject's
+    // JSON, which keeps even an identical past subject below any useful threshold.
+    const subject = tokens(c.subject.label);
+    const similar = learning.past.filter(
+      (p) => jaccard(subject, tokens(p.decision.subject.label)) >= SIMILAR,
     );
+    const corrected = similar.filter((p) => CORRECTED.has(p.decision.status));
     // The drafter's own suggestion stands unless a similar past answer was corrected.
     const useHeuristic = h !== null && (c.type !== "spec.answer" || corrected.length === 0);
     if (useHeuristic) {
-      const rec = enrich(h, learning);
+      const rec = enrich(h, learning, similar);
       return {
         decision: this.store.update(
           d.id,
@@ -381,7 +388,12 @@ export class Steward {
 
   // ------------------------------------------------------------------ applying
 
-  async #autoApply(d: StoredDecision, c: Candidate): Promise<void> {
+  async #autoApply(stale: StoredDecision, c: Candidate): Promise<void> {
+    // The cycle's snapshot may be stale: the operator can decide while a tick awaits a provider.
+    const d = this.store.get(stale.id);
+    if (!d || d.status !== "pending" || this.#busy.has(d.id)) return;
+    // A failed auto apply is left to the operator, not retried on every tick.
+    if (d.error?.startsWith(AUTO_APPLY_FAILED)) return;
     const why =
       autoRefusal(d, this.#o.autoMinConfidence ?? 0.6) ??
       // One automatic retry per task: a task that fails again goes to the operator.
@@ -400,7 +412,6 @@ export class Steward {
         );
       return;
     }
-    if (this.#busy.has(d.id)) return;
     this.#busy.add(d.id);
     try {
       const value = d.recommendation.value;
@@ -424,7 +435,7 @@ export class Steward {
       this.#o.logger?.warn("steward auto apply failed", { decisionId: d.id, err: message });
       this.store.update(
         d.id,
-        { mode: "recommend", error: `auto apply failed: ${message}` },
+        { mode: "recommend", error: `${AUTO_APPLY_FAILED}${message}` },
         { action: "apply_failed", actor: STEWARD, detail: { error: message } },
         { status: "pending" },
       );
@@ -687,7 +698,8 @@ export class Steward {
     const threshold = this.#o.correctionThreshold ?? 3;
     const corrections = this.store
       .decided(projectId, type, 50)
-      .filter((d) => CORRECTED.has(d.status));
+      // Deciding a subject the steward never recommended on corrects nothing.
+      .filter((d) => CORRECTED.has(d.status) && d.recommendation.value.trim() !== "");
     if (corrections.length < threshold) return;
     const groups = new Map<string, StoredDecision[]>();
     const add = (sig: string, d: StoredDecision) =>
@@ -784,9 +796,9 @@ function autoRefusal(d: StoredDecision, minConfidence: number): string | null {
 }
 
 /** A heuristic recommendation, its reasoning extended with what the learning inputs show. */
-function enrich(h: Heuristic, l: Learning): Heuristic {
+function enrich(h: Heuristic, l: Learning, similar: Learning["past"]): Heuristic {
   const notes: string[] = [];
-  const accepted = l.past.filter((p) => p.score >= 0.3 && p.decision.status === "accepted");
+  const accepted = similar.filter((p) => p.decision.status === "accepted");
   if (accepted.length)
     notes.push(`${accepted.length} similar past recommendation(s) were accepted as they were.`);
   if (l.knowledge.some((k) => k.guidance))

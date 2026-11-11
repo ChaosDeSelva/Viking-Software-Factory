@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { ApiClient } from "./api/client.js";
@@ -10,6 +10,7 @@ import { HarnessesScreen } from "./screens/HarnessesScreen.js";
 import { PlansScreen } from "./screens/PlansScreen.js";
 import { RunsScreen } from "./screens/RunsScreen.js";
 import { delivery, executionDetail, plan, trace, versionOf } from "./test/delivery-fixtures.js";
+import { projectNav, tab } from "./test/shell.js";
 import { mockApi, PROJECT, renderWithStore } from "./test/utils.js";
 
 const idle = () => new Promise<void>(() => undefined);
@@ -52,7 +53,7 @@ describe("accessibility fixes (review I4, audit S-I1/S-I3/S-I5/S-I6)", () => {
       mockApi({ listExecutions: [], getExecution: executionDetail(), streamExecution: idle }),
       { executionId: "e1" },
     );
-    const run = await screen.findByRole("heading", { name: /Run of plan v1/ });
+    const run = await screen.findByRole("heading", { name: /Plan v1/ });
     await waitFor(() => expect(document.activeElement).toBe(run));
     unmount();
     renderWithStore(
@@ -117,15 +118,21 @@ describe("accessibility fixes (review I4, audit S-I1/S-I3/S-I5/S-I6)", () => {
         },
       }),
     );
-    await userEvent.click(await screen.findByRole("button", { name: "frontend-react@1.1.0" }));
-    for (const name of ["Install from a local path", "Pin this version", "Verify"])
-      expect(screen.getByRole("button", { name }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText(/Brokkr wiring .* not built yet/)).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: /^frontend-react@1\.1\.0/ }));
+    // Soft-disabled (aria-disabled) so the reason stays reachable by keyboard and tooltip; the
+    // reason is the description, so the name is just the label.
+    for (const name of ["Install from a local path", "Pin this version", "Verify"]) {
+      const button = screen.getByRole("button", { name });
+      expect(button.getAttribute("aria-disabled")).toBe("true");
+      const reason = document.getElementById(button.getAttribute("aria-describedby") ?? "");
+      expect(reason?.textContent).toMatch(/Brokkr wiring .* not built yet/);
+    }
   });
 
   it("uses a theme-aware focus ring (dark mode contrast)", () => {
+    // `outline-focus` is a theme token: the dark theme redefines it with enough contrast.
     render(<Button>Go</Button>);
-    expect(screen.getByRole("button").className).toMatch(/dark:focus-visible:outline-indigo-300/);
+    expect(screen.getByRole("button").className).toMatch(/focus-visible:outline-focus\b/);
   });
 });
 
@@ -147,29 +154,33 @@ describe("App routing and titles", () => {
     });
     render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
     const current = () =>
-      screen.getAllByRole("button").find((b) => b.getAttribute("aria-current") === "page")
-        ?.textContent;
-    expect(current()).toBe("Reviews");
-    await waitFor(() => expect(document.title).toBe("Reviews · Sindri"));
-    await userEvent.click(screen.getByRole("button", { name: "Plans" }));
+      within(projectNav())
+        .getAllByRole("link")
+        .find((b) => b.getAttribute("aria-current") === "page")?.textContent;
+    // The pre-redesign `#/reviews` hash opens Needs you and is rewritten to its new name.
+    expect(current()).toBe("Needs you");
+    await waitFor(() => expect(window.location.hash).toBe("#/needs-you?project=p1"));
+    await waitFor(() => expect(document.title).toBe("Needs you · Demo · Sindri"));
+    await userEvent.click(tab("Plans"));
     await waitFor(() => expect(window.location.hash).toBe("#/plans?project=p1"));
-    expect(document.title).toBe("Plans · Sindri");
+    expect(document.title).toBe("Plans · Demo · Sindri");
     act(() => {
       window.history.replaceState(null, "", "/#/reviews?project=p1");
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    await waitFor(() => expect(current()).toBe("Reviews"));
+    await waitFor(() => expect(current()).toBe("Needs you"));
   });
 
   it("ignores Alt+digit while typing in a field", async () => {
     const api = mockApi({ listProjects: [] });
-    render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
+    render(<App api={api as unknown as ApiClient} initial={{ token: "t", view: "projects" }} />);
     const field = await screen.findByLabelText("Name");
     await userEvent.click(field);
     await userEvent.keyboard("{Alt>}7{/Alt}");
-    const current = screen
-      .getAllByRole("button")
-      .find((b) => b.getAttribute("aria-current") === "page")?.textContent;
-    expect(current).toBe("Projects");
+    expect(window.location.hash).toBe("#/projects");
+    expect(screen.getByRole("heading", { level: 1, name: "Projects" })).toBeTruthy();
+    field.blur();
+    await userEvent.keyboard("{Alt>}7{/Alt}");
+    await waitFor(() => expect(window.location.hash).toBe("#/needs-you"));
   });
 });

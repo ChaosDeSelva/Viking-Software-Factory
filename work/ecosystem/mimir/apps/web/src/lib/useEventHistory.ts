@@ -1,4 +1,4 @@
-import type { EventEnvelope, ListEventsQuery } from "@mimir/protocol";
+import type { EventEnvelope, ListEventsQuery, MissionId } from "@mimir/protocol";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { describeError, type MimirClient } from "../api/client.js";
 
@@ -94,4 +94,62 @@ export function useMissionEvents(
     [history, live, missionId],
   );
   return { events, status, error, truncated, reload };
+}
+
+/** Resume point per unfinished mission of a scoped replay; `undefined` means from the start. */
+export type MissionCursors = ReadonlyMap<string, string | undefined>;
+
+/**
+ * History for a set of missions (a project): one server-filtered replay per mission (`missionId`
+ * is a server filter), a few at a time, merged. `null` means All projects: one unfiltered replay.
+ * `resume` (a previous result's `resume`) replays only those missions, each from its own cursor.
+ */
+export async function loadScopedHistory(
+  client: MimirClient,
+  missionIds: ReadonlySet<string> | null,
+  query: Omit<ListEventsQuery, "limit" | "missionId">,
+  signal?: AbortSignal,
+  resume?: MissionCursors,
+): Promise<{
+  events: EventEnvelope[];
+  truncated: boolean;
+  nextCursor: string | null;
+  resume: MissionCursors;
+}> {
+  if (missionIds === null) {
+    return { ...(await loadHistory(client, query, signal)), resume: new Map() };
+  }
+  const { cursor: start, ...rest } = query;
+  const from: [string, string | undefined][] = resume
+    ? [...resume]
+    : [...missionIds].map((id) => [id, start]);
+  const events: EventEnvelope[] = [];
+  const next = new Map<string, string | undefined>();
+  for (let i = 0; i < from.length; i += 4) {
+    const batch = from.slice(i, i + 4);
+    const results = signal?.aborted
+      ? batch.map(() => null)
+      : await Promise.all(
+          batch.map(([missionId, cursor]) =>
+            loadHistory(
+              client,
+              { ...rest, missionId: missionId as MissionId, ...(cursor ? { cursor } : {}) },
+              signal,
+            ),
+          ),
+        );
+    results.forEach((r, j) => {
+      const [missionId, cursor] = batch[j]!;
+      if (r) events.push(...r.events);
+      // Unfinished or never started (aborted): resume where it stopped, else where it began.
+      if (!r || r.truncated) next.set(missionId, r?.nextCursor ?? cursor);
+    });
+  }
+  return {
+    events: mergeEvents(events, []),
+    truncated: next.size > 0,
+    // Per-mission cursors do not combine into one resume point; `resume` carries them.
+    nextCursor: null,
+    resume: next,
+  };
 }

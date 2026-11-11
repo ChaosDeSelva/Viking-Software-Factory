@@ -1299,11 +1299,11 @@ describe("DeliveryLoop: a task parked on its crew budget escalates to a human", 
           },
           { missionId },
         ),
-      blocked: (reason = "budget_exceeded") =>
+      blocked: (reason = "budget_exceeded", refs: { crewId?: string } = { crewId: CREW }) =>
         h.fake.inject("task.blocked", { from: "ready", to: "blocked", reason }, {
           missionId,
           taskId: review.mimirTaskId as never,
-          crewId: CREW,
+          ...refs,
         } as never),
       exceeded: (refs: { crewId?: string } = {}) =>
         h.fake.inject(
@@ -1329,7 +1329,7 @@ describe("DeliveryLoop: a task parked on its crew budget escalates to a human", 
           crewId: CREW,
         } as never),
     };
-    return { h, exec, inject };
+    return { h, exec, inject, storeEvent, budget };
   }
 
   const reviewOf = (h: Harness, executionId: string) =>
@@ -1526,6 +1526,46 @@ describe("DeliveryLoop: a task parked on its crew budget escalates to a human", 
         }),
       }),
     );
+  });
+
+  it("does not announce a budget_uncertain escalation again when the crew budget is reported", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.blocked("budget_uncertain");
+    await h.loop.resume(exec.id);
+    const escalated = () =>
+      h.notices.filter((n) => n.type === "escalated" && n.planTaskId === "review");
+    expect(escalated()).toHaveLength(1);
+    inject.exceeded({ crewId: CREW });
+    await h.loop.resume(exec.id);
+    expect(escalated()).toHaveLength(1);
+    expect(reviewOf(h, exec.id).blockedReason).toBe("budget_uncertain");
+    expect(h.loop.inbox(exec.id)).toHaveLength(1);
+  });
+
+  it("escalates a parked task whose event names no crew, without numbers", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.exceeded({ crewId: CREW });
+    inject.blocked("budget_exceeded", {});
+    expect((await h.loop.resume(exec.id)).status).toBe("awaiting_human");
+    expect(reviewOf(h, exec.id)).toMatchObject({
+      blockedReason: "budget_exceeded",
+      escalation: "ask",
+    });
+    expect(h.loop.inbox(exec.id)[0]!.detail).toMatchObject({ crewId: null });
+    expect(h.loop.inbox(exec.id)[0]!.detail).not.toHaveProperty("used");
+  });
+
+  it("reads a crew budget without a version as version 0", async () => {
+    const { h, exec, inject, storeEvent, budget } = await parkedRun();
+    const unversioned: Record<string, unknown> = budget();
+    delete unversioned["version"];
+    storeEvent("crew.created", { crew: { id: CREW }, members: [], budget: unversioned });
+    inject.exceeded({ crewId: CREW });
+    inject.blocked();
+    await h.loop.resume(exec.id);
+    expect(reviewOf(h, exec.id).blockedReason).toBe("budget_exceeded: tokens 338679/300000");
   });
 
   it("abort works on a budget escalation as on any other", async () => {

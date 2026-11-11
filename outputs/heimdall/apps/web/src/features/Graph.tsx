@@ -1,5 +1,17 @@
-import { Card, Button, ScrollArea, Disclosure, DisclosureTrigger } from "../components/ui";
+// One mission's task graph: draggable nodes over dependency edges, keyboard movable, with a text
+// list of the same dependencies for screen readers. Layout is computed in a worker.
+import {
+  Button,
+  Card,
+  Cluster,
+  Disclosure,
+  IconButton,
+  Tooltip,
+  statusRole,
+} from "@factory/ui";
 import { useEffect, useRef, useState } from "react";
+import { Status } from "../components/app";
+import { blockedText } from "./scope";
 type R = Record<string, any>;
 import {
   NODE_WIDTH,
@@ -59,24 +71,36 @@ export function Graph({
     }));
   }
   return (
-    <Card className="panel">
-      <div className="section-title graph-heading">
-        <h2 title={mission.objective}>{title ?? mission.objective}</h2>
-        <div className="graph-tools">
-          <Button
-            aria-label="Zoom out"
-            onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
-          >
-            −
-          </Button>
-          <span>{Math.round(zoom * 100)}%</span>
-          <Button
-            aria-label="Zoom in"
+    <Card
+      title={
+        <span title={mission.objective}>{title ?? mission.objective}</span>
+      }
+      description="Drag nodes to arrange, or focus one and press Alt + arrow keys; Enter opens it. Layout never changes dependencies."
+      term="Task graph"
+      actions={
+        <Cluster gap={1}>
+          <Tooltip content="Zoom out">
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="Zoom out"
+              onClick={() => setZoom((z) => Math.max(0.3, z - 0.1))}
+            >
+              −
+            </Button>
+          </Tooltip>
+          <span className="w-12 text-center text-sm text-muted tabular-nums">
+            {Math.round(zoom * 100)}%
+          </span>
+          <IconButton
+            icon="plus"
+            label="Zoom in"
+            size="sm"
             onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
-          >
-            +
-          </Button>
+          />
           <Button
+            size="sm"
+            variant="ghost"
             onClick={() => {
               setPositions({});
               setZoom(1);
@@ -85,26 +109,28 @@ export function Graph({
           >
             Auto layout
           </Button>
-          <Button onClick={() => onSave(positions)}>Save layout</Button>
-        </div>
-      </div>
-      <p className="muted">
-        Drag nodes to arrange. Use Alt + arrow keys to move a focused node;
-        Enter opens details. Scroll to pan. Layout changes never change task
-        dependencies.
-      </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onSave(positions)}
+          >
+            Save layout
+          </Button>
+        </Cluster>
+      }
+    >
       {!computed && (
-        <p role="status" className="muted">
+        <p role="status" className="mb-3 text-sm text-muted">
           Arranging dependencies…
         </p>
       )}
       {computed?.layout.cyclic.length ? (
-        <p role="status" className="warning">
+        <p role="status" className="mb-3 text-sm text-warning-fg">
           Source dependencies contain a cycle. Inspect the dependency list
           before proceeding.
         </p>
       ) : null}
-      <ScrollArea
+      <div
         className="graph-viewport"
         role="region"
         aria-label="Interactive dependency graph"
@@ -156,10 +182,11 @@ export function Graph({
                 })}
             </svg>
             {(computed ? tasks : []).map((t) => (
-              <Button
-                variant="unstyled"
+              <button
+                type="button"
                 key={t.id}
-                className={"graph-node " + t.status}
+                data-role={statusRole("heimdall", t.status).role}
+                className="graph-node focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
                 style={{
                   left: pos(t.id).x,
                   top: pos(t.id).y,
@@ -231,41 +258,46 @@ export function Graph({
                   }
                 }}
               >
-                <small title={t.id}>
+                <span className="truncate text-xs text-muted" title={t.id}>
                   {t.title?.includes(":")
                     ? t.title.split(":")[0].replaceAll("-", " ")
                     : "Task"}{" "}
                   · {t.id.slice(-8)}
-                </small>
-                <strong title={t.title}>{t.title}</strong>
-                <span
-                  className={
-                    "badge " +
-                    (t.status === "completed"
-                      ? "green"
-                      : t.status === "running"
-                        ? "blue"
-                        : "")
-                  }
+                </span>
+                <strong
+                  className="line-clamp-2 text-sm font-medium"
+                  title={t.title}
                 >
-                  {t.status}
+                  {t.title}
+                </strong>
+                <span>
+                  <Status
+                    value={t.status}
+                    domain="task"
+                    size="sm"
+                    tooltip={false}
+                  />
                 </span>
                 {t.blockedReason && (
-                  <small className="block-reason" title={t.blockedReason}>
-                    {t.blockedReason}
-                  </small>
+                  <span
+                    className="truncate text-xs text-warning-fg"
+                    title={t.blockedReason}
+                  >
+                    {blockedText(t.blockedReason)}
+                  </span>
                 )}
-              </Button>
+              </button>
             ))}
           </div>
         </div>
-      </ScrollArea>
-      <Disclosure>
-        <DisclosureTrigger>Accessible dependency list</DisclosureTrigger>
+      </div>
+      <Disclosure title="Accessible dependency list" className="mt-4">
         {tasks.map((t) => (
-          <p key={t.id}>
-            <Button onClick={() => onInspect(t)}>{t.title}</Button> — {t.status}
-            ; requires:{" "}
+          <p key={t.id} className="text-sm">
+            <Button variant="link" onClick={() => onInspect(t)}>
+              {t.title}
+            </Button>{" "}
+            — {t.status}; requires:{" "}
             {dependencies
               .filter((d) => d.taskId === t.id)
               .map(

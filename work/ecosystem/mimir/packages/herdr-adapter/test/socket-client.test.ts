@@ -458,6 +458,25 @@ describe("framing edge cases", () => {
     clientSockets[0]!.destroy(new Error("ECONNRESET"));
     expect(await sub.closed).toEqual({ reason: "eof" });
   });
+
+  it("a request whose socket errors before the response rejects with connection_closed", async () => {
+    const real = net.createConnection.bind(net);
+    const clientSockets: net.Socket[] = [];
+    vi.spyOn(net, "createConnection").mockImplementation(((target: string) => {
+      const s = real(target);
+      clientSockets.push(s);
+      return s;
+    }) as typeof net.createConnection);
+    let received!: () => void;
+    const gotRequest = new Promise<void>((r) => (received = r));
+    const { path: p } = await rawServer(() => received());
+    const pending = rejection(new HerdrSocketClient(p).request("ping", {}, { timeoutMs: 5_000 }));
+    await gotRequest;
+    clientSockets[0]!.destroy(new Error("ECONNRESET"));
+    const err = await pending;
+    expect(err.code).toBe("connection_closed");
+    expect(err.method).toBe("ping");
+  });
 });
 
 describe("error shapes", () => {

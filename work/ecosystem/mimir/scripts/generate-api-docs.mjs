@@ -38,6 +38,57 @@ const EXTRA = [
   ],
   [
     "GET",
+    "/v1/harnesses",
+    "Interactive agent harnesses this host can launch: `{ harnesses: [{ kind, installed, version, authenticated, observationScope, lifecycleObservation, interactive, headless, experimental }] }`. Only looks executables up on `PATH` (or `MIMIR_<KIND>_BIN`); `version` is null here and `authenticated` is `not_checked`.",
+  ],
+  [
+    "GET",
+    "/v1/fleet",
+    "Workers of a fleet runtime: `{ workers }`. `capability_unavailable` when the runtime is not a fleet.",
+  ],
+  [
+    "POST",
+    "/v1/fleet/{id}/drain",
+    "Stop (`draining: true`) or resume (`false`) placing new sessions on a fleet worker. Body: `{ draining }`. 200 `{ workerId, draining }`.",
+  ],
+  ["GET", "/v1/supervisors", "Registered mission supervisors: `{ supervisors }`."],
+  [
+    "POST",
+    "/v1/supervisors",
+    "Register a supervisor. Body: `{ id, parent? }` (`id` 1-64 of `[A-Za-z0-9_-]`; `parent` a registered supervisor or null). 201 with the supervisor.",
+  ],
+  [
+    "GET",
+    "/v1/supervisors/{id}",
+    "One supervisor: `{ supervisor, policy, messages, observations }`. 404 when unknown.",
+  ],
+  [
+    "POST",
+    "/v1/supervisors/{id}/policy",
+    "Configure the supervisor's mission policy (`missionId`, `agentKind` codex or claude, `enabled`, `intervalMs`, `maxTurns`). 404 when the mission is unknown. 200 with the policy.",
+  ],
+  [
+    "POST",
+    "/v1/supervisors/{id}/state",
+    "Set the supervisor's state. Body: `{ state: ready|held|waiting_external|blocked, reason }`. 200 with the supervisor.",
+  ],
+  [
+    "POST",
+    "/v1/supervisors/{id}/messages",
+    "Queue an operator control for a session the server knows: body `{ id, control }` with `control` one of `{ kind: observe, sessionId }`, `{ kind: input, sessionId, text }`, `{ kind: stop, sessionId, mode: soft|force }`. 404 for an unknown session. 202 with the queued message.",
+  ],
+  [
+    "POST",
+    "/v1/supervisors/{id}/authorize",
+    "Approve or refuse a supervisor proposal that needs a human (input proposals). Body: `{ messageId, approved, reason }`. 200 `{ authorized }`.",
+  ],
+  [
+    "POST",
+    "/v1/supervisors/{id}/resolve",
+    "Settle a message whose outcome is uncertain. Body: `{ messageId, outcome: done|failed, reason }`. 200 `{ resolved: true }`.",
+  ],
+  [
+    "GET",
     "/v1/attention",
     "What needs a human: pending approvals, tasks blocked too long, sessions with no observed change, budgets at their warning fraction or exhausted.",
   ],

@@ -7,7 +7,7 @@ import { NoticeRegion } from "../components/Layout.js";
 import { useStore } from "../store/context.js";
 import { decision, note, stewardStatus, stewardType } from "../test/steward-fixtures.js";
 import { mockApi, PROJECT, renderWithStore, type MockApi } from "../test/utils.js";
-import { AutonomyScreen, POLL_MS } from "./AutonomyScreen.js";
+import { AutonomyAllScreen, AutonomyScreen, POLL_MS } from "./AutonomyScreen.js";
 
 function Probe() {
   const { state } = useStore();
@@ -25,6 +25,14 @@ const ui = (
     <Probe />
   </>
 );
+/** Steward state, modes and every project's log live on the global page. */
+const uiAll = (
+  <>
+    <NoticeRegion />
+    <AutonomyAllScreen />
+    <Probe />
+  </>
+);
 
 /** An API with a running steward, one pending decision and one note unless overridden. */
 function api(over: Parameters<typeof mockApi>[0] = {}): MockApi {
@@ -35,6 +43,13 @@ function api(over: Parameters<typeof mockApi>[0] = {}): MockApi {
     ...over,
   });
 }
+
+/**
+ * A button with a `disabledReason` stays focusable (aria-disabled) and carries the reason in its
+ * name, so the tests match the name's start and accept either way of being disabled.
+ */
+const isDisabled = (b: HTMLElement) =>
+  (b as HTMLButtonElement).disabled || b.getAttribute("aria-disabled") === "true";
 
 const log = () => screen.findByRole("list", { name: "Decisions" });
 const entry = async (name: RegExp | string) => {
@@ -53,13 +68,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("AutonomyScreen: steward status and modes", () => {
+describe("AutonomyAllScreen: steward status and modes", () => {
   it("shows running state and pauses, then resumes", async () => {
     const a = api({
       pauseSteward: stewardStatus({ running: false }),
       resumeSteward: stewardStatus({ running: true }),
     });
-    renderWithStore(ui, a);
+    renderWithStore(uiAll, a);
     const bar = await screen.findByLabelText("Steward status");
     expect(within(bar).getByText("Running")).toBeTruthy();
     expect(within(bar).getByText("Connected to http://127.0.0.1:8787")).toBeTruthy();
@@ -74,7 +89,7 @@ describe("AutonomyScreen: steward status and modes", () => {
   it("shows Feedback Graph as unreachable or not configured", async () => {
     const s = stewardStatus();
     renderWithStore(
-      ui,
+      uiAll,
       api({
         stewardStatus: {
           ...s,
@@ -88,7 +103,7 @@ describe("AutonomyScreen: steward status and modes", () => {
   it("says when Feedback Graph is not configured", async () => {
     const s = stewardStatus();
     renderWithStore(
-      ui,
+      uiAll,
       api({
         stewardStatus: {
           ...s,
@@ -106,7 +121,7 @@ describe("AutonomyScreen: steward status and modes", () => {
   });
 
   it("shows each type's track record and disables auto where it is not allowed", async () => {
-    renderWithStore(ui, api());
+    renderWithStore(uiAll, api());
     const answer = (
       await screen.findByRole("rowheader", { name: "Answer spec questions" })
     ).closest("tr")!;
@@ -136,7 +151,7 @@ describe("AutonomyScreen: steward status and modes", () => {
         stewardType({ type: "plan.approve", autoAllowed: false }),
       ],
     });
-    renderWithStore(ui, a);
+    renderWithStore(uiAll, a);
     const select = (await screen.findByLabelText(
       "Mode for Answer spec questions",
     )) as HTMLSelectElement;
@@ -155,7 +170,7 @@ describe("AutonomyScreen: steward status and modes", () => {
       },
       setStewardMode: [stewardType({ mode: "off" })],
     });
-    renderWithStore(ui, a);
+    renderWithStore(uiAll, a);
     const select = (await screen.findByLabelText(
       "Mode for Answer spec questions",
     )) as HTMLSelectElement;
@@ -174,7 +189,7 @@ describe("AutonomyScreen: steward status and modes", () => {
       setStewardMode: () =>
         Promise.reject(new ApiError(422, "validation_error", "auto is not allowed for this type")),
     });
-    renderWithStore(ui, a);
+    renderWithStore(uiAll, a);
     await userEvent.selectOptions(
       await screen.findByLabelText("Mode for Answer spec questions"),
       "auto",
@@ -208,17 +223,17 @@ describe("AutonomyScreen: decision log", () => {
     // Server order (newest first) is kept.
     expect(items[0]!.textContent).toContain("Plan v2");
     expect(items[0]!.textContent).toContain("Approve plans");
-    expect(items[0]!.textContent).toContain("Pending");
+    expect(items[0]!.textContent).toContain("Waiting for you");
     const second = items[1]!;
     expect(second.textContent).toContain("CSV export: which columns?");
     expect(second.textContent).toContain("Recommendation: All visible columns");
     expect(second.textContent).toContain("Confidence 82%");
     expect(second.textContent).toContain("Mode Auto");
-    expect(second.textContent).toContain("Applied");
+    expect(second.textContent).toContain("Applied automatically");
     expect(second.textContent).toContain("Outcome Passed (checks green)");
   });
 
-  it("filters by type, status and project", async () => {
+  it("filters by type and status within the project", async () => {
     const a = api();
     renderWithStore(ui, a);
     await log();
@@ -239,7 +254,16 @@ describe("AutonomyScreen: decision log", () => {
         limit: 50,
       }),
     );
-    await userEvent.selectOptions(screen.getByLabelText("Show"), "all");
+  });
+
+  it("lists every project's decisions and notes on Autonomy (all), with the same filters", async () => {
+    const a = api();
+    renderWithStore(uiAll, a);
+    await log();
+    expect(a.listDecisions).toHaveBeenLastCalledWith({ limit: 50 });
+    expect(a.listStewardNotes).toHaveBeenLastCalledWith(null);
+    await userEvent.selectOptions(screen.getByLabelText("Type"), "escalation.resolve");
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "rolled_back");
     await waitFor(() =>
       expect(a.listDecisions).toHaveBeenLastCalledWith({
         type: "escalation.resolve",
@@ -247,7 +271,6 @@ describe("AutonomyScreen: decision log", () => {
         limit: 50,
       }),
     );
-    expect(a.listStewardNotes).toHaveBeenLastCalledWith(null);
   });
 
   it("shows an empty state and a load error with retry", async () => {
@@ -338,9 +361,10 @@ describe("AutonomyScreen: decision log", () => {
     renderWithStore(ui, a);
     const li = await expand("CSV export: which columns?");
     expect(within(li).queryByRole("button", { name: "Accept" })).toBeNull();
-    const button = within(li).getByRole("button", { name: "Roll back" }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    expect(isDisabled(within(li).getByRole("button", { name: /^Roll back/ }))).toBe(true);
     await userEvent.type(within(li).getByLabelText("Reason for rolling back"), "wrong answer");
+    const button = within(li).getByRole("button", { name: "Roll back" });
+    expect(isDisabled(button)).toBe(false);
     await userEvent.click(button);
     expect(a.rollbackDecision).toHaveBeenCalledWith("d1", "wrong answer");
     expect(await within(li).findByText("Rolled back")).toBeTruthy();
@@ -420,18 +444,22 @@ describe("AutonomyScreen: decision log", () => {
     const li = await expand("Plan v2");
     // No answer to edit for an approval.
     expect(within(li).queryByLabelText("Answer")).toBeNull();
-    const accept = within(li).getByRole("button", { name: "Accept" }) as HTMLButtonElement;
-    expect(accept.disabled).toBe(true);
+    const locked = within(li).getByRole("button", { name: /^Accept/ });
+    expect(isDisabled(locked)).toBe(true);
+    expect(locked.textContent).toContain("Unlock approvals with the pairing code first");
+    await userEvent.click(locked);
+    expect(a.acceptDecision).not.toHaveBeenCalled();
     await userEvent.type(within(li).getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(within(li).getByRole("button", { name: "Unlock approvals" }));
-    await waitFor(() => expect(accept.disabled).toBe(false));
+    const accept = await within(li).findByRole("button", { name: "Accept" });
+    expect(isDisabled(accept)).toBe(false);
     await userEvent.click(accept);
     expect(a.acceptDecision).toHaveBeenCalledWith({ id: "d5", type: "plan.approve" }, undefined);
   });
 
   it("renders unknown enum values raw without crashing", async () => {
     renderWithStore(
-      ui,
+      uiAll,
       api({
         stewardStatus: stewardStatus({
           types: [stewardType({ type: "delivery.export", mode: "turbo", autoAllowed: false })],

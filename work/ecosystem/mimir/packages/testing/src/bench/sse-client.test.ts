@@ -55,6 +55,25 @@ describe("openBenchSse", () => {
     await c.ended;
   });
 
+  it("counts error events apart and rejects a waiter once the stream ends short", async () => {
+    let out: ServerResponse | undefined;
+    const url = await serve((res) => {
+      out = res;
+    });
+    const c = await openBenchSse(url, {});
+    const waiting = c.waitForEvents(2, 10_000);
+    out?.write("data: {}\n\n");
+    out?.end('event: error\ndata: {"code":"internal"}\n\n');
+    await expect(waiting).rejects.toThrow("stream ended after 1 of 2 events");
+    await c.ended;
+    expect({ events: c.events, errors: c.errors, gaps: c.gaps }).toEqual({
+      events: 1,
+      errors: 1,
+      gaps: 0,
+    });
+    await expect(c.waitForEvents(5, 10_000)).rejects.toThrow(/stream ended/);
+  });
+
   it("sends the given headers", async () => {
     let got: Record<string, unknown> = {};
     const url = await serve((res, headers) => {

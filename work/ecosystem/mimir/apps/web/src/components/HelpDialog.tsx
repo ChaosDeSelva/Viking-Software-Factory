@@ -1,66 +1,72 @@
-import { useEffect, useRef } from "react";
+import { Dialog, Link, Markdown, Switch } from "@factory/ui";
+import { screenSection } from "../lib/docs.js";
+import { useShortcutsEnabled } from "../lib/shortcutsPref.js";
 import { SHORTCUTS } from "../lib/useShortcuts.js";
+import type { ScreenId } from "./Screen.js";
 
-/** Modal list of keyboard shortcuts. Focus moves in on open and back out on close. */
-export function HelpDialog({ onClose }: { onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key !== "Tab" || !dialogRef.current) return;
-      // Keep focus inside the modal.
-      const focusables = [
-        ...dialogRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        ),
-      ];
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      if (!first || !last) return;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || !dialogRef.current.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !dialogRef.current.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      previous?.focus?.();
-    };
-  }, [onClose]);
+/**
+ * The "?" dialog: what the current screen is for (its docs section), then the keyboard shortcuts
+ * and the switch for single-key shortcuts. Focus trap, Esc and focus return come from Dialog.
+ */
+export function HelpDialog({
+  open,
+  onClose,
+  screen,
+}: {
+  open: boolean;
+  onClose: () => void;
+  screen: ScreenId | undefined;
+}) {
+  const [shortcutsOn, setShortcutsOn] = useShortcutsEnabled();
+  const section = screen && screen !== "docs" ? screenSection(screen) : null;
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/50">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="help-title"
-        className="w-full max-w-sm rounded border border-zinc-500 bg-white p-4 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100"
-      >
-        <h2 id="help-title" className="mb-2 text-lg font-semibold">
-          Keyboard shortcuts
-        </h2>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-          {SHORTCUTS.map((s) => (
-            <div key={s.keys} className="contents">
-              <dt>
-                <kbd className="rounded border border-zinc-500 px-1 font-mono">{s.keys}</kbd>
-              </dt>
-              <dd>{s.description}</dd>
-            </div>
-          ))}
-        </dl>
-        <button ref={closeRef} type="button" className="btn mt-4" onClick={onClose}>
-          Close
-        </button>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => !o && onClose()}
+      title="Help and keyboard shortcuts"
+      description={section ? `About ${section.title}` : "Keyboard shortcuts"}
+      size="md"
+    >
+      <div className="flex flex-col gap-6">
+        {section && (
+          <section aria-labelledby="help-screen" className="flex flex-col gap-2">
+            <h3 id="help-screen" className="text-md font-semibold">
+              On this screen
+            </h3>
+            <Markdown source={section.markdown} className="text-sm" />
+            <Link
+              href={section.href}
+              onClick={onClose}
+              className="text-sm font-medium text-accent-fg"
+            >
+              Read the full guide in Docs
+            </Link>
+          </section>
+        )}
+        <section aria-labelledby="help-title" className="flex flex-col gap-3">
+          <h3 id="help-title" className="text-md font-semibold">
+            Keyboard shortcuts
+          </h3>
+          <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-sm">
+            {SHORTCUTS.map((s) => (
+              <div key={s.keys} className="contents">
+                <dt>
+                  <kbd className="rounded-sm border border-line bg-sunken px-1.5 py-0.5 font-mono text-xs">
+                    {s.keys}
+                  </kbd>
+                </dt>
+                <dd>{s.description}</dd>
+              </div>
+            ))}
+          </dl>
+          <Switch
+            checked={shortcutsOn}
+            onCheckedChange={setShortcutsOn}
+            label="Single-key shortcuts"
+            description="Turn off if they clash with speech input or assistive technology."
+          />
+        </section>
       </div>
-    </div>
+    </Dialog>
   );
 }

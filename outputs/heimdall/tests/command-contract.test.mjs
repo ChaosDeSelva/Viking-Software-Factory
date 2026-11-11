@@ -14,10 +14,11 @@ const routes = {
   'execution.assess':'sindri POST /v1/executions/item/assess', 'execution.export':'sindri POST /v1/executions/item/pr', 'execution.resolve':'sindri POST /v1/executions/item/escalations/task', 'delivery.rework':'sindri POST /v1/deliveries/item/rework',
   'project.create':'sindri POST /v1/projects', 'project.bootstrap':'sindri POST /v1/projects/item/bootstrap', 'intake.create':'sindri POST /v1/intakes', 'spec.draft':'sindri POST /v1/director/draft', 'plan.propose':'sindri POST /v1/plans/propose', 'execution.create':'sindri POST /v1/executions',
   'execution.cancel':'sindri POST /v1/executions/item/cancel', 'project.profile':'sindri PUT /v1/projects/item/profile',
+  'budget.raise':'mimir PATCH /v1/crews/item/budget',
 };
 for (const [action, expected] of Object.entries(routes)) {
   test(`operator route contract: ${action}`, () => {
-    const input = { action, id: 'item', taskId: 'task', body: action === 'session.stop' ? { mode: 'graceful' } : { reason: 'fixture' } };
+    const input = { action, id: 'item', taskId: 'task', body: action === 'session.stop' ? { mode: 'graceful' } : action === 'budget.raise' ? { limitTokens: 10 } : { reason: 'fixture' } };
     const route = commandRoute(input);
     assert.equal(`${route.source} ${route.method} ${route.path}`, expected);
     assert.deepEqual(route.body, action === 'session.stop' ? { mode: 'soft' } : input.body);

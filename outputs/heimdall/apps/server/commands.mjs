@@ -13,9 +13,14 @@ export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
 // Accepting a recommendation of these types performs the approval, so it needs the human factor.
 export const APPROVAL_DECISION_TYPES = ["spec.approve", "plan.approve"];
 // Types known to need no approval factor; any other (newer) type is treated as an approval.
-const PLAIN_DECISION_TYPES = ["spec.answer", "escalation.resolve", "rework.suggest"];
+const PLAIN_DECISION_TYPES = [
+  "spec.answer",
+  "escalation.resolve",
+  "rework.suggest",
+];
 export const decisionNeedsApproval = (type) =>
-  APPROVAL_DECISION_TYPES.includes(type) || !PLAIN_DECISION_TYPES.includes(type);
+  APPROVAL_DECISION_TYPES.includes(type) ||
+  !PLAIN_DECISION_TYPES.includes(type);
 const STEWARD_MODES = ["off", "recommend", "auto"];
 const text = (value, what, max = 20000) => {
   if (typeof value !== "string" || !value.trim() || value.length > max)
@@ -39,13 +44,21 @@ function stewardRoute(c, id) {
       if (typeof b.type !== "string" || !/^[\w.-]{1,100}$/.test(b.type))
         throw Error("Invalid decision type");
       if (!STEWARD_MODES.includes(b.mode)) throw Error("Unknown steward mode");
-      return { method: "PUT", path: "/v1/steward/modes", body: { type: b.type, mode: b.mode }, approval: true };
+      return {
+        method: "PUT",
+        path: "/v1/steward/modes",
+        body: { type: b.type, mode: b.mode },
+        approval: true,
+      };
     case "steward.pause":
     case "steward.resume":
       return { path: "/v1/steward/" + c.action.split(".")[1], body: {} };
     case "steward.accept": {
       // The browser names the type; the server checks it against Sindri's record before sending.
-      if (typeof c.decisionType !== "string" || !/^[\w.-]{1,100}$/.test(c.decisionType))
+      if (
+        typeof c.decisionType !== "string" ||
+        !/^[\w.-]{1,100}$/.test(c.decisionType)
+      )
         throw Error("The decision type is required");
       const value = optionalText(b.value, "An answer");
       return {
@@ -55,23 +68,43 @@ function stewardRoute(c, id) {
       };
     }
     case "steward.reject": {
-      const reason = typeof b.reason === "string" && b.reason.trim() ? b.reason : undefined;
-      return { path: decision + "/reject", body: reason === undefined ? {} : { reason } };
+      const reason =
+        typeof b.reason === "string" && b.reason.trim() ? b.reason : undefined;
+      return {
+        path: decision + "/reject",
+        body: reason === undefined ? {} : { reason },
+      };
     }
     case "steward.rollback":
-      return { path: decision + "/rollback", body: { reason: text(b.reason, "A rollback reason", 2000) } };
+      return {
+        path: decision + "/rollback",
+        body: { reason: text(b.reason, "A rollback reason", 2000) },
+      };
     case "steward.note":
-      return { path: decision + "/notes", body: { text: text(b.text, "Note text") } };
+      return {
+        path: decision + "/notes",
+        body: { text: text(b.text, "Note text") },
+      };
     case "steward.globalNote":
       return {
         path: "/v1/steward/notes",
-        body: { projectId: projectRef(b.projectId ?? null), text: text(b.text, "Note text") },
+        body: {
+          projectId: projectRef(b.projectId ?? null),
+          text: text(b.text, "Note text"),
+        },
       };
     case "project.feedbackGraph": {
       const key = b.projectKey ?? null;
-      if (key !== null && (typeof key !== "string" || !key.trim() || key.length > 500))
+      if (
+        key !== null &&
+        (typeof key !== "string" || !key.trim() || key.length > 500)
+      )
         throw Error("Invalid Feedback Graph project key");
-      return { method: "PUT", path: `/v1/projects/${id}/feedback-graph`, body: { projectKey: key } };
+      return {
+        method: "PUT",
+        path: `/v1/projects/${id}/feedback-graph`,
+        body: { projectKey: key },
+      };
     }
   }
   return null;
@@ -81,12 +114,20 @@ export function commandRoute(c) {
   if (!/^[\w-]{1,200}$/.test(id)) throw Error("Invalid resource ID");
   const steward = stewardRoute(c, id);
   if (steward) {
-    const route = { source: "sindri", method: "POST", approval: false, ...steward };
-    if (JSON.stringify(route.body).length > 500000) throw Error("Command body too large");
+    const route = {
+      source: "sindri",
+      method: "POST",
+      approval: false,
+      ...steward,
+    };
+    if (JSON.stringify(route.body).length > 500000)
+      throw Error("Command body too large");
     return route;
   }
   const body = { ...(c.body ?? {}) };
-  let source, path, method = "POST";
+  let source,
+    path,
+    method = "POST";
   if (
     ["mission.pause", "mission.resume", "mission.cancel"].includes(c.action)
   ) {
@@ -99,9 +140,13 @@ export function commandRoute(c) {
     source = "mimir";
     path = "/v1/supervisors";
   } else if (
-    ["supervisor.state", "supervisor.message", "supervisor.resolve", "supervisor.policy", "supervisor.authorize"].includes(
-      c.action,
-    )
+    [
+      "supervisor.state",
+      "supervisor.message",
+      "supervisor.resolve",
+      "supervisor.policy",
+      "supervisor.authorize",
+    ].includes(c.action)
   ) {
     source = "mimir";
     path = `/v1/supervisors/${id}/${c.action === "supervisor.message" ? "messages" : c.action.split(".")[1]}`;
@@ -173,6 +218,53 @@ export function commandRoute(c) {
       "plan.propose": "/v1/plans/propose",
       "execution.create": "/v1/executions",
     }[c.action];
+  } else if (c.action === "budget.raise") {
+    // Mimir's way out of a budget block: new limits for budget_exceeded, `onUnknown` for
+    // budget_uncertain (and for a new hard budget when the runtime reports no usage). Only these
+    // and the expected version are forwarded; Mimir validates and bounds them.
+    source = "mimir";
+    method = "PATCH";
+    const scope = body.scope ?? "crew";
+    if (!["crew", "mission"].includes(scope))
+      throw Error("Unknown budget scope");
+    path = `/v1/${scope}s/${id}/budget`;
+    const limit = (value, what, integer) => {
+      if (value === undefined || value === null) return undefined;
+      if (
+        typeof value !== "number" ||
+        !Number.isFinite(value) ||
+        value <= 0 ||
+        (integer && !Number.isInteger(value))
+      )
+        throw Error(`${what} must be a positive number`);
+      return value;
+    };
+    const limitTokens = limit(body.limitTokens, "The token limit", true);
+    const limitCost = limit(body.limitCost, "The cost limit", false);
+    const { onUnknown } = body;
+    // Mimir's BudgetOnUnknownSchema.
+    if (onUnknown !== undefined && !["allow", "block"].includes(onUnknown))
+      throw Error("Unknown usage must be allow or block");
+    if (
+      limitTokens === undefined &&
+      limitCost === undefined &&
+      onUnknown === undefined
+    )
+      throw Error("A new token or cost limit, or onUnknown, is required");
+    const { expectedVersion } = body;
+    if (
+      expectedVersion !== undefined &&
+      (!Number.isInteger(expectedVersion) || expectedVersion < 0)
+    )
+      throw Error("Invalid budget version");
+    for (const key of Object.keys(body)) delete body[key];
+    Object.assign(
+      body,
+      limitTokens === undefined ? {} : { limitTokens },
+      limitCost === undefined ? {} : { limitCost },
+      onUnknown === undefined ? {} : { onUnknown },
+      expectedVersion === undefined ? {} : { expectedVersion },
+    );
   } else if (["crew.pause", "crew.resume"].includes(c.action)) {
     source = "mimir";
     path = `/v1/crews/${id}/${c.action.split(".")[1]}`;

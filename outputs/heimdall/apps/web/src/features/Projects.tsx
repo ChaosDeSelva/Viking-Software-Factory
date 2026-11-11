@@ -1,48 +1,243 @@
+// Projects: every project Heimdall knows from Mimir and Sindri, with archive and restore. Archiving
+// only hides a project in Heimdall (a preference on this Mac); the sources keep it.
 import { useState } from "react";
-import { Button, Card, Input, StatusBadge } from "../components/ui";
-type Project = { id: string; name?: string; repoPath?: string };
-export function Projects({ projects, archived, onArchive, onOpen, onCreate, onProfile }: {
-  projects: Project[]; archived: string[];
-  onArchive: (id: string, archive: boolean) => Promise<void>;
-  onOpen: (id: string) => void; onCreate: () => void; onProfile: (id: string) => void;
-}) {
+import {
+  Button,
+  Card,
+  Cluster,
+  ConfirmDialog,
+  DataTable,
+  EmptyState,
+  Input,
+  Page,
+  PageHeader,
+  SegmentedControl,
+  Toolbar,
+  type Column,
+} from "@factory/ui";
+import { useHeimdall } from "../app/context";
+import { LearnMore, Status } from "../components/app";
+import type { R } from "../lib/api";
+import { hrefFor, navigate } from "../lib/router";
+import { projectAliases, projectKey } from "./workflowState";
+
+export function ProjectsPage() {
+  const { state, scope, setProject, open, notify, savePreferences, href } =
+    useHeimdall();
   const [view, setView] = useState("active");
   const [query, setQuery] = useState("");
-  const [pending, setPending] = useState<Project | null>(null);
+  const [pending, setPending] = useState<R | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const visible = projects.filter(p => archived.includes(p.id) === (view === "archived") && `${p.name} ${p.repoPath}`.toLowerCase().includes(query.toLowerCase()));
-  async function change(project: Project, archive: boolean) {
-    setBusy(true); setError("");
-    try { await onArchive(project.id, archive); setPending(null); }
-    catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+  const archived: string[] = state?.preferences?.archivedProjects ?? [];
+  const visible = scope.allProjects.filter(
+    (p) =>
+      scope.isArchived(p) === (view === "archived") &&
+      `${p.name ?? ""} ${p.repoPath ?? ""}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+  );
+
+  // A project may carry Mimir's and Sindri's IDs; restoring clears every alias, archiving adds one.
+  async function change(project: R, archive: boolean) {
+    setBusy(true);
+    try {
+      const aliases = projectAliases(project, scope.sindriProjects);
+      const next = archive
+        ? [...new Set([...archived, project.id])]
+        : archived.filter((value) => !aliases.includes(value));
+      await savePreferences({ archivedProjects: next });
+      if (
+        archive &&
+        aliases.some((alias) =>
+          scope.allProjects.some(
+            (p) => p.id === alias && projectKey(p) === scope.filter,
+          ),
+        )
+      )
+        setProject("all");
+      notify(
+        archive
+          ? "Project archived. Files and history preserved."
+          : "Project restored.",
+        "success",
+      );
+      setPending(null);
+    } catch (e) {
+      notify((e as Error).message, "danger");
+    } finally {
+      setBusy(false);
+    }
   }
-  return <div className="project-manager">
-    <div className="project-toolbar">
-      <div className="settings-nav" aria-label="Project views">
-        <Button aria-pressed={view === "active"} onClick={() => setView("active")}>Active projects</Button>
-        <Button aria-pressed={view === "archived"} onClick={() => setView("archived")}>Archived projects</Button>
-      </div>
-      <Button onClick={onCreate}>New project</Button>
-    </div>
-    <Input aria-label="Search projects" placeholder="Search by name or repository path" value={query} onChange={e => setQuery(e.target.value)} />
-    <p className="muted">Archiving hides a project from your active Heimdall views. It preserves files and history and does not stop running work. Restore it here at any time.</p>
-    {error && <p role="alert">{error}</p>}
-    {pending && <Card className="panel archive-confirm">
-      <h2>Archive {pending.name ?? pending.id}?</h2>
-      <p>The source project remains in Mimir and Sindri. Only its visibility in Heimdall changes.</p>
-      <div className="actions"><Button disabled={busy} onClick={() => void change(pending, true)}>Confirm archive</Button><Button disabled={busy} onClick={() => setPending(null)}>Keep active</Button></div>
-    </Card>}
-    <div className="project-grid">
-      {visible.map(p => <Card className="panel project-card" key={p.id}>
-        <div className="section-title"><h2>{p.name ?? "Local project"}</h2><StatusBadge value={view === "active" ? "active" : "archived"} /></div>
-        <p className="id">{p.repoPath ?? p.id}</p>
-        <div className="actions">
-          {view === "active" ? <><Button onClick={() => onOpen(p.id)}>Open project</Button><Button onClick={() => onProfile(p.id)}>Execution profile</Button><Button disabled={busy} onClick={() => setPending(p)}>Archive</Button></> : <Button disabled={busy} onClick={() => void change(p, false)}>Restore project</Button>}
+
+  const columns: Column<R>[] = [
+    {
+      key: "name",
+      header: "Name",
+      primary: true,
+      cell: (p) => (
+        <span className="break-words">{p.name ?? "Local project"}</span>
+      ),
+    },
+    {
+      key: "repo",
+      header: "Repository path",
+      cell: (p) => (
+        <span className="font-mono text-xs break-all">
+          {p.repoPath ?? p.id}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (p) => (
+        <Status
+          value={scope.isArchived(p) ? "archived" : "active"}
+          domain="project"
+          size="sm"
+        />
+      ),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      cell: (p) =>
+        view === "active" ? (
+          <Cluster gap={2}>
+            <Button
+              size="sm"
+              onClick={() => {
+                const key = projectKey(p);
+                setProject(key);
+                navigate(hrefFor("overview", { project: key }));
+              }}
+            >
+              Open project
+            </Button>
+            <Button size="sm" onClick={() => open("projects", p)}>
+              Execution profile
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setPending(p)}
+            >
+              Archive
+            </Button>
+          </Cluster>
+        ) : (
+          <Button
+            size="sm"
+            loading={busy}
+            onClick={() => void change(p, false)}
+          >
+            Restore project
+          </Button>
+        ),
+    },
+  ];
+
+  const empty = query ? (
+    <EmptyState
+      compact
+      className="m-4"
+      title="No projects match your search."
+      action={
+        <Button size="sm" onClick={() => setQuery("")}>
+          Clear search
+        </Button>
+      }
+    />
+  ) : view === "archived" ? (
+    <EmptyState
+      compact
+      className="m-4"
+      title="No archived projects."
+      body="Archived projects are listed here and can be restored at any time."
+    />
+  ) : (
+    <EmptyState
+      compact
+      className="m-4"
+      title="No active projects."
+      body="Register a local repository to begin, or restore an archived project."
+      action={
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={() => navigate(href("new-work"))}
+        >
+          New project
+        </Button>
+      }
+    />
+  );
+
+  return (
+    <Page>
+      <PageHeader
+        title="Projects"
+        description={
+          <>
+            Every project from Mimir and Sindri. Archiving hides a project in
+            Heimdall only; files, history and running work are untouched.
+          </>
+        }
+        learnMore={<LearnMore screen="projects" />}
+        term="Project"
+        scope={{ global: true }}
+        actions={
+          <Button
+            variant="primary"
+            icon="plus"
+            onClick={() => navigate(href("new-work"))}
+          >
+            New project
+          </Button>
+        }
+      />
+      <Card flush>
+        <div className="border-b border-line p-4">
+          <Toolbar label="Project filters">
+            <SegmentedControl
+              label="Project views"
+              value={view}
+              onValueChange={setView}
+              options={[
+                { value: "active", label: "Active" },
+                { value: "archived", label: "Archived" },
+              ]}
+            />
+            <Input
+              aria-label="Search projects"
+              prefix="search"
+              placeholder="Search by name or repository path"
+              className="min-w-0 sm:w-80"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </Toolbar>
         </div>
-      </Card>)}
-    </div>
-    {!visible.length && <Card className="panel empty">{query ? "No projects match your search." : view === "archived" ? "No archived projects." : "No active projects. Register a local repository to begin, or restore an archived project."}</Card>}
-  </div>;
+        <DataTable
+          caption={view === "active" ? "Active projects" : "Archived projects"}
+          columns={columns}
+          rows={visible}
+          rowKey={(p) => String(p.id)}
+          layout="stack"
+          empty={empty}
+        />
+      </Card>
+      <ConfirmDialog
+        open={!!pending}
+        onOpenChange={(o) => !o && !busy && setPending(null)}
+        title={`Archive ${pending?.name ?? pending?.id ?? "project"}?`}
+        description="The source project remains in Mimir and Sindri. Only its visibility in Heimdall changes."
+        confirmLabel="Confirm archive"
+        cancelLabel="Keep active"
+        busy={busy}
+        onConfirm={() => pending && void change(pending, true)}
+      />
+    </Page>
+  );
 }

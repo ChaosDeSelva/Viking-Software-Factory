@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { MimirStatus } from "../api/delivery-types.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { mockApi, renderWithStore } from "../test/utils.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
 const ui = (
@@ -12,6 +13,8 @@ const ui = (
     <SettingsScreen />
   </>
 );
+/** The check's result (the card around it carries the same name as its title). */
+const result = () => document.querySelector<HTMLElement>('section[aria-label="Mimir connection"]');
 const loaded = {
   settings: {
     provider: "anthropic",
@@ -71,29 +74,29 @@ describe("SettingsScreen (sweep 2)", { timeout: 20_000 }, () => {
     expect((screen.getByLabelText("Model") as HTMLInputElement).value).toBe("claude-fable-5-1");
   });
 
-  it("unlocks approvals for erasing evidence from the Settings screen", async () => {
+  it("unlocks approvals for erasing evidence on Project settings (moved from Settings)", async () => {
     let unlocked = false;
     const api = mockApi({
-      getSettings: loaded,
+      getProfile: {},
       hasApprovalSession: () => unlocked,
       unlockApprovals: () => {
         unlocked = true;
         return Promise.resolve({ principal: "local:me/web#aps_1", expiresAt: "x" });
       },
     });
-    renderWithStore(ui, api);
-    const del = await screen.findByRole("button", { name: "Delete project data" });
+    renderWithStore(<ProjectSettingsScreen />, api);
+    await userEvent.click(await screen.findByRole("tab", { name: "Danger zone" }));
+    // Re-queried: the button re-renders as its reason changes; disabled means aria-disabled.
+    const del = () => screen.getByRole("button", { name: /^Delete project data/ });
     await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
     await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
     await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
-    expect(del).toHaveProperty("disabled", true);
+    expect(del().getAttribute("aria-disabled")).toBe("true");
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     expect(api.unlockApprovals).toHaveBeenCalledWith("ABCDE-FGH23");
-    expect(await screen.findByRole("button", { name: "Delete project data" })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    await waitFor(() => expect(del().getAttribute("aria-disabled")).toBeNull());
+    expect(del()).toHaveProperty("disabled", false);
     expect(screen.queryByLabelText("Approval pairing code")).toBeNull();
   });
 
@@ -104,7 +107,7 @@ describe("SettingsScreen (sweep 2)", { timeout: 20_000 }, () => {
     const says = async (s: MimirStatus, text: string) => {
       api.mimirStatus.mockResolvedValueOnce(s);
       await userEvent.click(test);
-      await waitFor(() => expect(screen.getByLabelText("Mimir connection").textContent).toBe(text));
+      await waitFor(() => expect(result()?.textContent).toBe(text));
     };
     await says(
       status({ configured: false, url: null }),
@@ -134,6 +137,6 @@ describe("SettingsScreen (sweep 2)", { timeout: 20_000 }, () => {
       "disabled",
       false,
     );
-    expect(screen.queryByLabelText("Mimir connection")).toBeNull();
+    expect(result()).toBeNull();
   });
 });

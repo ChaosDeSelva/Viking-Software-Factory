@@ -206,12 +206,14 @@ export const fixtureClient: MimirClient = {
     create: async () => ({}) as never,
     start: async () => ok as never,
     cancel: async () => ok as never,
+    updateBudget: async () => ({}) as never,
   },
   crews: {
     list: async () => ({ crews: [] }),
     create: async () => ({}) as never,
     pause: async () => ({}) as never,
     resume: async () => ({}) as never,
+    updateBudget: async () => ({}) as never,
   },
   tasks: {
     list: async () => ({ tasks: [] }),

@@ -130,7 +130,7 @@ describe("deriveAttention", () => {
     const items = deriveAttention(s, NOW);
     expect(items.map((i) => i.kind)).toEqual(["approval", "blocked", "stuck", "budget"]);
     expect(items[0]?.approvalId).toBe(pending.id);
-    expect(items[1]?.detail).toContain("unknown_after_restart");
+    expect(items[1]?.detail).toBe("Reason: Session lost in a restart");
     expect(items[2]?.taskId).toBe(stuck.id);
   });
 

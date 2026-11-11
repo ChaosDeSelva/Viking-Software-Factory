@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+import { until, wait } from "./support.mjs";
 const dir = mkdtempSync(join(tmpdir(), "heimdall-workflow-"));
 const source = await fixture();
 const body = {
@@ -91,29 +91,47 @@ const page = await context.newPage();
 page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-const nav = (name) =>
-  page
-    .getByRole("navigation", { name: "Main navigation" })
-    .getByRole("button", { name, exact: true })
-    .click();
-const stage = (name) => page.getByRole("region", { name: new RegExp(`^${name} stage`) });
-const inspector = page.getByRole("dialog").filter({ hasText: "INSPECTOR" });
-const closeInspector = () => page.getByRole("button", { name: "Close inspector" }).click();
-const send = async (reason) => {
-  await page.getByLabel("Reason", { exact: true }).fill(reason);
-  await page.getByRole("button", { name: "Send to source" }).click();
+const TABS = ["Overview", "Pipeline", "Crews & agents", "Execution graph", "Activity", "Quality & approvals", "Autonomy"];
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Project pages are top-bar links, global pages bottom-bar links; a count may follow the label.
+const nav = async (name) => {
+  if (name === "New work") await page.getByRole("banner").getByRole("button", { name: "New work" }).click();
+  else
+    await page
+      .getByRole("navigation", { name: TABS.includes(name) ? "Project pages" : "Global pages", exact: true })
+      .getByRole("link", { name: new RegExp(`^${escape(name)}( \\d+)?$`) })
+      .click();
+  await page.getByRole("heading", { level: 1, name, exact: true }).waitFor();
 };
-const confirmed = () =>
-  page.getByText("Source confirmed the request.", { exact: false }).first().waitFor();
+const stage = (name) => page.getByRole("region", { name: `${name} stage, scroll for more items` });
+const status = (scope, label) => scope.getByRole("img", { name: `Status: ${label}`, exact: true });
+const inspector = page.getByRole("dialog").filter({ hasText: "inspector" });
+const closeInspector = async () => {
+  await inspector.getByRole("button", { name: "Close", exact: true }).click();
+  await inspector.waitFor({ state: "hidden" });
+};
+// A blocked action stays focusable (aria-disabled) and names its reason in its description.
+const unavailable = async (button) => (await button.getAttribute("aria-disabled")) === "true";
+const reasonOf = (button) =>
+  button.evaluate((b) => document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent ?? "");
+const commandDialog = page.getByRole("dialog").filter({ hasText: "This request changes the owning service" });
+const send = async (reason) => {
+  await commandDialog.getByLabel("Reason", { exact: true }).fill(reason);
+  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+};
+const confirmed = async () => {
+  await commandDialog.waitFor({ state: "hidden" });
+  await page.getByText("Source confirmed the request. Current state is shown.").first().waitFor();
+};
 const access = async () => {
   await nav("Connections");
-  await page.getByRole("button", { name: "Access", exact: true }).click();
+  await page.getByRole("tab", { name: "Access", exact: true }).click();
 };
 const pair = async () => {
   await access();
-  await page.getByLabel("Sindri pairing code").fill("sindri-code");
+  await page.getByLabel("Sindri pairing code", { exact: true }).fill("sindri-code");
   await page.getByRole("button", { name: "Pair approval session" }).click();
-  await page.getByText("Paired", { exact: true }).waitFor();
+  await status(page.getByRole("main"), "Paired").waitFor();
 };
 const readDownload = async (button) => {
   const [download] = await Promise.all([page.waitForEvent("download"), button.click()]);
@@ -121,14 +139,13 @@ const readDownload = async (button) => {
   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
   return [download.suggestedFilename(), Buffer.concat(chunks).toString("utf8")];
 };
-const projectCard = (name) =>
-  page.locator(".project-card").filter({ has: page.getByRole("heading", { name }) });
+const projectRow = (name) => page.getByRole("row").filter({ hasText: name });
 const openProfile = async (name) => {
   await nav("Projects");
-  await projectCard(name).getByRole("button", { name: "Execution profile" }).click();
+  await projectRow(name).getByRole("button", { name: "Execution profile" }).click();
   await inspector.getByRole("heading", { name: "Execution profile" }).waitFor();
 };
-const runs = page.locator("section").filter({ has: page.getByRole("heading", { name: "Runs", exact: true }) });
+const runs = page.getByRole("region", { name: "Runs", exact: true }).first();
 const review = inspector.getByRole("button", { name: "Review profile change" });
 const posts = (path) =>
   source.requests.filter((r) => r.method === "POST" && r.path === path).length;
@@ -139,41 +156,42 @@ try {
   await page.goto(app.url);
   await page.getByLabel("Access token", { exact: true }).fill("test-workflow");
   await page.getByRole("button", { name: "Connect to factory" }).click();
-  await page.getByRole("heading", { name: "Factory overview" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "Overview" }).waitFor();
   await nav("Pipeline");
   const specCard = stage("Specification").getByRole("button", { name: /Exact invoice totals/ });
   await specCard.waitFor();
   assert.equal(await specCard.count(), 1, "one card per specification lineage");
   assert.match(await specCard.innerText(), /v2 · spc_v2/);
-  assert.match(await stage("Intake").innerText(), /received/);
-  assert.doesNotMatch(await stage("Intake").innerText(), /unknown/);
+  await status(stage("Intake"), "Received").first().waitFor();
+  assert.doesNotMatch(await stage("Intake").innerText(), /unknown/i);
   await stage("Building").getByText("Abandoned spike").waitFor();
   assert.match(await stage("Delivery").innerText(), /Exact invoice totals/);
 
   console.log("Read-only inspector");
   await stage("Intake").getByRole("button", { name: /Customer request/ }).click();
-  await inspector.getByText("received", { exact: true }).waitFor();
+  await status(inspector, "Received").waitFor();
   await closeInspector();
   await specCard.click();
   await inspector.getByText("v2 · spc_v2").waitFor();
   const submit = inspector.getByRole("button", { name: "Submit for review" });
   const approve = inspector.getByRole("button", { name: "Approve specification" });
-  assert.equal(await submit.isDisabled(), true);
-  assert.match(await submit.getAttribute("title"), /Unlock operator controls/);
-  await inspector.getByText("Unlock operator controls under Connections first.").first().waitFor();
+  assert.equal(await unavailable(submit), true);
+  assert.match(await reasonOf(submit), /Unlock operator controls/);
+  // The reason is the button's description (a hidden node read via aria-describedby), not text.
+  await inspector.getByText("Unlock operator controls under Connections first.", { exact: true }).first().waitFor({ state: "attached" });
   const questions = inspector.locator(".question");
   await questions.first().waitFor();
   assert.equal(await questions.count(), 2);
-  assert.match(await questions.nth(0).innerText(), /blocking[\s\S]*Round half up/);
-  assert.doesNotMatch(await questions.nth(0).innerText(), /non-blocking/);
-  assert.match(await questions.nth(1).innerText(), /non-blocking[\s\S]*currency symbol/);
+  assert.match(await questions.nth(0).innerText(), /Blocking[\s\S]*Round half up/);
+  assert.doesNotMatch(await questions.nth(0).innerText(), /Non-blocking/i);
+  assert.match(await questions.nth(1).innerText(), /Non-blocking[\s\S]*currency symbol/i);
   assert.equal(await page.getByRole("button", { name: "Load clarification questions" }).count(), 0);
   await closeInspector();
   await openProfile("Invoice library");
   await inspector.getByText("No checks set: plans use the built-in checks, which assume a Node project.").first().waitFor();
   await inspector.getByText("Edit execution profile").click();
-  assert.equal(await review.isDisabled(), true);
-  assert.match(await review.getAttribute("title"), /Unlock operator controls/);
+  assert.equal(await unavailable(review), true);
+  assert.match(await reasonOf(review), /Unlock operator controls/);
   await closeInspector();
   await openProfile("Solo tools");
   await inspector.getByText(/A profile needs the project registered in Sindri/).waitFor();
@@ -182,21 +200,21 @@ try {
 
   console.log("Gating");
   await access();
-  await page.getByLabel("Heimdall operator code").fill("operator-test");
-  await page.getByRole("button", { name: "Unlock controls", exact: true }).click();
-  await page.getByText("Unlocked", { exact: true }).waitFor();
+  await page.getByLabel("Heimdall operator code", { exact: true }).fill("operator-test");
+  await page.getByRole("button", { name: "Unlock controls" }).click();
+  await page.getByRole("button", { name: "Session: Operator unlocked" }).waitFor();
   await nav("Pipeline");
   await specCard.click();
-  assert.equal(await submit.isDisabled(), true);
-  assert.match(await submit.getAttribute("title"), /Pair with Sindri/);
+  assert.equal(await unavailable(submit), true);
+  assert.match(await reasonOf(submit), /Pair with Sindri/);
   await closeInspector();
   await pair();
   await nav("Pipeline");
   await specCard.click();
   await inspector.getByText("I have reviewed the flagged source instructions").waitFor();
-  assert.equal(await submit.isEnabled(), true);
-  assert.equal(await approve.isDisabled(), true);
-  assert.match(await approve.getAttribute("title"), /Submit it for review/);
+  assert.equal(await unavailable(submit), false);
+  assert.equal(await unavailable(approve), true);
+  assert.match(await reasonOf(approve), /Submit it for review/);
 
   console.log("Answer keeps the remaining questions");
   await questions.nth(0).getByRole("button", { name: "Use recommendation" }).click();
@@ -220,9 +238,10 @@ try {
   };
   await submit.click();
   await send("Ready for review");
-  await page.getByRole("alert").filter({ hasText: /may still be running/ }).waitFor();
-  await wait(1200);
-  await page.getByRole("button", { name: "Send to source" }).click();
+  await page.getByRole("alert").filter({ hasText: /may still be running/ }).first().waitFor();
+  // Resend once the first attempt has completed at the source.
+  await until(() => source.workflow.specs.find((s) => s.id === "spc_v2x").status === "review", "the slow submit");
+  await commandDialog.getByRole("button", { name: "Send to source" }).click();
   await confirmed();
   assert.equal(posts(submitPath), 2, "the resend was forwarded");
   const keys = source.requests.filter((r) => r.path === submitPath).map((r) => r.headers["idempotency-key"]);
@@ -232,10 +251,10 @@ try {
   console.log("Details survive a same-record command");
   const acknowledge = inspector.getByRole("checkbox");
   await acknowledge.waitFor();
-  assert.equal(await submit.isDisabled(), true);
-  assert.match(await approve.getAttribute("title"), /Acknowledge the flagged/);
+  assert.equal(await unavailable(submit), true);
+  assert.match(await reasonOf(approve), /Acknowledge the flagged/);
   await acknowledge.check();
-  assert.equal(await approve.isEnabled(), true);
+  assert.equal(await unavailable(approve), false);
 
   console.log("Stale pairing");
   const approvePath = "/v1/specs/spc_v2x/approve";
@@ -247,14 +266,15 @@ try {
   };
   await approve.click();
   await send("Reviewed");
-  await page.getByRole("alert").filter({ hasText: /Pair again/ }).waitFor();
+  await commandDialog.getByRole("alert").filter({ hasText: /Pair again/ }).first().waitFor();
   source.intercept = null;
-  await page.getByRole("button", { name: "Go back" }).click();
-  await inspector.getByText("Pair with Sindri under Connections first.").first().waitFor();
-  assert.equal(await approve.isDisabled(), true);
+  await commandDialog.getByRole("button", { name: "Go back" }).click();
+  await inspector.getByText("Pair with Sindri under Connections first.").first().waitFor({ state: "attached" });
+  assert.equal(await unavailable(approve), true);
+  assert.match(await reasonOf(approve), /Pair with Sindri/);
   await closeInspector();
   await access();
-  await page.getByText("Not paired", { exact: true }).waitFor();
+  await status(page.getByRole("main"), "Not paired").waitFor();
   await pair();
   await nav("Pipeline");
   await stage("Review").getByRole("button", { name: /Exact invoice totals/ }).click();
@@ -262,8 +282,8 @@ try {
   await approve.click();
   await send("Reviewed");
   await confirmed();
-  await inspector.getByText("approved", { exact: true }).first().waitFor();
-  assert.equal(await inspector.getByRole("button", { name: "Propose implementation plan" }).isEnabled(), true);
+  await status(inspector, "Approved").waitFor();
+  assert.equal(await unavailable(inspector.getByRole("button", { name: "Propose implementation plan" })), false);
   await closeInspector();
 
   console.log("Start lands on the run");
@@ -272,13 +292,13 @@ try {
   await inspector.getByRole("button", { name: "Start approved plan" }).click();
   await send("Go");
   await confirmed();
-  await page.getByRole("heading", { name: "Pipeline", exact: true }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "Pipeline", exact: true }).waitFor();
   await inspector.waitFor({ state: "hidden" });
 
   console.log("Local delivery");
   await stage("Delivery").getByRole("button", { name: /Exact invoice totals/ }).click();
   await inspector.getByRole("heading", { name: "Exact invoice totals" }).waitFor();
-  assert.equal(await inspector.getByRole("button", { name: "Request local export" }).isEnabled(), true);
+  assert.equal(await unavailable(inspector.getByRole("button", { name: "Request local export" })), false);
   await inspector.getByRole("button", { name: "View local delivery" }).click();
   await inspector.getByText("git -C /example/invoice merge abc1234def", { exact: true }).waitFor();
   await inspector.getByText("git -C /example/invoice reset --hard base000", { exact: true }).waitFor();
@@ -299,9 +319,9 @@ try {
   console.log("Execution profile");
   await openProfile("Invoice library");
   await inspector.getByText("Edit execution profile").click();
-  assert.match(await review.getAttribute("title"), /Change the profile first/);
+  assert.match(await reasonOf(review), /Change the profile first/);
   await inspector.getByRole("button", { name: "Add check" }).click();
-  assert.equal(await review.isDisabled(), true);
+  assert.equal(await unavailable(review), true);
   await inspector.getByLabel("ID", { exact: true }).fill("test");
   await inspector.getByLabel("Command", { exact: true }).fill("make test 'two words' | tee");
   await inspector.getByText('["make","test","two words","|","tee"]').waitFor();
@@ -313,7 +333,7 @@ try {
   await inspector.getByLabel("Name", { exact: true }).fill("GIT_DIR");
   await inspector.getByLabel("Value", { exact: true }).fill("/cache/go-build");
   await inspector.getByText("Environment variable GIT_DIR cannot be set from a profile.").first().waitFor();
-  assert.equal(await review.isDisabled(), true);
+  assert.equal(await unavailable(review), true);
   await inspector.getByLabel("Name", { exact: true }).fill("GOCACHE");
   await inspector.getByLabel(/^PATH additions/).fill("/opt/shims\n/opt/go/bin");
   await inspector.getByLabel(/^Writable directories/).fill("/cache/go-build");
@@ -337,7 +357,7 @@ try {
   assert.equal(put.headers["x-sindri-approval"], "sindri-human-secret");
   // The form now shows what Sindri stored, so there is nothing to send.
   assert.equal(await inspector.getByLabel("Command", { exact: true }).inputValue(), "make test 'two words' | tee");
-  assert.match(await review.getAttribute("title"), /Change the profile first/);
+  assert.match(await reasonOf(review), /Change the profile first/);
   await inspector.getByRole("button", { name: "Remove check 1" }).click();
   await review.click();
   await send("Back to the built-in checks");
@@ -354,13 +374,13 @@ try {
   await nav("Quality & approvals");
   const escalation = page.getByRole("button", { name: "build · Human decision needed" });
   await escalation.click();
-  const retryTask = inspector.getByRole("button", { name: "retry", exact: true });
-  assert.equal(await retryTask.isEnabled(), true);
+  const retryTask = inspector.getByRole("button", { name: /^Retry\b/ });
+  assert.equal(await unavailable(retryTask), false);
   source.execution.execution.status = "failed";
   await app.hub.refresh();
-  await inspector.getByText(/its escalations can no longer be resolved/).first().waitFor();
-  assert.equal(await retryTask.isDisabled(), true);
-  assert.match(await retryTask.getAttribute("title"), /status is failed/);
+  await inspector.getByText(/its escalations can no longer be resolved/).first().waitFor({ state: "attached" });
+  assert.equal(await unavailable(retryTask), true);
+  assert.match(await reasonOf(retryTask), /status is failed/);
   await closeInspector();
   await escalation.waitFor({ state: "hidden" });
   source.execution.tasks = [];
@@ -370,25 +390,25 @@ try {
   console.log("Cancel a run");
   await nav("Pipeline");
   await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
-  const cancelRun = inspector.getByRole("button", { name: "Cancel run" });
-  assert.equal(await cancelRun.isDisabled(), true);
-  assert.match(await cancelRun.getAttribute("title"), /This run has ended/);
+  const cancelRun = inspector.getByRole("button", { name: /^Cancel run\b/ });
+  assert.equal(await unavailable(cancelRun), true);
+  assert.match(await reasonOf(cancelRun), /This run has ended/);
   source.execution.execution.status = "running";
   await app.hub.refresh();
   await inspector.getByText(/Cancelling stops the run for good/).waitFor();
-  assert.equal(await cancelRun.isEnabled(), true);
+  assert.equal(await unavailable(cancelRun), false);
   await cancelRun.click();
   await send("Wrong plan");
   await confirmed();
   await inspector.waitFor({ state: "hidden" });
   await runs.getByText("ended without a delivery").waitFor();
-  assert.match(await runs.innerText(), /cancelled/);
+  await status(runs, "Cancelled").waitFor();
   assert.match(await runs.innerText(), /0 in progress · 1 failed or cancelled/);
   const cancelPost = source.requests.find((r) => r.path === "/v1/executions/exe_demo/cancel");
   assert.deepEqual(JSON.parse(cancelPost.body), { reason: "Wrong plan" });
   await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
-  assert.equal(await cancelRun.isDisabled(), true);
-  assert.match(await cancelRun.getAttribute("title"), /status is cancelled/);
+  assert.equal(await unavailable(cancelRun), true);
+  assert.match(await reasonOf(cancelRun), /status is cancelled/);
   await closeInspector();
 
   console.log("Intake to a cancelled run");
@@ -429,30 +449,30 @@ try {
   await submit.click();
   await send("Ready");
   await confirmed();
-  await inspector.getByText("review", { exact: true }).first().waitFor();
+  await status(inspector, "In review").waitFor();
   await approve.click();
   await send("Looks right");
   await confirmed();
-  await inspector.getByText("approved", { exact: true }).first().waitFor();
+  await status(inspector, "Approved").waitFor();
   await inspector.getByRole("button", { name: "Propose implementation plan" }).click();
   await send("Plan it");
   await confirmed();
   assert.deepEqual(lastPost("/v1/plans/propose"), { specId: "spc_new02x" });
   await inspector.getByText("v1 · pln_new03").waitFor();
-  const approvePlan = inspector.getByRole("button", { name: "Approve plan" });
-  assert.equal(await approvePlan.isDisabled(), true);
+  const approvePlan = inspector.getByRole("button", { name: /^Approve plan\b/ });
+  assert.equal(await unavailable(approvePlan), true);
   await submit.click();
   await send("Ready");
   await confirmed();
   await approvePlan.click();
   await send("Good plan");
   await confirmed();
-  await inspector.getByText("approved", { exact: true }).first().waitFor();
+  await status(inspector, "Approved").waitFor();
   await inspector.getByRole("button", { name: "Start approved plan" }).click();
   await send("Go");
   await confirmed();
   assert.deepEqual(lastPost("/v1/executions"), { planId: "pln_new03" });
-  await page.getByRole("heading", { name: "Pipeline", exact: true }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "Pipeline", exact: true }).waitFor();
   await inspector.waitFor({ state: "hidden" });
   const newRun = runs.getByRole("button", { name: /Drafted: Show the invoice total/ });
   await newRun.click();
@@ -462,9 +482,9 @@ try {
   await confirmed();
   assert.deepEqual(lastPost("/v1/executions/exe_new04/cancel"), { reason: "No longer needed" });
   await inspector.waitFor({ state: "hidden" });
-  await page.waitForFunction(() => /0 in progress · 2 failed or cancelled/.test(document.body.innerText));
+  await runs.getByText("0 in progress · 2 failed or cancelled").waitFor();
   await newRun.click();
-  assert.match(await cancelRun.getAttribute("title"), /status is cancelled/);
+  assert.match(await reasonOf(cancelRun), /status is cancelled/);
   await closeInspector();
 
   console.log("An intake without a description is drafted from its title");
@@ -484,7 +504,7 @@ try {
   await stage("Delivery").getByRole("button", { name: /Exact invoice totals/ }).click();
   await inspector.getByText("Request changes to this delivery").click();
   const reviewChanges = inspector.getByRole("button", { name: "Review change request" });
-  assert.equal(await reviewChanges.isDisabled(), true);
+  assert.equal(await unavailable(reviewChanges), true);
   await inspector.getByLabel("What should change").fill("  Round per line, not per invoice  ");
   await reviewChanges.click();
   await send("Reviewer feedback");
@@ -496,7 +516,7 @@ try {
   assert.match(await inspector.innerText(), /Drafted: Round per line/);
   await closeInspector();
 
-  console.log("Autonomy page");
+  console.log("Autonomy (all): steward and modes");
   const stamp = (n) => `2026-11-0${n}T10:00:00.000Z`;
   const decisionRow = (id, over) => ({
     id, projectId: "prj_demo", type: "spec.answer",
@@ -541,27 +561,25 @@ try {
       },
     },
   };
-  await nav("Autonomy");
-  await page.getByRole("heading", { name: "Steward", exact: true }).waitFor();
+  await nav("Autonomy (all)");
   await page.getByText("The steward is looking at new work").waitFor();
-  const modes = (name) => page.getByRole("group", { name: "Mode for " + name });
+  const modes = (name) => page.getByRole("radiogroup", { name: "Mode for " + name, exact: true });
+  const typeRow = (type) => page.getByRole("row").filter({ has: page.getByText(type, { exact: true }) });
   await modes("Answer specification questions").waitFor();
-  assert.match(await page.locator(".steward-type").first().innerText(), /92%[\s\S]*9 \/ 2 \/ 1/);
-  const approveAuto = modes("Approve specifications").getByRole("button", { name: "Automatic" });
+  assert.match(await typeRow("spec.answer").innerText(), /92%[\s\S]*9 \/ 2 \/ 1/);
+  const approveAuto = modes("Approve specifications").getByRole("radio", { name: "Automatic" });
   assert.equal(await approveAuto.isDisabled(), true);
-  assert.match(await approveAuto.getAttribute("title"), /never automatic/);
   await page.getByText("Approvals are never automatic; they can only be recommended.").first().waitFor();
   // An unknown type and mode are shown as sent, and the unknown type cannot go automatic.
-  const odd = page.locator(".steward-type").filter({ hasText: "brand.new" });
-  await odd.getByText("turbo", { exact: true }).waitFor();
-  assert.equal(await modes("brand.new").getByRole("button", { name: "Automatic" }).isDisabled(), true);
-  await modes("Answer specification questions").getByRole("button", { name: "Automatic" }).click();
+  await typeRow("brand.new").getByText("turbo", { exact: true }).waitFor();
+  assert.equal(await modes("brand.new").getByRole("radio", { name: "Automatic" }).isDisabled(), true);
+  await modes("Answer specification questions").getByRole("radio", { name: "Automatic" }).click();
   await send("Track record is good");
   await confirmed();
   const modePut = source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/steward/modes");
   assert.deepEqual(JSON.parse(modePut.body), { type: "spec.answer", mode: "auto" });
   assert.equal(modePut.headers["x-sindri-approval"], "sindri-human-secret");
-  await modes("Answer specification questions").getByRole("button", { name: "Automatic", pressed: true }).waitFor();
+  await modes("Answer specification questions").getByRole("radio", { name: "Automatic", checked: true }).waitFor();
 
   await page.getByRole("button", { name: "Pause steward" }).click();
   await send("Quiet period");
@@ -571,6 +589,8 @@ try {
   assert.equal(source.steward.running, false);
   assert.equal(source.requests.findLast((r) => r.path === "/v1/steward/pause").headers["x-sindri-approval"], undefined);
 
+  console.log("Autonomy: decision log");
+  await nav("Autonomy");
   const detail = page.locator(".decision-detail");
   const decisionButton = (name) => page.getByRole("button", { name });
   await decisionButton(/Odd one/).click();
@@ -580,9 +600,9 @@ try {
   await detail.getByText("Keep integer cents").waitFor();
   await detail.getByText("hunch", { exact: true }).waitFor();
   assert.match(await detail.innerText(), /87%/);
-  const rollback = detail.getByRole("button", { name: "Roll back" });
-  assert.equal(await rollback.isDisabled(), true);
-  assert.match(await rollback.getAttribute("title"), /cannot be reversed/);
+  const rollback = detail.getByRole("button", { name: /^Roll back\b/ });
+  assert.equal(await unavailable(rollback), true);
+  assert.match(await reasonOf(rollback), /cannot be reversed/);
   const answerBox = detail.getByLabel("Answer to send");
   assert.equal(await answerBox.inputValue(), "Round half to even");
   await answerBox.fill("Round half up");
@@ -591,8 +611,9 @@ try {
   await confirmed();
   assert.deepEqual(lastPost("/v1/steward/decisions/dec_answer/accept"), { value: "Round half up" });
   assert.equal(source.requests.findLast((r) => r.path === "/v1/steward/decisions/dec_answer/accept").headers["x-sindri-approval"], undefined);
-  await detail.getByText("Accepted with changes").waitFor();
-  assert.equal(await detail.getByRole("button", { name: /^Accept/ }).isDisabled(), true);
+  // Accepted with an edited answer: docs label "Changed".
+  await status(detail, "Changed").waitFor();
+  assert.equal(await unavailable(detail.getByRole("button", { name: /^Accept/ })), true);
 
   await detail.getByLabel("Note on this decision").fill("Finance owns rounding");
   await detail.getByRole("button", { name: "Add note" }).click();
@@ -603,16 +624,16 @@ try {
 
   await decisionButton(/Approve totals spec/).click();
   await detail.getByText(/performs the approval itself/).waitFor();
-  assert.equal(await detail.getByRole("button", { name: "Accept and approve" }).isEnabled(), true);
+  assert.equal(await unavailable(detail.getByRole("button", { name: "Accept and approve" })), false);
   await detail.getByRole("button", { name: "Reject" }).click();
   await send("Not ready yet");
   await confirmed();
   assert.deepEqual(lastPost("/v1/steward/decisions/dec_approve/reject"), { reason: "Not ready yet" });
-  await detail.getByText("Rejected", { exact: true }).waitFor();
+  await status(detail, "Rejected").waitFor();
 
   await decisionButton(/Retry the build/).click();
   await detail.getByText(/Retry the build · task/).waitFor();
-  assert.equal(await rollback.isEnabled(), true);
+  assert.equal(await unavailable(rollback), false);
   // Sindri has the last word: a refused rollback is reported and nothing changes.
   source.intercept = (req, res) => {
     if (!req.url.endsWith("/rollback")) return false;
@@ -622,20 +643,20 @@ try {
   };
   await rollback.click();
   await send("Wrong call");
-  await page.getByRole("alert").filter({ hasText: /cannot be undone/ }).waitFor();
+  await commandDialog.getByRole("alert").filter({ hasText: /cannot be undone/ }).first().waitFor();
   source.intercept = null;
-  await page.getByRole("button", { name: "Go back" }).click();
+  await commandDialog.getByRole("button", { name: "Go back" }).click();
   assert.equal(source.steward.decisions.find((d) => d.id === "dec_fix").status, "applied");
   await rollback.click();
   await send("Wrong call");
   await confirmed();
   assert.deepEqual(lastPost("/v1/steward/decisions/dec_fix/rollback"), { reason: "Wrong call" });
-  await detail.getByText("Rolled back", { exact: true }).waitFor();
-  assert.equal(await rollback.isDisabled(), true);
+  await status(detail, "Rolled back").waitFor();
+  assert.equal(await unavailable(rollback), true);
 
-  const noteButton = page.getByRole("button", { name: "Review note" });
-  assert.equal(await noteButton.isDisabled(), true);
-  await page.getByText("Write the note first.").first().waitFor();
+  const noteButton = page.getByRole("button", { name: /^Review note\b/ });
+  assert.equal(await unavailable(noteButton), true);
+  assert.match(await reasonOf(noteButton), /^Write the note first\.$/);
   await page.getByLabel("New note", { exact: true }).fill("Prefer small plans");
   await noteButton.click();
   await send("Guidance");
@@ -646,7 +667,7 @@ try {
   const statusFilter = page.getByRole("combobox", { name: "Decision status" });
   await statusFilter.click();
   await page.getByRole("option", { name: "Rolled back" }).click();
-  await page.waitForFunction(() => /1 shown/.test(document.body.innerText));
+  await page.getByText("1 shown", { exact: true }).waitFor();
   assert.equal(await decisionButton(/Rounding rule/).count(), 0);
   await decisionButton(/Retry the build/).waitFor();
 
@@ -663,49 +684,50 @@ try {
 
   console.log("Feedback Graph");
   await openProfile("Invoice library");
-  await inspector.getByRole("heading", { name: "Feedback Graph" }).waitFor();
-  await inspector.getByText(/Matched automatically/).waitFor();
+  await inspector.getByRole("heading", { name: /^Feedback Graph/ }).waitFor();
+  await status(inspector, "Linked automatically").waitFor();
   await inspector.getByText("invoice-lib", { exact: true }).waitFor();
   await inspector.getByText("Never use floats for money").waitFor();
   await inspector.getByText("Applies when: Touching totals").waitFor();
-  const clearLink = inspector.getByRole("button", { name: "Clear override" });
-  assert.equal(await clearLink.isDisabled(), true);
-  await inspector.getByText("There is no operator override to clear.").first().waitFor();
+  const clearLink = inspector.getByRole("button", { name: /^Clear override\b/ });
+  assert.equal(await unavailable(clearLink), true);
+  await inspector.getByText("There is no operator override to clear.").first().waitFor({ state: "attached" });
   await inspector.getByLabel("Feedback Graph project key").fill("demo-app");
   await inspector.getByRole("button", { name: "Review link override" }).click();
   await send("Different key in Feedback Graph");
   await confirmed();
   const linkPut = source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/projects/prj_demo/feedback-graph");
   assert.deepEqual(JSON.parse(linkPut.body), { projectKey: "demo-app" });
-  await inspector.getByText(/Set by the operator/).waitFor();
+  await status(inspector, "Linked by you").waitFor();
   await inspector.getByText("demo-app", { exact: true }).waitFor();
   await clearLink.click();
   await send("Back to automatic");
   await confirmed();
-  await inspector.getByText(/Matched automatically/).waitFor();
+  await status(inspector, "Linked automatically").waitFor();
   assert.equal(JSON.parse(source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/projects/prj_demo/feedback-graph").body).projectKey, null);
   await closeInspector();
   await nav("Connections");
-  await page.getByRole("button", { name: "Services", exact: true }).click();
-  await page.getByText("Sindri reaches Feedback Graph at http://127.0.0.1:8787.").waitFor();
+  await page.getByRole("tab", { name: "Services", exact: true }).click();
+  await page.getByText("Sindri reaches Feedback Graph at http://127.0.0.1:8787.").first().waitFor();
   await nav("Pipeline");
 
   console.log("Project filter survives the ID change");
-  const filter = page.getByRole("combobox", { name: "Filter by project" });
-  await filter.click();
-  await page.getByRole("option", { name: "Ledger app" }).click();
+  const picker = page.getByRole("banner").getByRole("button", { name: /^Project:/ });
+  await picker.click();
+  await page.getByRole("option", { name: /Ledger app/ }).click();
   await stage("Specification").getByRole("button", { name: /Ledger export/ }).waitFor();
   assert.equal(await stage("Specification").getByRole("button").count(), 1);
   source.data.projects.push({ id: "prj_ledger", name: "ledger", repoPath: "/example/ledger" });
   await app.hub.refresh();
+  // Nothing should change, so there is no condition to wait on: give the snapshot time to land.
   await wait(600);
-  assert.match(await filter.innerText(), /Ledger app/);
+  assert.match(await picker.innerText(), /Ledger app/);
   assert.equal(await stage("Specification").getByRole("button", { name: /Ledger export/ }).count(), 1);
 
   console.log("Session expiry");
   // The browser drops the session cookie when its lifetime ends; the next request is refused.
   await context.clearCookies();
-  await nav("Activity");
+  await page.getByRole("navigation", { name: "Project pages" }).getByRole("link", { name: "Activity" }).click();
   await page.getByText("Your session ended. Sign in again.").waitFor();
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);
@@ -713,7 +735,7 @@ try {
   console.log("Session loss");
   await page.getByLabel("Access token", { exact: true }).fill("test-workflow");
   await page.getByRole("button", { name: "Connect to factory" }).click();
-  await page.getByRole("navigation", { name: "Main navigation" }).waitFor();
+  await page.getByRole("navigation", { name: "Project pages" }).waitFor();
   assert.equal(await page.getByText("Your session ended. Sign in again.").count(), 0);
   // Signing out elsewhere ends this page's event stream, which returns it to sign-in.
   await page.evaluate(() =>
@@ -727,7 +749,7 @@ try {
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, Autonomy page (modes, pause, accept with edit, note, reject, refused and allowed rollback, global note, filters), Feedback Graph link and status, stable project filter, session expiry and session loss.",
+    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, Autonomy (all) (modes, pause) and Autonomy decision log (accept with edit, note, reject, refused and allowed rollback, global note, filters), Feedback Graph link and status, stable project filter, session expiry and session loss.",
   );
 } finally {
   await browser.close();

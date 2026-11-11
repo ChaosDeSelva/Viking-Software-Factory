@@ -71,7 +71,8 @@ describe("PlansScreen navigation and budgets", () => {
     renderWithStore(ui, api, { planId: "pl1" });
     const docs = await screen.findByRole("article", { name: "Task docs" });
     expect(docs.textContent).not.toContain("skills");
-    const minutes = screen.getByLabelText("docs: minutes");
+    await userEvent.click(screen.getByRole("tab", { name: /Task budgets/ }));
+    const minutes = await screen.findByLabelText("docs: minutes");
     await userEvent.clear(minutes);
     await userEvent.type(minutes, "45");
     await userEvent.click(screen.getByRole("button", { name: "Save budgets as new draft" }));

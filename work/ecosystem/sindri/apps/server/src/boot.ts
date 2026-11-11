@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createFactoryDocs } from "@sindri/director";
 import { EnvSecretStore, KeychainSecretStore, type SecretStore } from "@sindri/intake";
 import { openDatabase, type SqliteDatabase } from "@sindri/knowledge";
 import type { FastifyInstance } from "fastify";
@@ -33,8 +34,8 @@ export interface StartedServer {
 }
 
 /**
- * Boots the server from env + `<dataDir>/config.json`: token, database, secret store,
- * `buildServer`, optional same-origin web, listen. Shared by `main.ts` and `sindri start`.
+ * Boots the server from env + `<dataDir>/config.json`: token, database, secret store, factory
+ * docs, `buildServer`, optional same-origin web, listen. Shared by `main.ts` and `sindri start`.
  */
 export async function startServer(
   env: NodeJS.ProcessEnv,
@@ -60,6 +61,8 @@ export async function startServer(
         ...(o.webDist ? [`${scheme}://${hostPart}:${config.port}`] : []),
       ],
       allowRemote: config.allowRemote,
+      // The Guide answers from the bundled factory docs; buildServer alone has none (tests).
+      docs: createFactoryDocs(),
       logLevel: o.logLevel ?? env["SINDRI_LOG_LEVEL"] ?? "info",
       ...(config.tls
         ? {

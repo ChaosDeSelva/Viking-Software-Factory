@@ -15,6 +15,8 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${WEB_PORT}`,
     ...devices["Desktop Chrome"],
+    // PW_CHANNEL=chrome runs on the installed Chrome when Playwright's own browser is absent.
+    ...(process.env["PW_CHANNEL"] ? { channel: process.env["PW_CHANNEL"] } : {}),
     trace: "retain-on-failure",
   },
   webServer: [

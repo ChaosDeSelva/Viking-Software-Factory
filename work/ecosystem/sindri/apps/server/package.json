@@ -21,6 +21,7 @@
     "test:acceptance": "vitest run --config vitest.acceptance.config.ts"
   },
   "dependencies": {
+    "@factory/docs": "file:../../vendor/factory/factory-docs-0.1.2.tgz",
     "@sindri/delivery": "workspace:*",
     "@sindri/director": "workspace:*",
     "@sindri/feedback-graph": "workspace:*",

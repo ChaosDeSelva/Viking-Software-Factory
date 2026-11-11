@@ -1,15 +1,20 @@
+import type { ProjectId } from "@mimir/protocol";
+import { Badge, CardGroup, KeyValue, Link, MetricCard, RecordList, RecordRow } from "@factory/ui";
 import { useMemo } from "react";
-import { Link } from "react-router";
+import type { AttentionItem } from "../api/client.js";
+import { ActionLink } from "../components/ActionLink.js";
 import { ProgressText, StatusBadge, UsageChips } from "../components/Badges.js";
 import { EventList } from "../components/EventList.js";
-import { PageTitle, Section } from "../components/Section.js";
+import { Screen } from "../components/Screen.js";
+import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/StateViews.js";
 import { StoreGate } from "../components/StoreGate.js";
 import { deriveAttention, taskProgress } from "../lib/derive.js";
+import { crewEffectiveStatus, crewLabel, isCrewActive, missionName } from "../lib/names.js";
+import { attentionInScope, useProjectScope, useScoped } from "../lib/scope.js";
 import { useAsync } from "../lib/useAsync.js";
 import { useNow } from "../lib/useNow.js";
 import { useStore } from "../store/StoreProvider.js";
-import type { AttentionItem } from "../api/client.js";
 
 function attentionLink(item: AttentionItem): { to: string; label: string } | null {
   if (item.kind === "approval") return { to: "/reviews", label: "Review" };
@@ -18,48 +23,108 @@ function attentionLink(item: AttentionItem): { to: string; label: string } | nul
   return null;
 }
 
+/** Runtime capability flags, in words. */
+const FEATURE_LABEL: Record<string, string> = {
+  createSession: "Start sessions",
+  softStop: "Soft stop",
+  forceStop: "Force stop",
+  terminalRead: "Read terminal",
+  sendInput: "Send instructions",
+  events: "Event stream",
+};
+
 function FleetHealth() {
   const { client } = useStore();
   const health = useAsync(() => client.health(), "health");
   const caps = useAsync(() => client.capabilities(), "caps");
   return (
-    <Section title="Fleet health">
+    <Section
+      title="Fleet health"
+      term="Runtime"
+      description="The Mimir server and the runtime that hosts agent sessions."
+    >
       {health.status === "loading" || caps.status === "loading" ? (
-        <LoadingState label="fleet health" />
+        <LoadingState label="fleet health" lines={2} />
       ) : health.status === "error" ? (
         <ErrorState message={health.error} onRetry={health.reload} />
       ) : caps.status === "error" ? (
         <ErrorState message={caps.error} onRetry={caps.reload} />
       ) : (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-          <dt className="font-medium">Server</dt>
-          <dd>{health.data.status}</dd>
-          <dt className="font-medium">Runtime</dt>
-          <dd>
-            {caps.data.runtime
-              ? `${caps.data.runtime.runtime} ${caps.data.runtime.version}${
-                  health.data.runtime
-                    ? health.data.runtime.ok
-                      ? " (healthy)"
-                      : ` (unhealthy: ${health.data.runtime.detail ?? "no detail"})`
-                    : ""
-                }`
-              : "No runtime configured"}
-          </dd>
-          {caps.data.runtime && (
-            <>
-              <dt className="font-medium">Capabilities</dt>
-              <dd>
-                {Object.entries(caps.data.runtime.features)
-                  .filter(([, on]) => on)
-                  .map(([k]) => k)
-                  .join(", ") || "none"}
-              </dd>
-              <dt className="font-medium">Agent kinds</dt>
-              <dd>{caps.data.runtime.agentKinds.join(", ") || "none"}</dd>
-            </>
-          )}
-        </dl>
+        <KeyValue
+          items={[
+            {
+              label: "Server",
+              value: <StatusBadge status={health.data.status} />,
+            },
+            {
+              label: "Runtime",
+              term: "Runtime",
+              value: caps.data.runtime
+                ? `${caps.data.runtime.runtime} ${caps.data.runtime.version}${
+                    health.data.runtime
+                      ? health.data.runtime.ok
+                        ? " (healthy)"
+                        : ` (unhealthy: ${health.data.runtime.detail ?? "no detail"})`
+                      : ""
+                  }`
+                : "No runtime configured",
+            },
+            ...(caps.data.runtime
+              ? [
+                  {
+                    label: "Capabilities",
+                    term: "Capabilities",
+                    value: (
+                      <span className="flex flex-wrap gap-1">
+                        {Object.entries(caps.data.runtime.features)
+                          .filter(([, on]) => on)
+                          .map(([k]) => (
+                            <Badge key={k} tooltip={k}>
+                              {FEATURE_LABEL[k] ?? k}
+                            </Badge>
+                          ))}
+                        {!Object.values(caps.data.runtime.features).some(Boolean) && "none"}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: "Agent kinds",
+                    term: "Agent kind",
+                    value: caps.data.runtime.agentKinds.join(", ") || "none",
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+    </Section>
+  );
+}
+
+/** Usage for the selected project from the server, or the snapshot totals for All projects. */
+function Usage() {
+  const { client, state } = useStore();
+  const { projectId } = useProjectScope();
+  const scoped = useAsync(
+    () =>
+      projectId ? client.usage.get({ projectId: projectId as ProjectId }) : Promise.resolve(null),
+    `usage:${projectId ?? "all"}`,
+  );
+  const totals = projectId ? scoped.data?.totals : state.usage;
+  return (
+    <Section
+      title="Usage"
+      term="Usage source"
+      description="Tokens and estimated cost reported by agents."
+    >
+      {projectId && scoped.status === "loading" ? (
+        <LoadingState label="usage" lines={1} />
+      ) : projectId && scoped.status === "error" ? (
+        <ErrorState message={scoped.error} onRetry={scoped.reload} />
+      ) : totals ? (
+        <UsageChips totals={totals} />
+      ) : (
+        <EmptyState body="Agents report usage as they work.">No usage reported</EmptyState>
       )}
     </Section>
   );
@@ -67,82 +132,164 @@ function FleetHealth() {
 
 export function Overview() {
   const { state } = useStore();
+  const scoped = useScoped();
   const now = useNow(30_000);
-  const attention = useMemo(() => deriveAttention(state, now), [state, now]);
-  const activeCrews = state.crews.filter(
-    (c) => c.status === "running" || c.status === "configured",
+  const attention = useMemo(
+    () => deriveAttention({ ...state, ...scoped }, now).filter((i) => attentionInScope(i, scoped)),
+    [state, scoped, now],
   );
-  const recent = state.events.slice(-10);
+  const missionById = useMemo(
+    () => new Map(scoped.missions.map((m) => [m.id as string, m])),
+    [scoped.missions],
+  );
+  const activeCrews = scoped.crews.filter((c) => isCrewActive(c, missionById.get(c.missionId)));
+  const activeMissions = scoped.missions.filter(
+    (m) => m.status === "active" || m.status === "paused",
+  );
+  const running = scoped.tasks.filter(
+    (t) => t.status === "running" || t.status === "leased" || t.status === "verifying",
+  );
+  const pending = scoped.approvals.filter((a) => a.status === "pending");
+  const recent = scoped.events.slice(-10);
 
   return (
-    <>
-      <PageTitle>Overview</PageTitle>
+    <Screen
+      screen="overview"
+      title="Overview"
+      description="What needs you, what is running now, and the health of the fleet."
+    >
       <StoreGate label="overview">
-        <Section title="Needs attention">
-          {attention.length === 0 ? (
-            <EmptyState>Nothing needs attention.</EmptyState>
-          ) : (
-            <ul className="space-y-1">
-              {attention.map((item) => {
-                const link = attentionLink(item);
-                return (
-                  <li
-                    key={item.id}
-                    className="flex flex-wrap items-center gap-2 rounded border border-amber-700 px-2 py-1"
-                  >
-                    <StatusBadge status={item.kind === "approval" ? "pending" : item.kind} />
-                    <span className="font-medium">{item.title}</span>
-                    {item.detail && (
-                      <span className="text-sm text-zinc-700 dark:text-zinc-300">
-                        {item.detail}
+        <CardGroup min={150}>
+          <MetricCard
+            label="Needs attention"
+            term="Needs attention"
+            value={attention.length}
+            href="#needs-attention"
+          />
+          <MetricCard
+            label="Active missions"
+            term="Mission"
+            value={activeMissions.length}
+            href="/missions"
+          />
+          <MetricCard label="Tasks running" term="Task" value={running.length} href="/missions" />
+          <MetricCard
+            label="Pending approvals"
+            term="Approval"
+            value={pending.length}
+            href="/reviews"
+          />
+        </CardGroup>
+        <div id="needs-attention" className="scroll-mt-20">
+          <Section
+            title="Needs attention"
+            term="Needs attention"
+            count={attention.length}
+            flush={attention.length > 0}
+          >
+            {attention.length === 0 ? (
+              <EmptyState
+                icon="check"
+                body="No pending approvals, blocked or stuck tasks, budget alerts or unknown agents."
+              >
+                Nothing needs attention
+              </EmptyState>
+            ) : (
+              <RecordList label="Needs attention">
+                {attention.map((item) => {
+                  const link = attentionLink(item);
+                  const status = (
+                    <StatusBadge status={item.kind} domain="attention" tooltip={false} />
+                  );
+                  // Items with nowhere to go are plain rows, not dead buttons.
+                  return link ? (
+                    <RecordRow
+                      key={item.id}
+                      href={link.to}
+                      title={item.title}
+                      meta={item.detail}
+                      status={
+                        <span className="flex items-center gap-2">
+                          {status}
+                          <span className="text-sm font-medium text-accent-fg">{link.label}</span>
+                        </span>
+                      }
+                    />
+                  ) : (
+                    <div key={item.id} className="flex items-center gap-3 px-4 py-3">
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{item.title}</span>
+                        {item.detail && (
+                          <span className="truncate text-xs text-muted">{item.detail}</span>
+                        )}
                       </span>
-                    )}
-                    {link && (
-                      <Link className="ml-auto underline" to={link.to}>
-                        {link.label}
-                      </Link>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Section>
-        <FleetHealth />
-        <Section title="Active crews">
+                      {status}
+                    </div>
+                  );
+                })}
+              </RecordList>
+            )}
+          </Section>
+        </div>
+        <Section
+          title="Active crews"
+          term="Crew"
+          count={activeCrews.length}
+          description="Crews whose mission can still run work. Finished missions' crews are on the Crews page."
+          flush={activeCrews.length > 0}
+        >
           {activeCrews.length === 0 ? (
-            <EmptyState>No active crews.</EmptyState>
+            <EmptyState
+              body="A crew becomes active when its mission starts."
+              action={<ActionLink href="/missions">Open missions</ActionLink>}
+            >
+              No active crews
+            </EmptyState>
           ) : (
-            <ul className="space-y-1">
+            <RecordList label="Active crews">
               {activeCrews.map((c) => {
-                const m = state.missions.find((x) => x.id === c.missionId);
+                const m = missionById.get(c.missionId);
+                const status = crewEffectiveStatus(c, m, scoped.agents);
                 return (
-                  <li key={c.id} className="flex flex-wrap items-center gap-2">
-                    <Link className="underline" to={`/crews/${c.id}`}>
-                      {c.template} crew
-                    </Link>
-                    <StatusBadge status={c.status} />
-                    <span className="text-sm">{m ? m.objective : c.missionId}</span>
-                    <span className="text-sm">
-                      <ProgressText progress={taskProgress(state.tasks, c.missionId)} />
-                    </span>
-                  </li>
+                  <RecordRow
+                    key={c.id}
+                    href={`/crews/${c.id}`}
+                    title={`${crewLabel(c)} · ${m ? missionName(m, scoped.tasks) : c.missionId}`}
+                    meta={<ProgressText progress={taskProgress(scoped.tasks, c.missionId)} />}
+                    status={
+                      <StatusBadge status={status.value} domain={status.domain} tooltip={false} />
+                    }
+                  />
                 );
               })}
-            </ul>
+            </RecordList>
           )}
         </Section>
-        <Section title="Recent events">
-          <EventList events={recent} />
-        </Section>
-        <Section title="Usage">
-          {state.usage ? (
-            <UsageChips totals={state.usage} />
-          ) : (
-            <EmptyState>No usage reported.</EmptyState>
-          )}
-        </Section>
+        <CardGroup min={360}>
+          <Section
+            title="Recent events"
+            term="Event stream"
+            description="Live events since this page opened."
+            actions={
+              <Link href="/activity" className="text-sm font-medium text-accent-fg">
+                Open Activity
+              </Link>
+            }
+          >
+            <EventList
+              events={recent}
+              tasks={scoped.tasks}
+              empty="No events since this page opened"
+              emptyBody="Events appear here as they stream in. Activity can replay older events."
+              emptyAction={<ActionLink href="/activity">Replay history in Activity</ActionLink>}
+            />
+          </Section>
+          <div className="flex min-w-0 flex-col gap-group">
+            <FleetHealth />
+            <Usage />
+          </div>
+        </CardGroup>
       </StoreGate>
-    </>
+    </Screen>
   );
 }

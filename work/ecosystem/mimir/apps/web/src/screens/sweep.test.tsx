@@ -34,8 +34,9 @@ describe("a rejected token returns to the token prompt from every request", () =
     vi.mocked(client.projects.create).mockRejectedValue(unauthorized());
     renderWithStore(<Projects />, { client, onUnauthorized });
     await screen.findByText(/No projects yet/);
-    await user.type(screen.getByLabelText("Name"), "x");
-    await user.type(screen.getByLabelText("Repository path"), "/repo");
+    await user.click(screen.getAllByRole("button", { name: "New project" })[0]!);
+    await user.type(screen.getByLabelText(/^Name/), "x");
+    await user.type(screen.getByLabelText(/^Repository path/), "/repo");
     await user.click(screen.getByRole("button", { name: "Create project" }));
     await waitFor(() => expect(onUnauthorized).toHaveBeenCalledTimes(1));
   });
@@ -144,6 +145,13 @@ describe("Missions board: attempts", () => {
 });
 
 describe("Crews form", () => {
+  /** The form is in the "New crew" dialog; Mission is a Combobox picked by the mission's name. */
+  async function openAndPick(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(screen.getAllByRole("button", { name: "New crew" })[0]!);
+    await user.click(await screen.findByLabelText("Mission"));
+    await user.click(await screen.findByRole("option", { name }));
+  }
+
   function caps(agentKinds: string[]): CapabilitiesResponse {
     return {
       serverVersion: "0.1.0",
@@ -188,14 +196,12 @@ describe("Crews form", () => {
     });
     renderWithStore(<Crews />, { client });
     await screen.findByText(/No crews yet/);
-    await user.selectOptions(screen.getByLabelText("Mission"), m.id);
+    await openAndPick(user, "Objective X");
     await user.click(screen.getByRole("checkbox", { name: "implementer" }));
     release(caps(["claude", "codex"]));
-    const select = (await screen.findByLabelText(
-      "Agent kind for implementer",
-    )) as HTMLSelectElement;
-    await waitFor(() => expect(within(select).getByRole("option", { name: "codex" })).toBeTruthy());
-    expect(select.value).toBe("claude");
+    // The kind ticked before capabilities ("shell") is not offered: the select shows the first.
+    const select = await screen.findByRole("combobox", { name: "Agent kind for implementer" });
+    await waitFor(() => expect(select.textContent).toMatch("claude"));
     await user.click(screen.getByRole("button", { name: "Create crew" }));
     await waitFor(() => expect(client.crews.create).toHaveBeenCalledTimes(1));
     expect(vi.mocked(client.crews.create).mock.calls[0]?.[0].members).toEqual([
@@ -213,7 +219,7 @@ describe("Crews form", () => {
     });
     renderWithStore(<Crews />, { client });
     await screen.findByText(/No crews yet/);
-    await user.selectOptions(screen.getByLabelText("Mission"), m.id);
+    await openAndPick(user, "Ship the thing");
     await user.click(screen.getByRole("checkbox", { name: "lead" }));
     await user.clear(screen.getByLabelText("Max concurrent tasks"));
     await user.type(screen.getByLabelText("Max concurrent tasks"), "1e1");
@@ -230,7 +236,7 @@ describe("Crews form", () => {
     const client = mockClient({ snapshot: vi.fn(async () => snapshot({ missions: [m] })) });
     renderWithStore(<Crews />, { client });
     await screen.findByText(/No crews yet/);
-    await user.selectOptions(screen.getByLabelText("Mission"), m.id);
+    await openAndPick(user, "Ship the thing");
     await user.click(screen.getByRole("checkbox", { name: "lead" }));
     await user.clear(screen.getByLabelText("Max concurrent tasks"));
     await user.type(screen.getByLabelText("Max concurrent tasks"), value);

@@ -175,10 +175,9 @@ describe("SpecsScreen (sweep 2)", { timeout: 20_000 }, () => {
     const form = screen.getByRole("form", { name: "Edit specification" });
     const problem = within(form).getByLabelText("Problem");
     await userEvent.clear(problem);
-    expect(within(form).getByRole("button", { name: "Save as new version" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    const save = within(form).getByRole("button", { name: /^Save as new version/ });
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(save.textContent).toMatch(/Describe the problem/);
     await userEvent.type(problem, "New problem");
     await userEvent.click(within(form).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("form", { name: "Edit specification" })).toBeNull();

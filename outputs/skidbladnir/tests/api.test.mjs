@@ -314,3 +314,37 @@ test('the server entry point keeps each AWS fleet in its own database',async t=>
  assert.ok(existsSync(join(data,'aws-your-isolated-fleet.sqlite')));assert.equal(existsSync(join(data,'skidbladnir.sqlite')),false);
  child.kill('SIGINT');assert.deepEqual(await exited,{code:0,signal:null});
 });
+
+test('snapshots can be scoped to one factory project while capacity stays fleet-wide',async t=>{
+ const app=await start(t);
+ const tagged=await(await app.post('/api/workers',{...spec,name:'Tagged',project:'demo-app'})).json();
+ await app.post('/api/workers',{...spec,name:'Other',project:'acme'});await app.post('/api/workers',{...spec,name:'Untagged'});
+ assert.equal(tagged.project,'demo-app');
+ const scoped=await(await app.get('/api/snapshot?project=demo-app')).json();
+ assert.deepEqual(scoped.workers.map(w=>w.name),['Tagged']);assert.equal(scoped.project,'demo-app');assert.equal(scoped.fleetActive,3);assert.equal(scoped.maxWorkers,5);
+ assert.ok(scoped.events.length>0);assert.ok(scoped.events.every(e=>e.workerId===tagged.id));
+ assert.equal((await(await app.get('/api/snapshot')).json()).workers.length,3);
+ assert.equal((await(await app.get('/api/snapshot?project=')).json()).workers.length,3);
+ assert.equal((await app.get('/api/snapshot?project=bad%20id')).status,400);
+ assert.equal((await app.post('/api/workers',{...spec,project:'../x'})).status,400);
+});
+
+test('the project website is served under /site for the dashboard setup-guide link',async t=>{
+ const app=await start(t);
+ const guide=await app.get('/site/guide.html');assert.equal(guide.status,200);assert.match(guide.headers.get('content-type'),/text\/html/);assert.match(await guide.text(),/setup guide/i);
+ assert.equal((await app.get('/site/assets/skidbladnir-banner.png')).headers.get('content-type'),'image/png');
+ assert.equal((await app.get('/site/../package.json')).status,404);
+ assert.equal((await app.get('/site/..%2fpackage.json')).status,403);
+});
+
+test('the website root serves site/index.html, bare /site redirects to it, and a missing index is 404, never 403',async t=>{
+ const app=await start(t);
+ const index=await app.get('/site/');assert.equal(index.status,200);assert.match(index.headers.get('content-type'),/text\/html/);
+ const bare=await fetch(app.base+'/site',{redirect:'manual'});assert.equal(bare.status,308);assert.equal(bare.headers.get('location'),'/site/');
+ const empty=mkdtempSync(join(tmpdir(),'skid-site-'));t.after(()=>rmSync(empty,{recursive:true,force:true}));
+ const bare2=createApp({siteDir:empty});await new Promise(r=>bare2.server.listen(0,'127.0.0.1',r));t.after(()=>bare2.close());
+ const url='http://127.0.0.1:'+bare2.server.address().port;
+ assert.equal((await fetch(url+'/site/')).status,404);
+ writeFileSync(join(empty,'index.html'),'<!doctype html><title>site</title>');
+ assert.equal(await (await fetch(url+'/site/')).text(),'<!doctype html><title>site</title>');
+});

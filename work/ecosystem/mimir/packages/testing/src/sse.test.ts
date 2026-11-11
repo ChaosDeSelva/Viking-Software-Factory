@@ -17,6 +17,11 @@ describe("SseParser", () => {
       { data: "line1\nline2" },
     ]);
   });
+
+  it("treats a line without a colon as a field with an empty value", () => {
+    const p = new SseParser();
+    expect(p.push("data\nid\n\n")).toEqual([{ id: "", data: "" }]);
+  });
 });
 
 describe("openSse", () => {

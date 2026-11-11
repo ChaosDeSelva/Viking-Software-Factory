@@ -125,6 +125,25 @@ describe("fakeMimirServer", () => {
     );
   });
 
+  it("replays a failed command's error for its key, as the real ledger does", async () => {
+    server = await fakeMimirServer();
+    const { project } = CreateProjectResponseSchema.parse(
+      await (await post(server, "/v1/projects", { name: "p", repoPath: "/r" })).json(),
+    );
+    const missing = newId("prj");
+    const request = { projectId: missing, objective: "o" };
+    const failed = await post(server, "/v1/missions", request, "k2");
+    expect(failed.status).toBe(422);
+    const failedBody = await failed.json();
+    // The same key and body replays the stored failure even once the request could succeed.
+    server.state.projects.set(missing, { ...project, id: missing as typeof project.id });
+    const again = await post(server, "/v1/missions", request, "k2");
+    expect(again.status).toBe(422);
+    expect(again.headers.get("idempotency-replayed")).toBe("true");
+    expect(await again.json()).toEqual(failedBody);
+    expect(server.state.missions.size).toBe(0);
+  });
+
   it("creates a mission, emits an event and enforces transitions", async () => {
     server = await fakeMimirServer();
     const p = CreateProjectResponseSchema.parse(

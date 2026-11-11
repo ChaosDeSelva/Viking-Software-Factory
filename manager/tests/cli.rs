@@ -830,6 +830,14 @@ fn update_apply_installs_only_a_signed_matching_newer_release() {
         (
             Box::new(|| {
                 let mut r = release.clone();
+                r.as_object_mut().unwrap().remove("assets");
+                feed(&r);
+            }),
+            "Release has no assets",
+        ),
+        (
+            Box::new(|| {
+                let mut r = release.clone();
                 r["assets"][0]["browser_download_url"] =
                     json!("https://example.com/factory-manifest.json");
                 feed(&r);
@@ -880,4 +888,50 @@ fn update_apply_installs_only_a_signed_matching_newer_release() {
     let applied = ok(&stub, &home, &["update", "apply"]);
     assert_eq!(applied["installed"]["version"], "0.3.0");
     assert!(stub.calls().contains("--proto =https --proto-redir =https"));
+}
+
+#[test]
+fn recover_finishes_a_first_install_interrupted_before_its_pointer_was_written() {
+    let stub = Stub::new();
+    let t = tempfile::tempdir().unwrap();
+    let (home, _) = managed(&stub, t.path());
+    // The journal is written before current.json; a crash between the two leaves no pointer.
+    write_json(
+        &home.join("transaction.json"),
+        &json!({"previous":null,"next":{"version":"0.2.0","data_schema":1,"components":["core"],"installed_at":1},"backup":home.join("backups/before-0.2.0-1"),"previous_pointer":null}),
+    )
+    .unwrap();
+    assert!(!home.join("current.json").exists());
+    assert_eq!(ok(&stub, &home, &["recover"]), json!({"recovered":true}));
+    assert!(!home.join("transaction.json").exists());
+    assert!(ok(&stub, &home, &["status"])["installation"].is_null());
+}
+
+#[test]
+fn a_release_whose_activation_failed_can_be_installed_again() {
+    let stub = Stub::new();
+    let t = tempfile::tempdir().unwrap();
+    let (home, ports) = managed(&stub, t.path());
+    install(&stub, &home, t.path(), "0.2.0");
+    listen_core(&stub, ports);
+    ok(&stub, &home, &["start"]);
+    stub.write("missions.json", r#"{"missions":[]}"#);
+    fs::create_dir_all(home.join("data/mimir")).unwrap();
+    fs::write(home.join("data/mimir/auth-token"), "t").unwrap();
+    stub.flag("fail-bootstrap", true);
+    let manifest = bundle_with(t.path(), "0.3.0", &[]);
+    let message = err(&stub, &home, &["install", manifest.to_str().unwrap()]);
+    assert!(message.contains("Activation failed"), "{message}");
+    assert!(
+        !home.join("releases/0.3.0").exists(),
+        "a release that never became current is not kept"
+    );
+    // Once the cause is fixed the same release installs; update apply offers no other version.
+    stub.flag("fail-bootstrap", false);
+    let installed = ok(&stub, &home, &["install", manifest.to_str().unwrap()]);
+    assert_eq!(installed["installed"]["version"], "0.3.0");
+    assert!(
+        home.join("releases/0.2.0").exists(),
+        "the rollback target stays"
+    );
 }

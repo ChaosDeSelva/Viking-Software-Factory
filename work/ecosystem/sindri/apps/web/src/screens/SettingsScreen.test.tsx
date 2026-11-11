@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { mockApi, renderWithStore } from "../test/utils.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 import { SettingsScreen } from "./SettingsScreen.js";
 
 const ui = (
@@ -54,57 +55,10 @@ describe("SettingsScreen", () => {
     expect((await screen.findByRole("alert")).textContent).toMatch(/validation failed/);
   });
 
-  it("deletes project data only after typing the project name", async () => {
-    const api = mockApi({
-      getSettings: loaded,
-      deleteProjectData: { deleted: { projectId: "p1" } },
-    });
-    renderWithStore(ui, api);
-    const del = (await screen.findByRole("button", {
-      name: "Delete project data",
-    })) as HTMLButtonElement;
-    expect(del.disabled).toBe(true);
-    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
-    expect(del.disabled).toBe(false);
-    await userEvent.click(del);
-    expect(api.deleteProjectData).toHaveBeenCalledWith("p1", "Demo");
-    expect((await screen.findByRole("status")).textContent).toMatch(/Deleted all data for Demo/);
-  });
-
-  it("needs unlocked approvals to erase task evidence (review I1)", async () => {
-    const api = mockApi({ getSettings: loaded, hasApprovalSession: () => false });
-    renderWithStore(ui, api);
-    const del = (await screen.findByRole("button", {
-      name: "Delete project data",
-    })) as HTMLButtonElement;
-    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
-    await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
-    await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
-    expect(del.disabled).toBe(true);
-    expect(screen.getByLabelText("Approval pairing code")).toBeTruthy();
-  });
-
-  it("erases task evidence only when the option is checked and separately confirmed", async () => {
-    const api = mockApi({
-      getSettings: loaded,
-      deleteProjectData: { deleted: { projectId: "p1", evidenceErased: 3 } },
-    });
-    renderWithStore(ui, api);
-    const del = (await screen.findByRole("button", {
-      name: "Delete project data",
-    })) as HTMLButtonElement;
-    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
-    expect(screen.queryByLabelText("Type ERASE EVIDENCE to confirm")).toBeNull();
-    await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
-    // Checking the option re-gates the button behind a second confirmation.
-    expect(del.disabled).toBe(true);
-    await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
-    expect(del.disabled).toBe(false);
-    await userEvent.click(del);
-    expect(api.deleteProjectData).toHaveBeenCalledWith("p1", "Demo", { eraseEvidence: true });
-    expect((await screen.findByRole("status")).textContent).toMatch(
-      /Deleted all data for Demo \(3 evidence records erased\)/,
-    );
+  it("no longer offers deleting project data: it moved to Project settings", async () => {
+    renderWithStore(ui, mockApi({ getSettings: loaded }));
+    await screen.findByLabelText("Model");
+    expect(screen.queryByRole("button", { name: "Delete project data" })).toBeNull();
   });
 
   it("exports data", async () => {
@@ -119,5 +73,71 @@ describe("SettingsScreen", () => {
     // Revoking right after click() can cancel the download; it is deferred.
     expect(revoked).toEqual([]);
     await waitFor(() => expect(revoked).toEqual(["blob:x"]), { timeout: 2000 });
+  });
+});
+
+const danger = (
+  <>
+    <NoticeRegion />
+    <ProjectSettingsScreen />
+  </>
+);
+const openDangerZone = async () =>
+  userEvent.click(await screen.findByRole("tab", { name: "Danger zone" }));
+/** Re-queried each time: the button is re-rendered (with or without its reason tooltip). */
+const del = () => screen.findByRole<HTMLButtonElement>("button", { name: /^Delete project data/ });
+/** A disabled action keeps focus and explains itself: aria-disabled, not `disabled`. */
+const off = (b: HTMLButtonElement) => b.disabled || b.getAttribute("aria-disabled") === "true";
+
+describe("Project settings: delete project data (moved from Settings)", () => {
+  it("deletes project data only after typing the project name", async () => {
+    const api = mockApi({
+      getProfile: {},
+      deleteProjectData: { deleted: { projectId: "p1" } },
+    });
+    renderWithStore(danger, api);
+    await openDangerZone();
+    await del();
+    expect(off(await del())).toBe(true);
+    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
+    expect(off(await del())).toBe(false);
+    await userEvent.click(await del());
+    expect(api.deleteProjectData).toHaveBeenCalledWith("p1", "Demo");
+    expect((await screen.findByRole("status")).textContent).toMatch(/Deleted all data for Demo/);
+  });
+
+  it("needs unlocked approvals to erase task evidence (review I1)", async () => {
+    const api = mockApi({ getProfile: {}, hasApprovalSession: () => false });
+    renderWithStore(danger, api);
+    await openDangerZone();
+    await del();
+    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
+    await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
+    await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
+    expect(off(await del())).toBe(true);
+    expect((await del()).textContent).toContain("needs the approval pairing code");
+    expect(screen.getByLabelText("Approval pairing code")).toBeTruthy();
+  });
+
+  it("erases task evidence only when the option is checked and separately confirmed", async () => {
+    const api = mockApi({
+      getProfile: {},
+      deleteProjectData: { deleted: { projectId: "p1", evidenceErased: 3 } },
+    });
+    renderWithStore(danger, api);
+    await openDangerZone();
+    await del();
+    await userEvent.type(screen.getByLabelText('Type "Demo" to confirm'), "Demo");
+    expect(screen.queryByLabelText("Type ERASE EVIDENCE to confirm")).toBeNull();
+    await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
+    // Checking the option re-gates the button behind a second confirmation.
+    expect(off(await del())).toBe(true);
+    await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
+    expect(off(await del())).toBe(false);
+    await userEvent.click(await del());
+    expect(api.deleteProjectData).toHaveBeenCalledWith("p1", "Demo", { eraseEvidence: true });
+    expect((await screen.findByRole("status")).textContent).toMatch(
+      /Deleted all data for Demo \(3 evidence records erased\)/,
+    );
   });
 });

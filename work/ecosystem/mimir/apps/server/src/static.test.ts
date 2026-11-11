@@ -48,6 +48,19 @@ describe("web app serving", () => {
     expect(res.headers["content-type"]).toContain(type);
   });
 
+  it("refuses a path with a malformed percent-encoding instead of serving the app shell", async () => {
+    const s = serve();
+    // The router rejects it before auth or the static handler see it (their own decode guards
+    // are a second line of defence).
+    for (const headers of [{}, AUTH]) {
+      for (const url of ["/%E0%A4%A", "/%", "/%FF"]) {
+        const res = await s.app.inject({ method: "GET", url, headers });
+        expect([url, res.statusCode]).toEqual([url, 422]);
+        expect(res.body).not.toContain("<title>mimir</title>");
+      }
+    }
+  });
+
   it("marks hashed assets immutable", async () => {
     const res = await serve().app.inject({ method: "GET", url: "/assets/app.js" });
     expect(res.headers["cache-control"]).toContain("immutable");

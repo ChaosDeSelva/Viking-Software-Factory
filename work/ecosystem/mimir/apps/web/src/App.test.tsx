@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -77,11 +77,41 @@ describe("App", () => {
     }
   });
 
-  it("signs out from settings", async () => {
+  it("renders the docs at a deep link with contents and search", async () => {
+    const user = userEvent.setup();
+    sessionStorage.setItem(TOKEN_KEY, "tok");
+    render(
+      <App
+        clientFactory={() => mockClient()}
+        baseUrl="http://x"
+        initialPath="/docs/mimir-screens"
+      />,
+    );
+    expect(await screen.findByRole("heading", { level: 1, name: "Docs" })).toBeTruthy();
+    const toc = screen.getAllByRole("navigation", { name: "Docs contents" })[0]!;
+    expect(
+      within(toc).getByRole("link", { name: "Mimir screens" }).getAttribute("aria-current"),
+    ).toBe("page");
+    expect(screen.getByRole("heading", { name: "Mission detail" })).toBeTruthy();
+    await user.type(screen.getByRole("searchbox", { name: "Search the docs" }), "budget");
+    expect(await screen.findByRole("heading", { name: /results?$/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Troubleshooting" })).toBeTruthy();
+  });
+
+  it("shows a not-found page with a way back", async () => {
+    sessionStorage.setItem(TOKEN_KEY, "tok");
+    render(<App clientFactory={() => mockClient()} baseUrl="http://x" initialPath="/nope" />);
+    expect(await screen.findByRole("heading", { level: 1, name: "Not found" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Go to the overview" }).getAttribute("href")).toBe("/");
+  });
+
+  it("signs out from settings (same action as the bottom bar, no separate Forget token)", async () => {
     const user = userEvent.setup();
     sessionStorage.setItem(TOKEN_KEY, "tok");
     render(<App clientFactory={() => mockClient()} baseUrl="http://x" initialPath="/settings" />);
-    await user.click(await screen.findByRole("button", { name: "Forget token" }));
+    const settings = await screen.findByRole("region", { name: "Session" });
+    expect(screen.queryByRole("button", { name: "Forget token" })).toBeNull();
+    await user.click(within(settings).getByRole("button", { name: "Sign out" }));
     expect(screen.getByRole("heading", { name: "Connect to Mimir" })).toBeTruthy();
     expect(sessionStorage.getItem(TOKEN_KEY)).toBeNull();
   });

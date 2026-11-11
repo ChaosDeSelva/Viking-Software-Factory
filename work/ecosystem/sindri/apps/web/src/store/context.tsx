@@ -21,14 +21,25 @@ const StoreContext = createContext<Store | null>(null);
 const ApiContext = createContext<ApiClient | null>(null);
 
 export const TOKEN_KEY = "sindri.token";
-const THEME_KEY = "sindri.theme";
+/** Pre-redesign theme key; moved once to the shared `factory-theme` the bottom bar owns. */
+const LEGACY_THEME_KEY = "sindri.theme";
+
+export function migrateTheme(): void {
+  try {
+    const old = localStorage.getItem(LEGACY_THEME_KEY);
+    if (old === null) return;
+    if ((old === "dark" || old === "light") && localStorage.getItem("factory-theme") === null)
+      localStorage.setItem("factory-theme", old);
+    localStorage.removeItem(LEGACY_THEME_KEY);
+  } catch {
+    /* no storage (outside a browser, or blocked) */
+  }
+}
 
 export function readInitial(): Partial<State> {
   const token = typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(TOKEN_KEY);
-  const stored = typeof localStorage === "undefined" ? null : localStorage.getItem(THEME_KEY);
   return {
     token,
-    theme: stored === "dark" || stored === "light" ? stored : "light",
     ...(typeof location === "undefined" ? {} : parseHash(location.hash)),
   };
 }
@@ -74,12 +85,6 @@ export function AppProviders(props: {
       window.removeEventListener("hashchange", onPop);
     };
   }, []);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", state.theme === "dark");
-    document.documentElement.style.colorScheme = state.theme;
-    if (typeof localStorage !== "undefined") localStorage.setItem(THEME_KEY, state.theme);
-  }, [state.theme]);
 
   return (
     <ApiContext.Provider value={props.api}>

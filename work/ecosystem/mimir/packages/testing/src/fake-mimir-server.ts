@@ -486,7 +486,11 @@ export async function fakeMimirServer(
 
   route("POST", "/v1/missions", ({ body }) => {
     const req = parse(CreateMissionRequestSchema, body);
-    need(state.projects, req.projectId, "project");
+    if (!state.projects.has(req.projectId))
+      throw new MimirError("validation_failed", `project ${req.projectId} not found`, {
+        reason: "unknown_project",
+        projectId: req.projectId,
+      });
     if (req.budget) checkBudget(req.budget);
     const mission = MissionSchema.parse({
       id: newId("msn"),
@@ -571,7 +575,17 @@ export async function fakeMimirServer(
 
   route("POST", "/v1/crews", ({ body }) => {
     const req = parse(CreateCrewRequestSchema, body);
-    need(state.missions, req.missionId, "mission");
+    const parent = state.missions.get(req.missionId);
+    if (!parent)
+      throw new MimirError("validation_failed", `mission ${req.missionId} not found`, {
+        reason: "unknown_mission",
+        missionId: req.missionId,
+      });
+    if (MISSION_TERMINAL.has(parent.status))
+      throw new MimirError("invalid_transition", `mission is ${parent.status}`, {
+        missionId: parent.id,
+        status: parent.status,
+      });
     if (req.budget) checkBudget(req.budget);
     const crew = CrewSchema.parse({
       id: newId("crw"),
@@ -635,14 +649,23 @@ export async function fakeMimirServer(
     route("PATCH", `/v1/${scope}/:id/budget`, ({ params, body }) => {
       const { id } = parse(schema.object({ id: schema.string().min(1) }), params);
       const req = parse(UpdateBudgetRequestSchema, body ?? {});
-      const crew = scope === "crews" ? need(state.crews, id, "crew") : undefined;
-      const mission = need(state.missions, crew?.missionId ?? id, "mission");
-      if (MISSION_TERMINAL.has(mission.status))
-        throw new MimirError("invalid_transition", "mission is terminal");
+      const crew = scope === "crews" ? state.crews.get(id) : undefined;
+      if (scope === "crews" && !crew)
+        throw new MimirError("not_found", `crew ${id} not found`, { crewId: id });
+      const missionId = crew?.missionId ?? id;
+      const mission = state.missions.get(missionId);
+      if (!crew && !mission)
+        throw new MimirError("not_found", `mission ${id} not found`, { missionId: id });
+      if (!mission || MISSION_TERMINAL.has(mission.status))
+        throw new MimirError("invalid_transition", `mission is ${mission?.status ?? "gone"}`, {
+          missionId,
+        });
       const key = crew ? `crew:${crew.id}` : `mission:${mission.id}`;
       const current = state.budgets.get(key);
       if (req.expectedVersion !== undefined && req.expectedVersion !== (current?.version ?? 0))
-        throw new MimirError("conflict", "budget version changed");
+        throw new MimirError("conflict", "budget version changed", {
+          version: current?.version ?? null,
+        });
       const limitTokens =
         req.limitTokens !== undefined ? req.limitTokens : (current?.limitTokens ?? null);
       const limitCost = req.limitCost !== undefined ? req.limitCost : (current?.limitCost ?? null);
@@ -1237,7 +1260,13 @@ export async function fakeMimirServer(
         send(res, prior.reply, { "idempotency-replayed": "true" });
         return;
       }
-      const reply = found.route.handler(ctx);
+      let reply: Reply | "stream";
+      try {
+        reply = found.route.handler(ctx);
+      } catch (err) {
+        // Like the real ledger, a failed command keeps its error reply for the key.
+        reply = errorReply(err);
+      }
       if (reply === "stream") return;
       idempotency.set(key, { hash, reply });
       send(res, reply);

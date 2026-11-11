@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Validator } from "@seriousme/openapi-schema-validator";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { EVENT_TYPES } from "./events.js";
 import {
   OPENAPI_COMPONENTS,
@@ -79,8 +80,10 @@ describe("generateOpenApi", () => {
     expect(listed.sort()).toEqual(ENDPOINTS.map(toOpenApiPath).sort());
   });
 
-  it("requires the idempotency-key header on every mutation", () => {
-    for (const endpoint of ENDPOINTS.filter((e) => e.startsWith("POST "))) {
+  it("requires the idempotency-key header on every mutation (the server refuses one without it)", () => {
+    const mutations = ENDPOINTS.filter((e) => !e.startsWith("GET "));
+    expect(mutations).toContain("PATCH /v1/crews/:id/budget");
+    for (const endpoint of mutations) {
       const header = operation(doc, endpoint)?.parameters?.find(
         (p) => p.in === "header" && p.name === "idempotency-key",
       );
@@ -92,6 +95,40 @@ describe("generateOpenApi", () => {
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual(
       Object.keys(OPENAPI_COMPONENTS).sort(),
     );
+  });
+
+  it("never lists as required a field the schema lets a response leave out", () => {
+    const schemas = doc.components?.schemas as Record<string, { required?: string[] }>;
+    for (const [name, schema] of Object.entries(OPENAPI_COMPONENTS)) {
+      if (!(schema instanceof z.ZodObject)) continue;
+      const shape = schema.shape as Record<string, z.ZodType>;
+      const absent = Object.keys(shape).filter(
+        (k) => z.object({ [k]: shape[k]! }).safeParse({}).success,
+      );
+      for (const k of absent) expect(schemas[name]?.required ?? [], name).not.toContain(k);
+    }
+    // A usage sample without prompt-cache reads (an `unavailable` one) is valid.
+    expect(schemas.UsageSample?.required).not.toContain("cachedTokens");
+    expect(schemas.UsageSample?.required).toContain("tokens");
+  });
+
+  it("does not require the optional runtime handles of a task's sessions", () => {
+    const res = operation(doc, "GET /v1/tasks/:id")?.responses as Record<
+      string,
+      { content: { "application/json": { schema: unknown } } }
+    >;
+    const session = (
+      res["200"]!.content["application/json"].schema as {
+        properties: {
+          sessions: {
+            items: { required: string[]; properties: Record<string, { required?: string[] }> };
+          };
+        };
+      }
+    ).properties.sessions.items;
+    expect(session.properties.runtimeRef?.required).toEqual([]);
+    expect(Object.keys(session.properties.runtimeRef ?? {})).toContain("properties");
+    expect(session.required).toContain("runtimeRef");
   });
 
   it("marks request bodies optional only when every field is optional", () => {

@@ -45,10 +45,10 @@ async function world(limitTokens = 100) {
 }
 
 /** Measured usage for the agent that ran `taskId`, as an adapter reports it. */
-function spend(h: Harness, taskId: string, tokens: number) {
+function spend(h: Harness, taskId: string, tokens: number, estimatedCost: number | null = null) {
   const at = h.app.mimir.now().toISOString();
   h.store.append({
-    streamId: `usage-test:${taskId}:${tokens}`,
+    streamId: `usage-test:${taskId}:${tokens}:${estimatedCost}`,
     type: "usage.recorded",
     source: "test",
     provenance: "observed",
@@ -59,7 +59,7 @@ function spend(h: Harness, taskId: string, tokens: number) {
         id: newId("usg"),
         agentId: h.task(taskId).agentId!,
         tokens,
-        estimatedCost: null,
+        estimatedCost,
         source: "measured",
         createdAt: at,
         updatedAt: at,
@@ -204,11 +204,66 @@ describe("PATCH /v1/crews/:id/budget", () => {
   });
 });
 
+describe("budget events of a budget with both limits", () => {
+  it("report the dimension that ran out, not always tokens", async () => {
+    const { h, missionId, crewId, a, b } = await world(1_000_000);
+    // Add a cost limit to the crew's token budget.
+    expect((await patch(h, `/v1/crews/${crewId}/budget`, { limitCost: 1 })).status).toBe(200);
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    expect(h.task(a).status).toBe("completed");
+    // Few tokens, but five times the cost limit.
+    spend(h, a, 10, 5);
+    await h.tick();
+    await h.tick();
+    expect(h.task(b)).toMatchObject({ status: "blocked", blockedReason: "budget_exceeded" });
+    const exceeded = h.events(["budget.exceeded"]);
+    expect(exceeded).toHaveLength(1);
+    expect(exceeded[0]!.payload).toMatchObject({
+      unit: "cost",
+      used: 5,
+      limit: 1,
+      overBy: 4,
+      budgetVersion: 1,
+    });
+  });
+
+  it("warn about the dimension closest to its limit", async () => {
+    const { h, missionId, crewId, a } = await world(1000);
+    expect((await patch(h, `/v1/crews/${crewId}/budget`, { limitCost: 10 })).status).toBe(200);
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    expect(h.task(a).status).toBe("completed");
+    // 10% of the tokens, 90% of the cost: a cost warning.
+    spend(h, a, 100, 9);
+    await h.tick();
+    expect(h.events(["budget.exceeded"])).toEqual([]);
+    expect(h.events(["budget.warning"]).map((e) => e.payload)).toEqual([
+      expect.objectContaining({ unit: "cost", used: 9, limit: 10, overBy: -1 }),
+    ]);
+  });
+});
+
 describe("PATCH /v1/missions/:id/budget", () => {
   it("creates the mission's budget when it has none, then changes it in place", async () => {
     const { h, missionId } = await world();
     const url = `/v1/missions/${missionId}/budget`;
     expect((await patch(h, url, { warnAtFraction: 0.5 })).status).toBe(422);
+    const empty = await h.app.inject({
+      method: "PATCH",
+      url,
+      headers: { ...AUTH, "idempotency-key": h.key() },
+    });
+    expect(empty.statusCode).toBe(422);
+    // A scope without a budget is at version 0: any other expected version is a conflict.
+    expect(
+      await patch(h, url, { limitTokens: 5, expectedVersion: 1, onUnknown: "allow" }),
+    ).toMatchObject({
+      status: 409,
+      json: { error: { code: "conflict", details: { version: null } } },
+    });
     // The fake runtime reports no usage: a hard budget must say what unknown usage means.
     expect((await patch(h, url, { limitTokens: 5000, enforce: "hard" })).json).toMatchObject({
       error: { details: { reason: "budget_on_unknown_required" } },

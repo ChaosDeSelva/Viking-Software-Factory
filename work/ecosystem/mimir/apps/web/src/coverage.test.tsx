@@ -1,14 +1,13 @@
 import { newId, type CapabilitiesResponse, type Worktree } from "@mimir/protocol";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRoutes, defaultBaseUrl } from "./App.js";
 import { useSession } from "./api/session.js";
 import { ActionResult } from "./components/ActionResult.js";
 import { DagSvg } from "./components/DagSvg.js";
-import { Tabs } from "./components/Tabs.js";
+import { Tabs as UiTabs } from "@factory/ui";
 import { createClient } from "./api/client.js";
 import { EventList } from "./components/EventList.js";
 import { HelpDialog } from "./components/HelpDialog.js";
@@ -100,37 +99,26 @@ describe("App routes and defaults", () => {
   });
 });
 
-describe("Tabs keyboard", () => {
-  function Harness() {
-    const [active, setActive] = useState("a");
-    return (
-      <Tabs
-        tabs={[
-          { id: "a", label: "A" },
-          { id: "b", label: "B" },
-          { id: "c", label: "C" },
-        ]}
-        active={active}
-        onChange={setActive}
+describe("Tabs keyboard (shared @factory/ui Tabs used by Mission detail and Reviews)", () => {
+  it("moves with arrows (wrapping), Home and End", async () => {
+    const user = userEvent.setup();
+    render(
+      <UiTabs
         label="Views"
-      >
-        <span data-testid="panel">{active}</span>
-      </Tabs>
+        items={["a", "b", "c"].map((v) => ({
+          value: v,
+          label: v.toUpperCase(),
+          content: <span data-testid="panel">{v}</span>,
+        }))}
+      />,
     );
-  }
-
-  it("moves with arrows (wrapping), Home and End, and ignores other keys", () => {
-    render(<Harness />);
     const panel = () => screen.getByTestId("panel").textContent;
-    const tab = (name: string) => screen.getByRole("tab", { name });
-    fireEvent.keyDown(tab("A"), { key: "ArrowLeft" });
+    await user.click(screen.getByRole("tab", { name: "A" }));
+    await user.keyboard("{ArrowLeft}");
     expect(panel()).toBe("c");
-    expect(document.activeElement).toBe(tab("C"));
-    fireEvent.keyDown(tab("C"), { key: "Home" });
+    await user.keyboard("{Home}");
     expect(panel()).toBe("a");
-    fireEvent.keyDown(tab("A"), { key: "End" });
-    expect(panel()).toBe("c");
-    fireEvent.keyDown(tab("C"), { key: "x" });
+    await user.keyboard("{End}");
     expect(panel()).toBe("c");
   });
 });
@@ -143,7 +131,7 @@ describe("ActionResult and DagSvg details", () => {
   });
 
   it("shortens long task titles and draws only edges between shown tasks", () => {
-    const long = task({ title: "A very long task title that does not fit" });
+    const long = task({ title: "A very long task title that does not fit in a node" });
     const other = task({ title: "Short" });
     render(
       <DagSvg
@@ -153,8 +141,9 @@ describe("ActionResult and DagSvg details", () => {
     );
     const svg = screen.getByRole("img");
     expect(svg.getAttribute("aria-label")).toBe("Task dependency graph: 2 tasks, 1 dependencies");
-    expect(svg.textContent).toContain("A very long task titl…");
+    expect(svg.textContent).toContain("A very long task title that d…");
     expect(svg.textContent).toContain("Short");
+    expect(svg.querySelector("title")?.textContent).toContain("does not fit in a node");
   });
 });
 
@@ -229,27 +218,25 @@ describe("Overview details", () => {
       ],
     });
     renderOverview(client);
-    const region = await screen.findByRole("region", { name: "Needs attention" });
+    const region = await screen.findByRole("region", { name: /Needs attention/ });
     const row = async (title: string) => (await within(region).findByText(title)).closest("li");
-    expect(
-      within((await row("Stuck session")) as HTMLElement)
-        .getByRole("link", { name: "Inspect agent" })
-        .getAttribute("href"),
-    ).toBe(`/agents/${sessionId}`);
-    expect(
-      within((await row("Over budget")) as HTMLElement)
-        .getByRole("link", { name: "Open mission" })
-        .getAttribute("href"),
-    ).toBe(`/missions/${missionId}`);
-    expect(within((await row("Something odd")) as HTMLElement).queryByRole("link")).toBeNull();
+    const stuck = within((await row("Stuck session")) as HTMLElement).getByRole("link");
+    expect(stuck.getAttribute("href")).toBe(`/agents/${sessionId}`);
+    expect(stuck.textContent).toMatch(/Inspect agent/);
+    const budget = within((await row("Over budget")) as HTMLElement).getByRole("link");
+    expect(budget.getAttribute("href")).toBe(`/missions/${missionId}`);
+    expect(budget.textContent).toMatch(/Open mission/);
+    const odd = (await row("Something odd")) as HTMLElement;
+    expect(within(odd).queryByRole("link")).toBeNull();
+    expect(within(odd).queryByRole("button")).toBeNull();
   });
 
-  it("names an active crew's mission by id when the mission is not loaded", async () => {
+  it("leaves out a crew whose mission is not loaded (it cannot be shown as active)", async () => {
     const c = crew({ status: "running" });
     const client = mockClient({ snapshot: vi.fn(async () => snapshot({ crews: [c] })) });
     renderOverview(client);
-    const region = await screen.findByRole("region", { name: "Active crews" });
-    expect(within(region).getByText(c.missionId)).toBeTruthy();
+    const region = await screen.findByRole("region", { name: /Active crews/ });
+    expect(within(region).getByText("No active crews")).toBeTruthy();
   });
 });
 
@@ -283,11 +270,15 @@ describe("MissionDetail details", () => {
     });
     renderMission(client, m.id);
     const plan = await screen.findByRole("tabpanel");
-    expect(await within(plan).findByText("Stuck one: blocked (x)")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: "Agents" }));
+    const table = await within(plan).findByRole("table", { name: "Tasks" });
+    const row = within(table).getByText("Stuck one").closest("tr") as HTMLElement;
+    expect(within(row).getByRole("img", { name: "Status: Blocked" })).toBeTruthy();
+    expect(within(row).getByText("x").dataset.blockedReason).toBe("x");
+    await user.click(screen.getByRole("tab", { name: /^Agents/ }));
     expect(screen.getByText("no session")).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "Timeline" }));
-    expect(screen.getByRole("option", { name: c.template })).toBeTruthy();
+    await user.click(screen.getByRole("combobox", { name: "Crew" }));
+    expect(await screen.findByRole("option", { name: "Default crew" })).toBeTruthy();
   });
 
   it("shows test totals, duration and output, and a passing run", async () => {
@@ -326,7 +317,7 @@ describe("MissionDetail details", () => {
     vi.mocked(client.usage.get).mockRejectedValue(new Error("usage down"));
     renderMission(client, m.id);
     await user.click(await screen.findByRole("tab", { name: "Files" }));
-    expect(await screen.findByText("No artifacts recorded yet.")).toBeTruthy();
+    expect(await screen.findByText("No artifacts recorded yet")).toBeTruthy();
     await user.click(screen.getByRole("tab", { name: "Costs" }));
     expect((await screen.findByRole("alert")).textContent).toContain("usage down");
   });
@@ -464,28 +455,24 @@ describe("small components", () => {
     expect(items).toHaveLength(6);
   });
 
-  it("keeps Tab focus inside the help dialog in both directions", () => {
+  it("keeps Tab focus inside the help dialog in both directions and closes on Escape", async () => {
+    const user = userEvent.setup();
     const onClose = vi.fn();
     render(
       <>
         <button type="button">outside</button>
-        <HelpDialog onClose={onClose} />
+        <HelpDialog open onClose={onClose} screen="missions" />
       </>,
     );
     const dialog = screen.getByRole("dialog");
-    const inside = within(dialog).getAllByRole("button");
-    const first = inside[0] as HTMLElement;
-    const last = inside[inside.length - 1] as HTMLElement;
-    last.focus();
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(first);
-    first.focus();
-    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
-    screen.getByRole("button", { name: "outside" }).focus();
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(first);
-    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    for (let i = 0; i < 6; i++) {
+      await user.tab();
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    }
+    await user.tab({ shift: true });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -530,7 +517,7 @@ describe("screen details", () => {
     await user.type(await screen.findByLabelText("Replay from cursor"), "c0");
     await user.click(screen.getByRole("button", { name: "Replay" }));
     expect((await screen.findByRole("status")).textContent).toBe(
-      `Replayed ${HISTORY_MAX_PAGES} events from cursor c0 (stopped early; continue from c${HISTORY_MAX_PAGES}).`,
+      `Replayed ${HISTORY_MAX_PAGES} events from cursor c0 (stopped early; Continue resumes from cursor c${HISTORY_MAX_PAGES}).`,
     );
   });
 
@@ -563,7 +550,7 @@ describe("screen details", () => {
     });
     renderWithStore(<Projects />, { client });
     const row = async (name: string) =>
-      (await screen.findByRole("cell", { name })).closest("tr") as HTMLElement;
+      (await screen.findByText(name, { selector: "span" })).closest("tr") as HTMLElement;
     expect((await row("argv")).textContent).toContain("pnpm test");
     expect((await row("argv")).textContent).toContain("main, rel");
     expect((await row("string")).textContent).toContain("make test");
@@ -580,9 +567,11 @@ describe("screen details", () => {
     });
     renderWithStore(<Crews />, { client });
     await screen.findByText(/No crews yet/);
-    await user.click(screen.getByRole("button", { name: "Create crew" }));
+    await user.click(screen.getAllByRole("button", { name: "New crew" })[0]!);
+    await user.click(await screen.findByRole("button", { name: "Create crew" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Choose a mission.");
-    await user.selectOptions(screen.getByLabelText("Mission"), m.id);
+    await user.click(screen.getByLabelText("Mission"));
+    await user.click(await screen.findByRole("option", { name: "Ship the thing" }));
     await user.click(screen.getByRole("checkbox", { name: "lead" }));
     await user.click(screen.getByRole("checkbox", { name: "lead" }));
     await user.click(screen.getByRole("button", { name: "Create crew" }));
@@ -598,11 +587,14 @@ describe("screen details", () => {
     const c = crew();
     const client = mockClient({ snapshot: vi.fn(async () => snapshot({ crews: [c] })) });
     const list = renderWithStore(<Crews />, { client });
+    // A crew without a loaded mission is not active: it shows under All.
+    await userEvent.click(await screen.findByRole("radio", { name: "All" }));
     expect(await screen.findByText(c.missionId)).toBeTruthy();
     list.unmount();
     renderWithStore(<CrewDetail />, { client, route: `/crews/${c.id}`, path: "/crews/:id" });
-    expect(await screen.findByText("No agents have been started for this crew yet.")).toBeTruthy();
-    expect(screen.getByText(c.missionId).tagName).toBe("SPAN");
+    expect(await screen.findByText("No agents have been started for this crew yet")).toBeTruthy();
+    // No mission to link to: the raw id, copyable.
+    expect(screen.getByLabelText(`Mission ID ${c.missionId}`).tagName).toBe("SPAN");
   });
 
   it("AgentInspector sends a trimmed instruction, clears it, and ignores a blank one", async () => {
@@ -627,7 +619,8 @@ describe("screen details", () => {
     expect(client.sessions.input).toHaveBeenCalledWith(ag.runtimeSessionId, { text: "go on" });
     await waitFor(() => expect(box.value).toBe(""));
     await user.click(screen.getByRole("button", { name: "Read terminal" }));
-    expect(await screen.findByText("captured 2026-10-14T10:00:00.000Z")).toBeTruthy();
+    const captured = await screen.findByText(/^Captured /);
+    expect(captured.getAttribute("datetime")).toBe("2026-10-14T10:00:00.000Z");
   });
 
   it("Reviews shows expiry, test totals, risky approvals with reasons, and retries a failed history", async () => {
@@ -643,13 +636,18 @@ describe("screen details", () => {
         page([event("test.run_completed", { command: "pnpm test", passed: false, total: 3 })]),
       );
     renderWithStore(<Reviews />, { client });
-    expect(await screen.findByText(/expires 2026-10-15T00:00:00.000Z/)).toBeTruthy();
-    expect(await screen.findByText("Error: history down")).toBeTruthy();
+    const expiry = await screen.findByText(/expires/);
+    expect(expiry.querySelector("time")?.getAttribute("datetime")).toBe("2026-10-15T00:00:00.000Z");
+    expect(await screen.findByText("history down")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /retry/i }));
-    const testRow = (await screen.findByText("pnpm test")).closest("li");
+    const testRow = (await screen.findByText("pnpm test")).closest("tr");
     expect(testRow?.textContent).toContain("0 of 3 failed");
-    const riskyRegion = screen.getByRole("region", { name: "High-risk commands" });
-    expect(riskyRegion.textContent).toContain("shell.rm (rejected): too wide");
+    await user.click(screen.getByRole("tab", { name: /High-risk/ }));
+    const riskyRow = within(screen.getByRole("region", { name: /High-risk commands/ }))
+      .getByText("shell.rm")
+      .closest("tr");
+    expect(riskyRow?.textContent).toContain("too wide");
+    expect(within(riskyRow!).getByRole("img", { name: "Status: Rejected" })).toBeTruthy();
   });
 });
 
@@ -659,17 +657,19 @@ describe("remaining branches", () => {
     expect(typeof client.snapshot).toBe("function");
   });
 
-  it("moves Shift+Tab from outside the help dialog to its last control", () => {
-    render(
-      <>
-        <button type="button">outside</button>
-        <HelpDialog onClose={vi.fn()} />
-      </>,
-    );
-    const inside = within(screen.getByRole("dialog")).getAllByRole("button");
-    screen.getByRole("button", { name: "outside" }).focus();
-    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(inside[inside.length - 1]);
+  it("help dialog shows the screen's docs section, or only shortcuts on the docs page", () => {
+    const { unmount } = render(<HelpDialog open onClose={vi.fn()} screen="reviews" />);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "On this screen" })).toBeTruthy();
+    expect(
+      within(dialog)
+        .getByRole("link", { name: /full guide/ })
+        .getAttribute("href"),
+    ).toBe("/docs/mimir-screens#reviews");
+    unmount();
+    render(<HelpDialog open onClose={vi.fn()} screen="docs" />);
+    expect(screen.queryByRole("heading", { name: "On this screen" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
   });
 
   it("Activity replays from the beginning when no cursor is given", async () => {
@@ -690,7 +690,9 @@ describe("remaining branches", () => {
     vi.mocked(client.crews.create).mockRejectedValue(new Error("crew refused"));
     renderWithStore(<Crews />, { client });
     await screen.findByText(/No crews yet/);
-    await user.selectOptions(screen.getByLabelText("Mission"), m.id);
+    await user.click(screen.getAllByRole("button", { name: "New crew" })[0]!);
+    await user.click(await screen.findByLabelText("Mission"));
+    await user.click(await screen.findByRole("option", { name: "Ship the thing" }));
     await user.click(screen.getByRole("checkbox", { name: "lead" }));
     await user.clear(screen.getByLabelText("Max concurrent tasks"));
     await user.click(screen.getByRole("button", { name: "Create crew" }));
@@ -728,17 +730,21 @@ describe("remaining branches", () => {
       path: "/missions/:id",
     });
     await user.click(await screen.findByRole("tab", { name: "Tests" }));
-    expect(await screen.findByText("No test runs recorded yet.")).toBeTruthy();
-    await user.click(screen.getByRole("tab", { name: "Agents" }));
-    expect(screen.getByText("No agents yet.")).toBeTruthy();
+    expect(await screen.findByText("No test runs recorded yet")).toBeTruthy();
+    await user.click(screen.getByRole("tab", { name: /^Agents/ }));
+    expect(screen.getByText("No agents yet")).toBeTruthy();
   });
 
-  it("Overview lists configured crews as active", async () => {
-    const c = crew({ status: "configured", template: "solo" });
-    const client = mockClient({ snapshot: vi.fn(async () => snapshot({ crews: [c] })) });
+  it("Overview lists a configured crew of a live mission as active, showing Set up", async () => {
+    const m = mission({ objective: "Live work" });
+    const c = crew({ status: "configured", template: "solo", missionId: m.id });
+    const client = mockClient({
+      snapshot: vi.fn(async () => snapshot({ missions: [m], crews: [c] })),
+    });
     renderWithStore(<Overview />, { client });
-    const region = await screen.findByRole("region", { name: "Active crews" });
-    expect(within(region).getByRole("link", { name: "solo crew" })).toBeTruthy();
+    const region = await screen.findByRole("region", { name: /Active crews/ });
+    const link = within(region).getByRole("link", { name: /Solo crew · Live work/ });
+    expect(within(link).getAllByRole("img", { name: "Status: Set up" }).length).toBeGreaterThan(0);
   });
 
   it("Missions board shows a blocked task's reason", async () => {
@@ -753,8 +759,9 @@ describe("remaining branches", () => {
       snapshot: vi.fn(async () => snapshot({ missions: [m], tasks: [t] })),
     });
     renderWithStore(<Missions />, { client });
-    const row = (await screen.findByText("Waits")).closest("li");
-    expect(row?.textContent).toContain("blocked · needs ok");
+    const card = (await screen.findByText("Waits")).closest("li") as HTMLElement;
+    expect(within(card).getByRole("img", { name: "Status: Blocked" })).toBeTruthy();
+    expect(card.textContent).toContain("needs ok");
   });
 
   it("Reviews shows a passing run and a risky approval without a reason", async () => {
@@ -764,11 +771,14 @@ describe("remaining branches", () => {
       page([event("test.run_completed", { command: "pnpm ok", passed: true })]),
     );
     renderWithStore(<Reviews />, { client });
-    const row = (await screen.findByText("pnpm ok")).closest("li");
-    expect(row?.textContent).toContain("completed");
-    const region = screen.getByRole("region", { name: "High-risk commands" });
-    expect(region.textContent).toContain(`shell.exec (${risky.status})`);
-    expect(region.textContent).not.toContain(`(${risky.status}):`);
+    const row = (await screen.findByText("pnpm ok")).closest("tr")!;
+    expect(within(row).getByRole("img", { name: /Status: Passed/i })).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: /High-risk/ }));
+    const riskyRow = within(screen.getByRole("region", { name: /High-risk commands/ }))
+      .getByText("shell.exec")
+      .closest("tr")!;
+    // No reason recorded: a dash, not an empty "():".
+    expect(within(riskyRow).getByText("—")).toBeTruthy();
   });
 
   it("Reviews drops a history result that arrives after unmount", async () => {
@@ -864,7 +874,7 @@ describe("Reviews focus", () => {
     document.body.appendChild(outside);
     try {
       renderWithStore(<Reviews />, { client });
-      const region = await screen.findByRole("region", { name: "Pending approvals" });
+      const region = await screen.findByRole("region", { name: /Pending approvals/ });
       await waitFor(() => expect(within(region).getAllByRole("listitem")).toHaveLength(1));
       await waitFor(() => expect(client.streamController.calls).toHaveLength(1));
       outside.focus();

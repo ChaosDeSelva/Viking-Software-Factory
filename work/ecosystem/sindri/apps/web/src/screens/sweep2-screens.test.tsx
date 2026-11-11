@@ -10,6 +10,7 @@ import { intake, meta, spec } from "../test/fixtures.js";
 import { mockApi, PROJECT, renderWithStore } from "../test/utils.js";
 import { DirectorScreen } from "./DirectorScreen.js";
 import { InboxScreen } from "./InboxScreen.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 import { ProjectsScreen } from "./ProjectsScreen.js";
 
 const withNotices = (screenUi: ReactElement) => (
@@ -37,8 +38,9 @@ describe("InboxScreen (sweep 2)", { timeout: 20_000 }, () => {
     renderWithStore(withNotices(<InboxScreen />), api);
     await screen.findByText("The inbox is empty.");
     api.listIntakes.mockResolvedValue([imported]);
+    await userEvent.click(screen.getByRole("tab", { name: "Import a ticket" }));
     await userEvent.type(
-      screen.getByLabelText("Jira or Linear URL"),
+      await screen.findByLabelText("Jira or Linear URL"),
       " https://linear.app/acme/issue/ENG-9 ",
     );
     await userEvent.click(screen.getByRole("button", { name: "Import" }));
@@ -78,14 +80,15 @@ describe("InboxScreen (sweep 2)", { timeout: 20_000 }, () => {
     });
     renderWithStore(<InboxScreen />, api);
     const item = await screen.findByRole("button", { name: /PROJ-1 bug/ });
-    expect(within(item).getByText("stale")).toBeTruthy();
+    // The row repeats its status for the phone layout.
+    expect(within(item).getAllByText("Update available").length).toBeGreaterThan(0);
     await userEvent.click(item);
     const detail = await screen.findByRole("article", { name: "Intake detail" });
     expect(within(detail).getByText(/PROJ-1 ·/).textContent).toBe(
       "PROJ-1 · https://acme.atlassian.net/browse/PROJ-1",
     );
     expect(within(detail).getByText("(no description)")).toBeTruthy();
-    expect(within(detail).getByRole("heading", { name: "Comments" })).toBeTruthy();
+    expect(within(detail).getByRole("heading", { name: /^Comments/ })).toBeTruthy();
     expect(within(detail).getByText(/Seen on Safari too/).textContent).toBe(
       "Ann remote: Seen on Safari too",
     );
@@ -101,7 +104,7 @@ describe("ProjectsScreen (sweep 2)", { timeout: 20_000 }, () => {
       bootstrap: () => Promise.reject(new Error("index locked")),
       search: () => Promise.reject(new Error("search failed")),
     });
-    renderWithStore(withNotices(<ProjectsScreen />), api);
+    const { unmount } = renderWithStore(withNotices(<ProjectsScreen />), api);
     await screen.findByText("/repo/demo");
     await userEvent.type(screen.getByLabelText("Name"), "New");
     await userEvent.type(screen.getByLabelText("Repository path"), "/nope");
@@ -116,33 +119,64 @@ describe("ProjectsScreen (sweep 2)", { timeout: 20_000 }, () => {
       false,
     );
     expect(screen.queryByLabelText("Bootstrap result")).toBeNull();
+    unmount();
 
+    // The index search lives on Project settings → Repository & index.
+    renderWithStore(withNotices(<ProjectSettingsScreen />), api);
+    await userEvent.click(screen.getByRole("tab", { name: "Repository & index" }));
     await userEvent.type(screen.getByLabelText("Search the project index"), "frob");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/search failed/));
+    // The notice is one of several alert regions on Project settings.
+    await waitFor(() =>
+      expect(screen.getAllByRole("alert").some((a) => /search failed/.test(a.textContent))).toBe(
+        true,
+      ),
+    );
     expect(screen.queryByRole("list", { name: "Search results" })).toBeNull();
   });
 
   it("selects another project and says when a search finds nothing", async () => {
     const api = mockApi({ listProjects: [PROJECT, TWO], getProfile: {}, search: [] });
-    renderWithStore(withNotices(<ProjectsScreen />), api, { projects: [PROJECT, TWO] });
+    renderWithStore(
+      withNotices(
+        <>
+          <ProjectsScreen />
+          <ProjectSettingsScreen />
+        </>,
+      ),
+      api,
+      { projects: [PROJECT, TWO] },
+    );
     await userEvent.click(await screen.findByRole("button", { name: "Select Two" }));
     expect(screen.queryByRole("button", { name: "Select Two" })).toBeNull();
     expect(screen.getByRole("button", { name: "Select Demo" })).toBeTruthy();
+    // Project settings follows the selection: its profile is the new project's.
     await waitFor(() => expect(api.getProfile).toHaveBeenLastCalledWith("p2"));
+    await userEvent.click(screen.getByRole("tab", { name: "Repository & index" }));
     await userEvent.type(screen.getByLabelText("Search the project index"), "nothing");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(api.search).toHaveBeenCalledWith("p2", "nothing");
-    expect(
-      await screen.findByText("No matches. Bootstrap the project first if you have not."),
-    ).toBeTruthy();
+    expect(await screen.findByText("No matches.")).toBeTruthy();
+    expect(screen.getByText("Bootstrap the project first if you have not.")).toBeTruthy();
   });
 
   it("explains a load failure that is not an Error, and asks for a project to search", async () => {
     const api = mockApi({ listProjects: () => Promise.reject("offline") });
-    renderWithStore(withNotices(<ProjectsScreen />), api, { projects: [], projectId: null });
+    renderWithStore(
+      withNotices(
+        <>
+          <ProjectsScreen />
+          <ProjectSettingsScreen />
+        </>,
+      ),
+      api,
+      { projects: [], projectId: null },
+    );
     expect(await screen.findByText("Could not load projects: offline")).toBeTruthy();
-    expect(screen.getByText("Select a project to search its index.")).toBeTruthy();
+    // No project: Project settings offers no index search or profile, only a way to pick one.
+    expect(screen.getByText("No project selected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Manage projects" })).toBeTruthy();
+    expect(screen.queryByLabelText("Search the project index")).toBeNull();
     expect(screen.queryByRole("form", { name: "Execution profile" })).toBeNull();
   });
 
@@ -203,7 +237,7 @@ describe("DirectorScreen (sweep 2)", { timeout: 20_000 }, () => {
 });
 
 describe("Execution profile editor (sweep 2)", { timeout: 20_000 }, () => {
-  const ui = withNotices(<ProjectsScreen />);
+  const ui = withNotices(<ProjectSettingsScreen />);
   const form = () => screen.findByRole("form", { name: "Execution profile" });
   const type = (el: HTMLElement, text: string) => fireEvent.change(el, { target: { value: text } });
   const refuse = (details: unknown) =>

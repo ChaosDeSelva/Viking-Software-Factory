@@ -140,6 +140,103 @@ describe("budgets", () => {
       ).toMatchObject({ id: same.body.budget.id, version: 0 });
     }
   });
+
+  it("stores a creation budget's enforce mode and leaves onUnknown unset when not given", async () => {
+    const { project } = (await post("/v1/projects", { name: "p", repoPath: "/tmp/r" })).body;
+    const created = await post("/v1/missions", {
+      projectId: project.id,
+      objective: "o",
+      budget: { limitTokens: 50, enforce: "soft" },
+    });
+    expect(created.status).toBe(201);
+    const same = await patch(`/v1/missions/${created.body.mission.id}/budget`, {
+      limitTokens: 50,
+    });
+    expect(same.body.changed).toBe(false);
+    expect(same.body.budget).toMatchObject({ limitTokens: 50, limitCost: null, enforce: "soft" });
+    expect(same.body.budget).not.toHaveProperty("onUnknown");
+  });
+
+  it("answers budget errors with the real route's codes and details", async () => {
+    const a = await mission();
+    const created = await crew(a.mission.id);
+    const crewPath = `/v1/crews/${created.crew.id}/budget`;
+    const empty = await patch(crewPath);
+    expect(empty.status).toBe(422);
+    const stale = await patch(crewPath, { limitTokens: 5, onUnknown: "allow", expectedVersion: 3 });
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.details).toEqual({ version: null });
+    await patch(crewPath, { limitTokens: 5, onUnknown: "allow" });
+    const staleAgain = await patch(crewPath, { limitTokens: 6, expectedVersion: 3 });
+    expect(staleAgain.body.error.details).toEqual({ version: 0 });
+    const crwId = newId("crw");
+    const missing = await patch(`/v1/crews/${crwId}/budget`, { limitCost: 1 });
+    expect(missing.body.error).toMatchObject({
+      code: "not_found",
+      message: `crew ${crwId} not found`,
+      details: { crewId: crwId },
+    });
+    const msnId = newId("msn");
+    const noMission = await patch(`/v1/missions/${msnId}/budget`, { limitCost: 1 });
+    expect(noMission.body.error).toMatchObject({
+      code: "not_found",
+      message: `mission ${msnId} not found`,
+      details: { missionId: msnId },
+    });
+    const b = await mission();
+    const orphan = await crew(b.mission.id);
+    s.state.missions.delete(b.mission.id);
+    const gone = await patch(`/v1/crews/${orphan.crew.id}/budget`, { limitCost: 1 });
+    expect(gone.body.error).toMatchObject({
+      code: "invalid_transition",
+      message: "mission is gone",
+      details: { missionId: b.mission.id },
+    });
+    await post(`/v1/missions/${a.mission.id}/cancel`, {});
+    const closed = await patch(`/v1/missions/${a.mission.id}/budget`, { limitCost: 1 });
+    expect(closed.status).toBe(409);
+    expect(closed.body.error).toMatchObject({
+      code: "invalid_transition",
+      message: "mission is cancelled",
+      details: { missionId: a.mission.id },
+    });
+  });
+});
+
+describe("creation against unknown or closed parents", () => {
+  it("refuses a mission for an unknown project with 422 unknown_project", async () => {
+    const projectId = newId("prj");
+    const res = await post("/v1/missions", { projectId, objective: "o" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatchObject({
+      code: "validation_failed",
+      details: { reason: "unknown_project", projectId },
+    });
+  });
+
+  it("refuses a crew for an unknown mission (422) or a terminal one (409)", async () => {
+    const missionId = newId("msn");
+    const unknown = await post("/v1/crews", {
+      missionId,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "shell" }],
+    });
+    expect(unknown.status).toBe(422);
+    expect(unknown.body.error.details).toMatchObject({ reason: "unknown_mission", missionId });
+    const a = await mission();
+    await post(`/v1/missions/${a.mission.id}/cancel`, {});
+    const closed = await post("/v1/crews", {
+      missionId: a.mission.id,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "shell" }],
+    });
+    expect(closed.status).toBe(409);
+    expect(closed.body.error).toMatchObject({
+      code: "invalid_transition",
+      details: { missionId: a.mission.id, status: "cancelled" },
+    });
+    expect(s.state.crews.size).toBe(0);
+  });
 });
 
 describe("crews", () => {

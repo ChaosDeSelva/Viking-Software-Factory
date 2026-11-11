@@ -19,6 +19,7 @@ describe("Settings", () => {
     expect(data.textContent).toMatch(/MIMIR_ARTIFACT_RETENTION_DAYS/);
     expect(data.textContent).toMatch(/auth-token/);
     expect(screen.getByRole("radio", { name: "System" })).toBeTruthy();
+    expect(screen.getByText(/Global · all projects/)).toBeTruthy();
     await expectNoSeriousA11yViolations(container);
   });
 
@@ -26,12 +27,13 @@ describe("Settings", () => {
     const user = userEvent.setup();
     renderWithStore(<Settings />, { client: mockClient() });
     await user.click(await screen.findByRole("radio", { name: "Dark" }));
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(localStorage.getItem("factory-theme")).toBe("dark");
     await user.click(screen.getByRole("radio", { name: "Light" }));
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
-  it("forgets the token", async () => {
+  it("signs out (the old Forget token, now named like the bottom bar)", async () => {
     const user = userEvent.setup();
     const signOut = vi.fn();
     renderWithStore(
@@ -40,7 +42,7 @@ describe("Settings", () => {
       </SessionContext.Provider>,
       { client: mockClient() },
     );
-    await user.click(await screen.findByRole("button", { name: "Forget token" }));
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalled();
   });
 

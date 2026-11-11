@@ -114,6 +114,14 @@ describe("requestStop", () => {
     clock.advance(5000);
     expect(events).toHaveLength(n);
   });
+
+  it("on an unknown session throws not_found and emits nothing", async () => {
+    const { fake, events } = await setup();
+    for (const mode of ["soft", "force"] as const) {
+      await expect(fake.requestStop("nope", mode)).rejects.toMatchObject({ code: "not_found" });
+    }
+    expect(events).toEqual([]);
+  });
 });
 
 describe("chaos", () => {

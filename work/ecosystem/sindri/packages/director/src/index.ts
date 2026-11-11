@@ -95,3 +95,26 @@ export { estimateCost, listRuns, MODEL_PRICES, recordRun, type DirectorRun } fro
 export { DIRECTOR_MIGRATIONS } from "./schema.js";
 
 export { CliProvider, type CliProviderKind, type CliProviderOptions } from "./providers/cli.js";
+export {
+  askGuide,
+  buildGuidePrompt,
+  createMemoryDocs,
+  EMPTY_DOCS,
+  GUIDE_APPS,
+  GUIDE_DOCS_ABSENT_NOTE,
+  GUIDE_SCREENS,
+  guideSystem,
+  renderGuideState,
+  type DocHit,
+  type DocsSource,
+  type GlossaryEntry,
+  type GuideAnswer,
+  type GuideApp,
+  type GuideContext,
+  type GuideCountedItem,
+  type GuideLink,
+  type GuidePrompt,
+  type GuideProjectState,
+  type GuideState,
+} from "./guide.js";
+export { createFactoryDocs } from "./factory-docs.js";

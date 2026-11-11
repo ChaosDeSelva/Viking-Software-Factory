@@ -215,6 +215,21 @@ describe("loadLessons", () => {
     expect(got.lessons.map((l) => l.id)).toEqual([`fg:${id}`]);
   });
 
+  it("tolerates malformed fields: no title gives the id, non-list paths and stray entries are dropped", async () => {
+    const got = await loadLessons(
+      () =>
+        Promise.resolve([
+          { id: "a", rule: "Rule a.", title: 5, paths: "src/a.ts" },
+          { id: "b", rule: "Rule b.", title: "   ", paths: ["src/b.ts", 3, null] },
+        ] as unknown as ExternalLesson[]),
+      "p1",
+    );
+    expect(got.lessons).toEqual([
+      { id: "fg:a", title: "fg:a", text: "Rule: Rule a." },
+      { id: "fg:b", title: "fg:b", text: "Rule: Rule b.\nPaths: src/b.ts" },
+    ]);
+  });
+
   it("redacts secrets in lesson text", async () => {
     const secret = "sk-ant-api03-" + "Z9y8X7w6V5u4T3s2R1q0".repeat(4);
     const {

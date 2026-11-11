@@ -5,6 +5,7 @@ import { ApiError, type ApiClient } from "../api/client.js";
 import { mockApi } from "../test/utils.js";
 import {
   AppProviders,
+  migrateTheme,
   readInitial,
   TOKEN_KEY,
   useApi,
@@ -34,26 +35,36 @@ function Show() {
 }
 
 describe("readInitial", () => {
-  it("reads the token, a valid theme and the hash route", () => {
+  it("reads the token and the hash route", () => {
     sessionStorage.setItem(TOKEN_KEY, "t1");
-    localStorage.setItem("sindri.theme", "dark");
     window.history.replaceState(null, "", "/#/plans?project=p1&plan=pl1");
     expect(readInitial()).toMatchObject({
       token: "t1",
-      theme: "dark",
       view: "plans",
       projectId: "p1",
       planId: "pl1",
     });
+  });
+
+  it("moves the old Sindri theme to the shared factory theme once", () => {
+    localStorage.clear();
+    localStorage.setItem("sindri.theme", "dark");
+    migrateTheme();
+    expect(localStorage.getItem("factory-theme")).toBe("dark");
+    expect(localStorage.getItem("sindri.theme")).toBeNull();
+    // An unknown old value is dropped without overriding anything.
     localStorage.setItem("sindri.theme", "purple");
-    expect(readInitial().theme).toBe("light");
+    migrateTheme();
+    expect(localStorage.getItem("factory-theme")).toBe("dark");
+    localStorage.clear();
   });
 
   it("works without web storage or a location (outside a browser)", () => {
     vi.stubGlobal("sessionStorage", undefined);
     vi.stubGlobal("localStorage", undefined);
     vi.stubGlobal("location", undefined);
-    expect(readInitial()).toEqual({ token: null, theme: "light" });
+    expect(readInitial()).toEqual({ token: null });
+    expect(() => migrateTheme()).not.toThrow();
   });
 });
 
@@ -66,7 +77,7 @@ describe("AppProviders", () => {
         <Show />
       </AppProviders>,
     );
-    expect(screen.getByTestId("state").textContent).toBe("projects:");
+    expect(screen.getByTestId("state").textContent).toBe("overview:");
   });
 
   it("ignores a Back/Forward to a hash that names no view", () => {

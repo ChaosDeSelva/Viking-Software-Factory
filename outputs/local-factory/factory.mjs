@@ -1,4 +1,4 @@
-import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { spawn, execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -23,7 +23,10 @@ try {
  const claude=process.env.MIMIR_CLAUDE_BIN || 'claude';
  checkLogins(runtimeChoice,{codex,claude},execFileSync);
  console.log('Planner login and applicable local agent login checks passed. Runtime: '+runtimeChoice);
- mimir = await startMimir({...process.env,MIMIR_CODEX_BIN:codex,MIMIR_CLAUDE_BIN:claude,MIMIR_HOST:'127.0.0.1',MIMIR_PORT:process.env.MIMIR_PORT || '7700',MIMIR_RUNTIME:runtimeChoice,MIMIR_FLEET_CONFIG:fleetConfig,MIMIR_DATA_DIR:join(root,'mimir'),MIMIR_WORKTREE_ROOT:join(root,'worktrees'),MIMIR_LOG_LEVEL:'warn'});
+ // Mimir serves its own web app only when given a built one; without it :7700 is API-only.
+ const mimirWeb=join(ecosystem,'mimir/apps/web/dist');
+ const webRoot=process.env.MIMIR_WEB_ROOT || (existsSync(join(mimirWeb,'index.html'))?mimirWeb:undefined);
+ mimir = await startMimir({...process.env,...(webRoot?{MIMIR_WEB_ROOT:webRoot}:{}),MIMIR_CODEX_BIN:codex,MIMIR_CLAUDE_BIN:claude,MIMIR_HOST:'127.0.0.1',MIMIR_PORT:process.env.MIMIR_PORT || '7700',MIMIR_RUNTIME:runtimeChoice,MIMIR_FLEET_CONFIG:fleetConfig,MIMIR_DATA_DIR:join(root,'mimir'),MIMIR_WORKTREE_ROOT:join(root,'worktrees'),MIMIR_LOG_LEVEL:'warn'});
  const mtoken=mimir.auth.token;
  let pairing;
  // Connector credentials (Linear, Jira) stay in the operator's own store: Keychain on macOS, or SINDRI_SECRET_* with SINDRI_SECRET_STORE=env.
@@ -38,9 +41,12 @@ try {
  if(!process.env.FACTORY_QUIET_AUTH)console.log('Access token (paste into the browser): '+readFileSync(sindri.tokenPath,'utf8').trim());
  if(!process.env.FACTORY_QUIET_AUTH)console.log('Approval pairing code (for approving your plans): '+pairing);
  heimdall = await startHeimdall({env:{HEIMDALL_PORT:process.env.HEIMDALL_PORT || '4320',HEIMDALL_DATA_DIR:join(root,'heimdall'),MIMIR_URL:`http://127.0.0.1:${process.env.MIMIR_PORT || '7700'}`,MIMIR_TOKEN:mtoken,SINDRI_URL:sindri.url,SINDRI_TOKEN:readFileSync(sindri.tokenPath,'utf8').trim()}});
- if(process.env.FACTORY_ACCESS_FILE) writeFileSync(process.env.FACTORY_ACCESS_FILE,JSON.stringify({heimdallToken:heimdall.token,operatorCode:heimdall.operatorCode,sindriPairingCode:pairing}),{mode:0o600});
+ // A new file renamed into place: writeFileSync's mode would not tighten a file that already exists.
+ if(process.env.FACTORY_ACCESS_FILE){const temporary=process.env.FACTORY_ACCESS_FILE+'.tmp';rmSync(temporary,{force:true});writeFileSync(temporary,JSON.stringify({heimdallToken:heimdall.token,operatorCode:heimdall.operatorCode,sindriPairingCode:pairing}),{mode:0o600,flag:'wx'});renameSync(temporary,process.env.FACTORY_ACCESS_FILE);}
  console.log('Heimdall command center: '+heimdall.url);
  if(!process.env.FACTORY_QUIET_AUTH)console.log('Heimdall access token: '+heimdall.token+'\nHeimdall operator code: '+heimdall.operatorCode);
+ if(webRoot)console.log('Mimir executor: http://127.0.0.1:'+(process.env.MIMIR_PORT || '7700'));
+ if(webRoot&&!process.env.FACTORY_QUIET_AUTH)console.log('Mimir access token: '+mtoken);
  console.log('Keep this terminal open. Press Ctrl+C to stop all three services.');
  if(!process.env.FACTORY_NO_OPEN)spawn('open',[heimdall.url],{stdio:'ignore'});
 } catch(error) { console.error(error.message); await close(); process.exitCode=1; }

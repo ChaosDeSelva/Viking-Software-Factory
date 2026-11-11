@@ -89,7 +89,7 @@ describe("DirectorScreen", () => {
     expect(await screen.findByText("Which columns? Answer: All")).toBeTruthy();
     expect(screen.getByRole("status").textContent).toMatch(/revised to v2/);
     const q2 = screen.getByRole("form", { name: "Answer Q2" });
-    expect(within(q2).getByText("non-blocking")).toBeTruthy();
+    expect(within(q2).getByText("Not blocking")).toBeTruthy();
     await userEvent.type(screen.getByLabelText("Q2: File name?"), "report.csv");
     await userEvent.click(screen.getByRole("button", { name: "Submit answer to Q2" }));
     expect(api.answer).toHaveBeenLastCalledWith("s2", "Q2", "report.csv");
@@ -130,5 +130,19 @@ describe("DirectorScreen", () => {
     expect((screen.getByLabelText("Request") as HTMLTextAreaElement).value).toBe("Add CSV");
     await userEvent.click(screen.getByRole("button", { name: "Draft spec" }));
     expect(api.draft).toHaveBeenCalledWith({ projectId: "p1", request: "Add CSV", intakeId: "i1" });
+  });
+});
+
+describe("DirectorScreen layout", () => {
+  it("says why drafting is unavailable and what the empty draft area is for", async () => {
+    const api = mockApi({ listIntakes: [] });
+    renderWithStore(ui, api);
+    expect(await screen.findByRole("heading", { level: 1, name: "Director" })).toBeTruthy();
+    expect(screen.getByText("No draft yet")).toBeTruthy();
+    const draft = screen.getByRole("button", { name: /^Draft spec/ });
+    expect(draft.getAttribute("aria-disabled")).toBe("true");
+    expect(draft.textContent).toMatch(/Describe what you want built first/);
+    await userEvent.click(draft);
+    expect(api.draft).not.toHaveBeenCalled();
   });
 });

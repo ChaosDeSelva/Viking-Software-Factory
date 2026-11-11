@@ -174,12 +174,13 @@ export async function startHeimdall(options = {}) {
           throw Object.assign(Error("Method not allowed"), { status: 405 });
         const asset =
           path === "/" ? "index.html" : decodeURIComponent(path).slice(1);
-        const file = resolve(web, asset);
-        if (
-          !file.startsWith(web + "/") ||
-          !existsSync(file) ||
-          !statSync(file).isFile()
-        )
+        let file = resolve(web, asset);
+        if (!file.startsWith(web + "/"))
+          throw Object.assign(Error("Not found"), { status: 404 });
+        // The app routes by path (/pipeline, /docs/glossary): a path without a file extension
+        // that is not a file is one of its pages, so it gets the app. Missing assets stay 404.
+        if (!existsSync(file) && !extname(asset)) file = resolve(web, "index.html");
+        if (!existsSync(file) || !statSync(file).isFile())
           throw Object.assign(Error("Not found"), { status: 404 });
         res.setHeader(
           "content-type",
@@ -439,6 +440,10 @@ export async function startHeimdall(options = {}) {
           }),
         );
       }
+      // Mimir's attention list (budgets at their warning fraction or used up, with spend and
+      // limits), read-only: the Raise budget form shows the current numbers from it.
+      if (path === "/api/attention" && req.method === "GET")
+        return json(res, 200, hub.clean(await request(connections.mimir, "/v1/attention")));
       if (path === "/api/harnesses" && req.method === "GET")
         return json(res, 200, hub.clean(await request(connections.mimir, "/v1/harnesses")));
       if (path === "/api/fleet" && req.method === "GET")
@@ -494,6 +499,32 @@ export async function startHeimdall(options = {}) {
       const artifact = /^\/api\/artifacts\/([\w-]+)$/.exec(path);
       if (artifact && req.method === "GET")
         return json(res, 200, await hub.artifact(artifact[1]));
+      // Sindri's read-only Guide. POST only because it carries a question: it changes nothing,
+      // so a signed-in read session is enough (no operator unlock, no idempotency key). Sindri
+      // validates the body and rate-limits; its 422/429/503 come back as they are.
+      if (path === "/api/details/guide/ask" && req.method === "POST") {
+        const question = JSON.stringify(await body(req));
+        let answer;
+        try {
+          answer = await request(connections.sindri, "/v1/guide/ask", {
+            method: "POST",
+            body: question,
+            // Sindri's rate limit is per token; every Heimdall operator shares this one, so each
+            // signed-in session gets its own bucket. A one-way hash: the session ID stays here.
+            headers: {
+              "x-guide-client": createHash("sha256")
+                .update("guide-client:" + sid)
+                .digest("hex"),
+            },
+            timeoutMs: 120000,
+          });
+        } catch (e) {
+          if (e.name === "TimeoutError") e.status = 504;
+          e.status ??= 502;
+          throw e;
+        }
+        return json(res, 200, hub.clean(answer));
+      }
       if (path.startsWith("/api/details/") && req.method === "GET") {
         const upstream = stewardDetail(path, url.searchParams);
         if (upstream)

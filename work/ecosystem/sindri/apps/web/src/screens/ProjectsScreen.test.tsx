@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { mockApi, PROJECT, renderWithStore } from "../test/utils.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 import { ProjectsScreen } from "./ProjectsScreen.js";
 
 const ui = (
@@ -16,7 +17,8 @@ const ui = (
 describe("ProjectsScreen", () => {
   it("shows the empty state", async () => {
     renderWithStore(ui, mockApi({ listProjects: [] }), { projects: [], projectId: null });
-    expect(await screen.findByText(/No projects yet/)).toBeTruthy();
+    expect(await screen.findByText("No projects yet")).toBeTruthy();
+    expect(screen.getByText("Create one with the path to a local repository.")).toBeTruthy();
   });
 
   it("shows a load error with retry", async () => {
@@ -63,6 +65,7 @@ describe("ProjectsScreen", () => {
     expect(within(summary).getByText(".env (secret)")).toBeTruthy();
   });
 
+  // The index search lives on Project settings → Repository & index.
   it("searches the selected project's index", async () => {
     const api = mockApi({
       listProjects: [PROJECT],
@@ -79,7 +82,8 @@ describe("ProjectsScreen", () => {
         },
       ],
     });
-    renderWithStore(ui, api);
+    renderWithStore(<ProjectSettingsScreen />, api);
+    await userEvent.click(screen.getByRole("tab", { name: "Repository & index" }));
     await userEvent.type(screen.getByLabelText("Search the project index"), "frob");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(api.search).toHaveBeenCalledWith("p1", "frob");
@@ -106,5 +110,49 @@ describe("ProjectsScreen", () => {
     const summary = await screen.findByLabelText("Bootstrap result");
     expect(summary.textContent).toMatch(/2 passages that\s+looked like secrets were left out/);
     expect(within(summary).getByText("core.fsmonitor, core.sshCommand")).toBeTruthy();
+  });
+
+  it("filters by name or path, offers to clear a filter that matches nothing", async () => {
+    const two = { id: "p2", name: "Billing", repoPath: "/repo/acme-billing" };
+    const api = mockApi({ listProjects: [PROJECT, two] });
+    renderWithStore(ui, api, { projects: [PROJECT, two] });
+    await screen.findByText("/repo/acme-billing");
+    const filter = screen.getByRole("searchbox", { name: "Filter projects" });
+    await userEvent.type(filter, "ACME");
+    expect(screen.getByText("/repo/acme-billing")).toBeTruthy();
+    expect(screen.queryByText("/repo/demo")).toBeNull();
+    await userEvent.clear(filter);
+    await userEvent.type(filter, "zzz");
+    expect(screen.getByText("No project matches “zzz”")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Clear the filter" }));
+    expect(screen.getByText("/repo/demo")).toBeTruthy();
+    expect(screen.getByText("/repo/acme-billing")).toBeTruthy();
+  });
+
+  it("pages 15 projects at a time, the selected one first, and a filter goes back to page 1", async () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      id: `p${i + 1}`,
+      name: `Project ${String(i + 1).padStart(2, "0")}`,
+      repoPath: `/repo/p${i + 1}`,
+    }));
+    const api = mockApi({ listProjects: many });
+    renderWithStore(ui, api, { projects: many, projectId: "p20" });
+    const table = await screen.findByRole("table", { name: "Projects" });
+    const names = () =>
+      within(table)
+        .getAllByText(/^\/repo\/p\d+$/)
+        .map((e) => e.textContent);
+    expect(names()).toHaveLength(15);
+    expect(names()[0]).toBe("/repo/p20");
+    const pages = screen.getByRole("navigation", { name: "Pagination" });
+    await userEvent.click(within(pages).getByRole("button", { name: "Next" }));
+    expect(names()).toEqual(["/repo/p15", "/repo/p16", "/repo/p17", "/repo/p18", "/repo/p19"]);
+    expect(within(pages).getByRole("button", { name: "Page 2" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    await userEvent.type(screen.getByRole("searchbox", { name: "Filter projects" }), "Project 1");
+    // Projects 10..19 fit on one page (still on page 2 would show nothing), so the pager goes.
+    expect(names()).toHaveLength(10);
+    expect(screen.queryByRole("navigation", { name: "Pagination" })).toBeNull();
   });
 });

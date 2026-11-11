@@ -4,57 +4,137 @@ import { describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { StoreProvider } from "../store/StoreProvider.js";
 import { expectNoSeriousA11yViolations } from "../test/axe.js";
-import { approval, snapshot } from "../test/fixtures.js";
+import { approval, mission, project, snapshot } from "../test/fixtures.js";
 import { mockClient, type MockClient } from "../test/mockClient.js";
+import { SessionContext } from "../api/session.js";
 import { Layout } from "./Layout.js";
+import { RoutedProviders } from "./Providers.js";
 
 function renderLayout(client: MockClient, route = "/") {
   return render(
     <StoreProvider client={client} refreshDelayMs={0}>
       <MemoryRouter initialEntries={[route]}>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<h1>Overview page</h1>} />
-            <Route path="/missions" element={<h1>Missions page</h1>} />
-            <Route path="/reviews" element={<h1>Reviews page</h1>} />
-            <Route path="/activity" element={<input aria-label="search" />} />
-          </Route>
-        </Routes>
+        <RoutedProviders>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<h1 tabIndex={-1}>Overview page</h1>} />
+              <Route path="/missions" element={<h1 tabIndex={-1}>Missions page</h1>} />
+              <Route path="/reviews" element={<h1 tabIndex={-1}>Reviews page</h1>} />
+              <Route path="/settings" element={<h1 tabIndex={-1}>Settings page</h1>} />
+              <Route path="/activity" element={<input aria-label="search" />} />
+            </Route>
+          </Routes>
+        </RoutedProviders>
       </MemoryRouter>
     </StoreProvider>,
   );
 }
 
 describe("Layout", () => {
-  it("renders navigation for every screen and a skip link", async () => {
+  it("puts project pages in the top bar and global pages in the bottom bar, with a skip link", async () => {
     const { container } = renderLayout(mockClient());
-    const nav = screen.getByRole("navigation", { name: "Main" });
-    for (const name of [
-      "Overview",
-      "Projects",
-      "Missions",
-      "Crews",
-      "Reviews",
-      "Activity",
-      "Settings",
-    ]) {
-      expect(
-        nav.querySelector(`a[href]`) && screen.getByRole("link", { name: new RegExp(`^${name}`) }),
-      ).toBeTruthy();
+    const top = screen.getByRole("navigation", { name: "Project pages" });
+    for (const name of ["Overview", "Missions", "Crews", "Reviews", "Activity"]) {
+      expect(within(top).getByRole("link", { name: new RegExp(`^${name}`) })).toBeTruthy();
     }
+    expect(within(top).queryByRole("link", { name: /Projects|Settings/ })).toBeNull();
+    const bottom = screen.getByRole("contentinfo", { name: "Status and global" });
+    const global = within(bottom).getByRole("navigation", { name: "Global pages" });
+    expect(within(global).getByRole("link", { name: "Projects" })).toBeTruthy();
+    expect(within(global).getByRole("link", { name: "Settings" })).toBeTruthy();
+    expect(within(bottom).getByRole("link", { name: "Docs" })).toBeTruthy();
+    expect(within(bottom).getByRole("button", { name: "Ask" })).toBeTruthy();
+    expect(within(bottom).getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByRole("link", { name: /skip to content/i })).toBeTruthy();
+    // No shortcut hint line: shortcuts live in the help dialog.
+    expect(container.textContent).not.toMatch(/Alt\+1/);
     await waitFor(() => expect(screen.getByText("Overview page")).toBeTruthy());
     await expectNoSeriousA11yViolations(container);
+  });
+
+  it("links Docs to the current screen's section", async () => {
+    renderLayout(mockClient(), "/missions");
+    expect(screen.getByRole("link", { name: "Docs" }).getAttribute("href")).toBe(
+      "/docs/mimir-screens#missions",
+    );
+  });
+
+  it("signs out from the bottom bar", async () => {
+    const signOut = vi.fn();
+    render(
+      <SessionContext.Provider value={{ signOut }}>
+        <StoreProvider client={mockClient()} refreshDelayMs={0}>
+          <MemoryRouter>
+            <RoutedProviders>
+              <Routes>
+                <Route element={<Layout />}>
+                  <Route path="/" element={<h1>Overview page</h1>} />
+                </Route>
+              </Routes>
+            </RoutedProviders>
+          </MemoryRouter>
+        </StoreProvider>
+      </SessionContext.Provider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(signOut).toHaveBeenCalled();
+  });
+
+  it("Ask opens a drawer that sends the operator to Sindri's guide", async () => {
+    const user = userEvent.setup();
+    renderLayout(mockClient());
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+    const drawer = screen.getByRole("dialog", { name: "Ask the guide" });
+    expect(drawer.textContent).toMatch(/no Sindri access token/i);
+    const link = within(drawer).getByRole("link", { name: "Open the Guide in Sindri" });
+    expect(link.getAttribute("href")).toBe("http://127.0.0.1:4310/");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("filters the Reviews count and the page scope by the picked project", async () => {
+    const user = userEvent.setup();
+    const a = project({ name: "alpha" });
+    const b = project({ name: "beta" });
+    const ma = mission({ projectId: a.id });
+    const mb = mission({ projectId: b.id });
+    const client = mockClient({
+      snapshot: vi.fn(async () =>
+        snapshot({
+          projects: [a, b],
+          missions: [ma, mb],
+          approvals: [
+            approval({ missionId: ma.id }),
+            approval({ missionId: mb.id }),
+            approval({ missionId: mb.id }),
+          ],
+        }),
+      ),
+    });
+    renderLayout(client);
+    const top = screen.getByRole("navigation", { name: "Project pages" });
+    // Two projects and no stored choice: All projects.
+    await waitFor(() =>
+      expect(within(top).getByRole("link", { name: /Reviews\s*3/ })).toBeTruthy(),
+    );
+    await user.click(screen.getByRole("button", { name: /^Project:/ }));
+    await user.click(await screen.findByRole("option", { name: /beta/ }));
+    await waitFor(() =>
+      expect(within(top).getByRole("link", { name: /Reviews\s*2/ })).toBeTruthy(),
+    );
+    expect(localStorage.getItem("mimir.project")).toBe(b.id);
   });
 
   it("shows the connection indicator and reconnecting state", async () => {
     const client = mockClient();
     renderLayout(client);
     await waitFor(() => expect(client.streamController.calls).toHaveLength(1));
+    const connection = () =>
+      screen.getAllByRole("status").find((el) => /^Connection:/.test(el.textContent ?? ""))!;
     act(() => client.streamController.last?.onStatus?.("reconnecting"));
-    expect(screen.getByTestId("connection").textContent).toMatch(/reconnecting/i);
+    expect(connection().textContent).toMatch(/reconnecting/i);
     act(() => client.streamController.last?.onStatus?.("open"));
-    expect(screen.getByTestId("connection").textContent).toMatch(/live/i);
+    expect(connection().textContent).toMatch(/live/i);
   });
 
   it("shows a gap banner whose reload refetches the snapshot", async () => {
@@ -92,6 +172,12 @@ describe("Layout", () => {
     await user.keyboard("?");
     const dialog = screen.getByRole("dialog", { name: /keyboard shortcuts/i });
     expect(dialog.textContent).toMatch(/g m/);
+    expect(within(dialog).getByRole("heading", { name: "On this screen" })).toBeTruthy();
+    expect(
+      within(dialog)
+        .getByRole("link", { name: /full guide in Docs/ })
+        .getAttribute("href"),
+    ).toBe("/docs/mimir-screens#overview");
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -101,8 +187,7 @@ describe("Layout", () => {
     renderLayout(mockClient());
     await user.keyboard("?");
     const dialog = screen.getByRole("dialog", { name: /keyboard shortcuts/i });
-    const close = within(dialog).getByRole("button", { name: "Close" });
-    expect(document.activeElement).toBe(close);
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     await user.tab();
     expect(dialog.contains(document.activeElement)).toBe(true);
     await user.tab({ shift: true });
@@ -131,24 +216,35 @@ describe("Layout", () => {
     expect(screen.queryByText("Missions page")).toBeNull();
   });
 
-  it("toggles the theme", async () => {
+  it("toggles the theme from the bottom bar", async () => {
     const user = userEvent.setup();
     renderLayout(mockClient());
-    const select = screen.getByLabelText("Theme");
-    await user.selectOptions(select, "dark");
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
-    await user.selectOptions(select, "light");
-    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    await user.click(screen.getByRole("button", { name: /^Theme/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    await user.click(screen.getByRole("button", { name: /^Theme/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Light" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 });
 
 describe("Layout (a11y/UX audit M-I1, M-I2, M-I8, M-m2, M-m12, M-m13)", () => {
-  it("sets document.title per route and moves focus to main on navigation", async () => {
+  it("sets document.title per route and moves focus to the page heading on navigation", async () => {
     renderLayout(mockClient());
-    await waitFor(() => expect(document.title).toBe("Overview - Mimir"));
+    await waitFor(() => expect(document.title).toBe("Overview · All projects · Mimir"));
     await userEvent.click(screen.getByRole("link", { name: /^Missions/ }));
-    await waitFor(() => expect(document.title).toBe("Missions - Mimir"));
-    expect(document.activeElement).toBe(document.getElementById("main"));
+    await waitFor(() => expect(document.title).toBe("Missions · All projects · Mimir"));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Missions page" })),
+    );
+  });
+
+  it("disables the project picker on global pages", async () => {
+    renderLayout(mockClient(), "/settings");
+    await screen.findByText("Settings page");
+    expect((screen.getByRole("button", { name: /^Project:/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   it("keeps screens and the attention live region when a refresh fails, with an alert and Retry", async () => {
@@ -197,9 +293,9 @@ describe("Layout (a11y/UX audit M-I1, M-I2, M-I8, M-m2, M-m12, M-m13)", () => {
     localStorage.setItem("mimir.shortcuts", "off");
     try {
       renderLayout(mockClient());
-      await waitFor(() => expect(document.title).toBe("Overview - Mimir"));
+      await waitFor(() => expect(document.title).toBe("Overview · All projects · Mimir"));
       await userEvent.keyboard("gm");
-      expect(document.title).toBe("Overview - Mimir");
+      expect(document.title).toBe("Overview · All projects · Mimir");
       await userEvent.keyboard("?");
       expect(screen.queryByRole("dialog")).toBeNull();
     } finally {

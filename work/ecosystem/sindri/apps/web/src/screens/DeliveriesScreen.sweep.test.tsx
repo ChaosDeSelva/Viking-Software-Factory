@@ -41,6 +41,8 @@ const base = () => ({
 });
 
 afterEach(() => vi.useRealTimers());
+/** The detail is split into tabs; Report is open first. */
+const openTab = async (name: RegExp) => userEvent.click(await screen.findByRole("tab", { name }));
 
 describe("DeliveriesScreen report", () => {
   it("describes every kind of requirement, task, test, change, review and rollback", async () => {
@@ -108,25 +110,27 @@ describe("DeliveriesScreen report", () => {
       deliveryId: "e1",
     });
     const section = await screen.findByRole("region", { name: "Delivery report" });
-    expect(within(section).getByText("delivered_pending_merge")).toBeTruthy();
+    expect(screen.getAllByText("Exported, not merged").length).toBeGreaterThan(0);
     const rows = within(within(section).getByRole("table", { name: "Requirements" }))
       .getAllByRole("row")
       .map((row) => row.textContent);
-    expect(rows[1]).toBe("AC1 A CSV button existssatisfiednonenone");
+    expect(rows[1]).toBe("AC1 A CSV button existsSatisfiedNoneNone");
     expect(rows[2]).toContain("a (gate passed), b (gate not run)");
+    const tasks = within(within(section).getByRole("table", { name: "Tasks and quality gates" }))
+      .getAllByRole("row")
+      .map((row) => row.textContent);
+    // An unknown Brokkr verdict ("pass") degrades to its raw text.
+    expect(tasks[1]).toBe("aimplementerCompletedfrontend-react@1.1.0passPassed");
+    expect(tasks[2]).toBe("bimplementerCompletedfrontend-react@1.1.0No reportNot evaluated");
     const text = section.textContent ?? "";
-    expect(text).toContain("frontend-react@1.1.0 · Brokkr pass · gate passed");
-    expect(text).toContain("Brokkr no report · gate not evaluated");
     expect(text).toContain("No evidence-backed summary.");
     expect(text).toContain("2 uncited sentence(s) were removed from the summary.");
-    expect(text).toContain("pnpm lint (unattributed): failed");
-    expect(text).not.toContain("failed in");
-    expect(text).toContain("modified src/a.ts");
+    expect(text).toContain("Failedpnpm lint (unattributed)");
+    expect(text).not.toMatch(/ in \d+ ms/);
+    expect(text).toContain("modifiedsrc/a.ts");
     expect(within(section).getByText("src/b.ts").textContent).toBe("src/b.ts");
-    expect(text).toContain(
-      "security review of a: request_changes (unsafe input) · [high] escape it · [low] rename",
-    );
-    expect(text).toContain("qa review of b: pending");
+    expect(text).toContain("security review of aRequest changesunsafe inputhighescape itlowrename");
+    expect(text).toContain("qa review of bPending");
     expect(text).toContain("None recorded.");
     expect(text).toContain("branch sindri/a from 0123456789ab");
     expect(text).toContain("Revert the branch.");
@@ -137,7 +141,7 @@ describe("DeliveriesScreen actions", () => {
   it("opens a delivery from the list", async () => {
     const api = mockApi(base());
     renderWithStore(ui, api);
-    await userEvent.click(await screen.findByRole("button", { name: /e2/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /Delivery 2/ }));
     expect(screen.getByTestId("where").textContent).toBe("deliveries:e2:");
     expect(await screen.findByRole("region", { name: "Delivery report" })).toBeTruthy();
     expect(api.getDelivery).toHaveBeenCalledWith("e2");
@@ -154,11 +158,15 @@ describe("DeliveriesScreen actions", () => {
       },
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
-    const exportButton = await screen.findByRole("button", { name: "Export local result" });
-    expect(exportButton).toHaveProperty("disabled", true);
+    const exportButton = await screen.findByRole("button", { name: /^Export local result/ });
+    expect(exportButton.getAttribute("aria-disabled")).toBe("true");
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
-    await waitFor(() => expect(exportButton).toHaveProperty("disabled", false));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Export local result" }).hasAttribute("aria-disabled"),
+      ).toBe(false),
+    );
     expect(screen.queryByLabelText("Approval pairing code")).toBeNull();
   });
 
@@ -199,6 +207,7 @@ describe("DeliveriesScreen actions", () => {
       clicked.push(this);
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Local export/);
     const button = await screen.findByRole("button", { name: "Download result.patch" });
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     fireEvent.click(button);
@@ -216,6 +225,7 @@ describe("DeliveriesScreen actions", () => {
     const writeText = vi.fn(() => Promise.reject(new Error("clipboard blocked")));
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     renderWithStore(ui, mockApi(base()), { deliveryId: "e1" });
+    await openTab(/Local export/);
     await userEvent.click(await screen.findByRole("button", { name: "Copy summary" }));
     expect((await screen.findByRole("alert")).textContent).toMatch(/clipboard blocked/);
   });
@@ -246,7 +256,8 @@ describe("DeliveriesScreen change requests", () => {
       ],
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
-    const list = await screen.findByRole("region", { name: "Earlier change requests" });
+    await openTab(/Request changes/);
+    const list = await screen.findByRole("region", { name: /Earlier change requests/ });
     const items = within(list).getAllByRole("listitem");
     expect(within(items[0]!).getByRole("button").textContent).toMatch(/^Open spec v3 \(draft\)/);
     expect(items[1]!.textContent).toContain("Drafting failed");
@@ -256,6 +267,7 @@ describe("DeliveriesScreen change requests", () => {
   it("does not send an empty request when the form is submitted directly", async () => {
     const api = mockApi({ ...base(), requestRework: { rework: { id: "r" }, spec: { id: "s" } } });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Request changes/);
     const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
     await userEvent.type(within(form).getByLabelText("What should change"), "   ");
     fireEvent.submit(form);
@@ -265,6 +277,7 @@ describe("DeliveriesScreen change requests", () => {
   it("sends a request once even when submitted twice while drafting", async () => {
     const api = mockApi({ ...base(), requestRework: () => new Promise(() => undefined) });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Request changes/);
     const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
     await userEvent.type(within(form).getByLabelText("What should change"), "Rename it");
     fireEvent.submit(form);
@@ -280,15 +293,17 @@ describe("DeliveriesScreen change requests", () => {
       requestRework: () => new Promise((r) => (finish = r)),
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Request changes/);
     const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
     await userEvent.type(within(form).getByLabelText("What should change"), "Rename it");
     await userEvent.click(within(form).getByRole("button", { name: "Request changes" }));
-    await userEvent.click(screen.getByRole("button", { name: /e2/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Delivery 2/ }));
     await waitFor(() => expect(api.getDelivery).toHaveBeenCalledWith("e2"));
     await act(async () => finish({ rework: { id: "rw" }, spec: { id: "s9" } }));
     expect(await screen.findByText(/drafted from your feedback/)).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("deliveries:e2:");
     // The other delivery's form is its own: empty and ready.
+    await openTab(/Request changes/);
     const other = screen.getByRole("form", { name: "Request changes to this delivery" });
     expect((within(other).getByLabelText("What should change") as HTMLTextAreaElement).value).toBe(
       "",

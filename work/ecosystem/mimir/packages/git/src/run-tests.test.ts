@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { OUTPUT_CAP_BYTES, runTests } from "./run-tests.js";
+import { OUTPUT_CAP_BYTES, runTests, scrubbedEnv } from "./run-tests.js";
 
 const node = process.execPath;
 
@@ -267,6 +267,27 @@ describe("runTests hardening (M4)", () => {
       });
     },
   );
+
+  it("cuts a chunk that straddles the cap", async () => {
+    // A lone first byte puts every later pipe chunk off the cap's alignment.
+    const r = await runTests(tmpdir(), [
+      node,
+      "-e",
+      `process.stdout.write("a"); setTimeout(() => process.stdout.write("b".repeat(${OUTPUT_CAP_BYTES})), 100)`,
+    ]);
+    expect(r.truncated).toBe(true);
+    expect(r.stdout).toBe(`a${"b".repeat(OUTPUT_CAP_BYTES - 1)}`);
+  });
+
+  it("omits allowlisted variables the parent does not set", async () => {
+    vi.stubEnv("TERM", undefined);
+    try {
+      expect(scrubbedEnv({ EXTRA: "1" })).not.toHaveProperty("TERM");
+      expect(scrubbedEnv({ EXTRA: "1" })).toMatchObject({ EXTRA: "1" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 
   it("does not split a multibyte character at the output cap", async () => {
     // 1 byte of padding then 3-byte characters: the cap falls inside a character.

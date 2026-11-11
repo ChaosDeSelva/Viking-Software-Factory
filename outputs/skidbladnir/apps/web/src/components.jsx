@@ -1,17 +1,41 @@
 import React from 'react';
-export function Button({children, tone='', ...props}) { return <button className={`button ${tone}`} {...props}>{children}</button>; }
-export function Badge({children}) { return <span className={`badge ${children}`}>{children}</span>; }
-export function Panel({title, children, extra}) { return <section className="panel"><div className="panel-head"><h2>{title}</h2>{extra}</div>{children}</section>; }
-export function Field({label,children}) { return <label className="field"><span>{label}</span>{children}</label>; }
-export function Metric({label,value,note}) { return <div className="metric"><span>{label}</span><strong>{value}</strong><small>{note}</small></div>; }
-export function Empty({children}) { return <div className="empty">{children}</div>; }
+import { StatusPill, Link } from '@factory/ui';
+import { statusInfo } from '@factory/docs';
+import { appHref } from './routes.js';
 
-export function Icon({name}) {
-  const paths = {
-    fleet: <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
-    plus: <path d="M12 5v14M5 12h14"/>,
-    history: <><path d="M8 6h12M8 12h12M8 18h12"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></>,
-    worker: <><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01M16 7h2M16 17h2"/></>
-  };
-  return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+/**
+ * StatusPill with the docs' plain-words label and meaning. The role comes from @factory/ui's map,
+ * so `failed`/`TimedOut` are danger and `terminating` is progress; an unknown value keeps its raw
+ * text with the `unknown` role instead of defaulting to a colour.
+ */
+export function Status({ value, domain = 'skid-worker', tooltip = undefined, size = undefined }) {
+  const info = statusInfo('skidbladnir', String(value ?? 'unknown'), domain);
+  return (
+    <StatusPill
+      app="skidbladnir"
+      value={value ?? 'unknown'}
+      label={info?.label}
+      size={size}
+      tooltip={tooltip}
+      description={
+        info && (
+          <>
+            {info.short} <Link href={appHref(info.href)}>Learn more</Link>
+          </>
+        )
+      }
+    />
+  );
 }
+
+/** "Learn more" link into the docs for `PageHeader learnMore` (kept on one line with any hint). */
+export function LearnMore({ href }) {
+  return href ? (
+    <Link href={appHref(href)} className="text-accent-fg underline underline-offset-4">
+      Learn more
+    </Link>
+  ) : null;
+}
+
+export const TEMPLATE_LABELS = { general: 'General purpose', node: 'Node.js workspace', python: 'Python workspace' };
+export const templateLabel = (t) => TEMPLATE_LABELS[t] ?? t;

@@ -1,7 +1,10 @@
+import type { Project } from "@mimir/protocol";
+import { Button, DataTable, Dialog, Field, Id, Input, Timestamp, type Column } from "@factory/ui";
 import { useState, type FormEvent } from "react";
 import { describeError } from "../api/client.js";
 import { ActionResult, type ActionOutcome } from "../components/ActionResult.js";
-import { PageTitle, Section } from "../components/Section.js";
+import { Screen } from "../components/Screen.js";
+import { Section } from "../components/Section.js";
 import { EmptyState } from "../components/StateViews.js";
 import { StoreGate } from "../components/StoreGate.js";
 import { useStore } from "../store/StoreProvider.js";
@@ -52,92 +55,144 @@ function ProjectForm() {
   };
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="grid max-w-xl gap-2">
-      <label className="grid gap-1">
-        <span className="font-medium">Name</span>
-        <input className="input" required value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <label className="grid gap-1">
-        <span className="font-medium">Repository path</span>
-        <input
-          className="input font-mono"
+    <form id="project-form" onSubmit={(e) => void submit(e)} className="flex flex-col gap-field">
+      <Field label="Name" required>
+        <Input required value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field
+        label="Repository path"
+        required
+        hint="Absolute path of the git repository on this machine."
+        term="Project"
+      >
+        <Input
+          className="font-mono"
           required
           value={repoPath}
           onChange={(e) => setRepoPath(e.target.value)}
         />
-      </label>
-      <label className="grid gap-1">
-        <span className="font-medium">Test command</span>
-        <input
-          className="input font-mono"
+      </Field>
+      <Field label="Test command" hint="Run as argv without a shell, e.g. pnpm test.">
+        <Input
+          className="font-mono"
           value={testCommand}
           onChange={(e) => setTestCommand(e.target.value)}
         />
-      </label>
-      <label className="grid gap-1">
-        <span className="font-medium">Protected branches (comma separated)</span>
-        <input
-          className="input font-mono"
+      </Field>
+      <Field
+        label="Protected branches (comma separated)"
+        term="Protected branch"
+        hint="Agents never commit to these."
+      >
+        <Input
+          className="font-mono"
           value={branches}
           onChange={(e) => setBranches(e.target.value)}
         />
-      </label>
+      </Field>
       <div>
-        <button type="submit" className="btn btn-primary" disabled={busy}>
+        <Button type="submit" variant="primary" loading={busy} disabled={busy}>
           Create project
-        </button>
+        </Button>
       </div>
       <ActionResult outcome={outcome} />
     </form>
   );
 }
 
+const testCommandText = (p: Project) =>
+  Array.isArray(p.settings["testCommand"])
+    ? (p.settings["testCommand"] as string[]).join(" ")
+    : typeof p.settings["testCommand"] === "string"
+      ? p.settings["testCommand"]
+      : "—";
+
+const branchesText = (p: Project) =>
+  Array.isArray(p.settings["protectedBranches"])
+    ? (p.settings["protectedBranches"] as string[]).join(", ")
+    : "—";
+
+const COLUMNS: readonly Column<Project>[] = [
+  {
+    key: "name",
+    header: "Name",
+    primary: true,
+    cell: (p) => (
+      <span className="flex flex-col gap-0.5">
+        <span className="font-medium">{p.name}</span>
+        <Id value={p.id} label="Project ID" />
+      </span>
+    ),
+  },
+  {
+    key: "repo",
+    header: "Repository",
+    cell: (p) => <span className="font-mono text-xs break-all">{p.repoPath}</span>,
+  },
+  {
+    key: "test",
+    header: "Test command",
+    cell: (p) => <span className="font-mono text-xs">{testCommandText(p)}</span>,
+  },
+  {
+    key: "branches",
+    header: "Protected branches",
+    cell: (p) => <span className="font-mono text-xs">{branchesText(p)}</span>,
+  },
+  {
+    key: "created",
+    header: "Created",
+    hideOnMobile: true,
+    cell: (p) => <Timestamp value={p.createdAt} className="text-sm text-muted" />,
+  },
+];
+
 export function Projects() {
   const { state } = useStore();
+  const [open, setOpen] = useState(false);
+  const newButton = (
+    <Button variant="primary" icon="plus" onClick={() => setOpen(true)}>
+      New project
+    </Button>
+  );
   return (
-    <>
-      <PageTitle>Projects</PageTitle>
+    <Screen
+      screen="projects"
+      title="Projects"
+      term="Project"
+      global
+      description="Repositories Mimir runs missions in. Pick one in the top bar to scope every page to it."
+      actions={newButton}
+    >
       <StoreGate label="projects">
-        <Section title="All projects">
+        <Section
+          title="All projects"
+          count={state.projects.length}
+          flush={state.projects.length > 0}
+        >
           {state.projects.length === 0 ? (
-            <EmptyState>No projects yet. Create one below.</EmptyState>
+            <EmptyState body="Create one to start missions in its repository." action={newButton}>
+              No projects yet
+            </EmptyState>
           ) : (
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Repository</th>
-                  <th scope="col">Test command</th>
-                  <th scope="col">Protected branches</th>
-                </tr>
-              </thead>
-              <tbody>
-                {state.projects.map((p) => (
-                  <tr key={p.id} className="border-t border-zinc-200 dark:border-zinc-800">
-                    <td>{p.name}</td>
-                    <td className="font-mono">{p.repoPath}</td>
-                    <td className="font-mono">
-                      {Array.isArray(p.settings["testCommand"])
-                        ? (p.settings["testCommand"] as string[]).join(" ")
-                        : typeof p.settings["testCommand"] === "string"
-                          ? p.settings["testCommand"]
-                          : "—"}
-                    </td>
-                    <td className="font-mono">
-                      {Array.isArray(p.settings["protectedBranches"])
-                        ? (p.settings["protectedBranches"] as string[]).join(", ")
-                        : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              caption="Projects"
+              columns={COLUMNS}
+              rows={state.projects}
+              rowKey={(p) => p.id}
+            />
           )}
         </Section>
-        <Section title="Create project">
-          <ProjectForm />
-        </Section>
       </StoreGate>
-    </>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        title="New project"
+        description="Register a git repository so missions can run in it."
+        size="md"
+      >
+        <ProjectForm />
+      </Dialog>
+    </Screen>
   );
 }

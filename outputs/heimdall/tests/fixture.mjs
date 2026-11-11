@@ -108,6 +108,37 @@ export async function fixture() {
     }
     res.setHeader("content-type", "application/json");
     if (req.url === "/v1/snapshot") return res.end(JSON.stringify(data));
+    if (req.url === "/v1/attention" && req.method === "GET")
+      return res.end(JSON.stringify({ items: api.attention }));
+    // Like Mimir: new crew limits, then tasks held only by that budget are ready again.
+    const budget = /^\/v1\/crews\/([\w-]+)\/budget$/.exec(req.url);
+    if (budget && req.method === "PATCH") {
+      let b = "";
+      for await (const chunk of req) b += chunk;
+      seen.body = b;
+      if (await api.intercept?.(req, res, b)) return;
+      const input = JSON.parse(b);
+      const current = api.budgets[budget[1]] ?? { version: 0, limitTokens: null, limitCost: null };
+      if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) {
+        res.writeHead(409);
+        return res.end('{"error":{"code":"conflict","message":"budget version changed"}}');
+      }
+      const next = (api.budgets[budget[1]] = {
+        ...current,
+        ...("limitTokens" in input ? { limitTokens: input.limitTokens } : {}),
+        ...("limitCost" in input ? { limitCost: input.limitCost } : {}),
+        ...("onUnknown" in input ? { onUnknown: input.onUnknown } : {}),
+        version: current.version + 1,
+      });
+      // Allowing unknown usage is what releases a budget_uncertain hold.
+      const released = (t) =>
+        t.blockedReason === "budget_exceeded" ||
+        (t.blockedReason === "budget_uncertain" && next.onUnknown === "allow");
+      for (const t of data.tasks)
+        if (t.crewId === budget[1] && released(t))
+          Object.assign(t, { status: "ready", blockedReason: undefined });
+      return res.end(JSON.stringify({ budget: { id: "bgt_" + budget[1], crewId: budget[1], ...next }, changed: true }));
+    }
     if (req.url.startsWith("/v1/events?"))
       return res.end(
         JSON.stringify({ events: [], hasMore: false, lastCursor: "c0" }),
@@ -580,6 +611,9 @@ export async function fixture() {
     workflow: null,
     // Execution profiles by Sindri project ID, as saved through PUT.
     profiles: {},
+    // Mimir's `/v1/attention` items, and crew budgets as changed through PATCH, by crew ID.
+    attention: [],
+    budgets: {},
     execution: {
       execution: { id: "exe_demo", mimirMissionId: "msn_demo" },
       tasks: [],

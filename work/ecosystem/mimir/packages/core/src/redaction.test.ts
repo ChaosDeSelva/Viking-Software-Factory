@@ -145,6 +145,19 @@ describe("redactPayload (fix round 1: I3 key-based, M3 JSON normalisation)", () 
     expect(out["[REDACTED:github_token]#2"]).toBe(2);
   });
 
+  it("numbers a third colliding key past #2", () => {
+    const out = redactPayload({
+      ghp_abcdefghijklmnopqrstuvwxyz0123: 1,
+      ghp_ZZZZZZZZZZZZZZZZZZZZZZZZZZZZ: 2,
+      ghp_YYYYYYYYYYYYYYYYYYYYYYYYYYYY: 3,
+    }) as Record<string, number>;
+    expect(out).toEqual({
+      "[REDACTED:github_token]": 1,
+      "[REDACTED:github_token]#2": 2,
+      "[REDACTED:github_token]#3": 3,
+    });
+  });
+
   it("normalises through JSON so Dates and toJSON objects keep their value", () => {
     expect(redactPayload({ at: new Date(0), skip: undefined, n: [1, undefined] })).toEqual({
       at: "1970-01-01T00:00:00.000Z",

@@ -430,3 +430,18 @@ fn the_release_tool_generates_signs_and_verifies() {
         );
     }
 }
+
+#[test]
+fn extraction_refuses_an_archive_with_too_many_entries_before_writing() {
+    let t = tempfile::tempdir().unwrap();
+    let (path, sha) = archive(t.path(), |z| {
+        for i in 0..150_001 {
+            z.add_directory(format!("d{i}/"), SimpleFileOptions::default())
+                .unwrap();
+        }
+    });
+    let out = t.path().join("out");
+    let e = extract_zip(&path, &out, &sha).unwrap_err().to_string();
+    assert!(e.contains("Too many archive entries"), "{e}");
+    assert!(!out.exists());
+}

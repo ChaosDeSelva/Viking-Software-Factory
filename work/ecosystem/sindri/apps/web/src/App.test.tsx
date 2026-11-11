@@ -5,12 +5,16 @@ import type { ApiClient } from "./api/client.js";
 import { ApiError } from "./api/client.js";
 import { App } from "./App.js";
 import { spec } from "./test/fixtures.js";
+import { globalLink, pickProject, projectPicker, tab } from "./test/shell.js";
 import { mockApi } from "./test/utils.js";
 
 const P1 = { id: "p1", name: "One", repoPath: "/repo/one" };
 const P2 = { id: "p2", name: "Two", repoPath: "/repo/two" };
 
-afterEach(() => sessionStorage.clear());
+afterEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+});
 
 describe("App", () => {
   it("asks for the token first and keeps it in sessionStorage only", async () => {
@@ -21,10 +25,10 @@ describe("App", () => {
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(sessionStorage.getItem("sindri.token")).toBe("secret-token");
     expect(localStorage.getItem("sindri.token")).toBeNull();
-    expect(await screen.findByRole("navigation", { name: "Main" })).toBeTruthy();
+    expect(await screen.findByRole("navigation", { name: "Project pages" })).toBeTruthy();
   });
 
-  it("navigates with the keyboard (Alt+6 opens Settings) and toggles the theme", async () => {
+  it("navigates with the keyboard (Alt+6 opens Runs), opens Settings and sets the theme", async () => {
     const api = mockApi({
       listProjects: [],
       getSettings: {
@@ -34,11 +38,18 @@ describe("App", () => {
     });
     render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
     await userEvent.keyboard("{Alt>}6{/Alt}");
-    expect(screen.getByRole("button", { name: "Settings" }).getAttribute("aria-current")).toBe(
-      "page",
-    );
-    await userEvent.click(screen.getByRole("button", { name: /switch to dark theme/i }));
-    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(tab("Runs").getAttribute("aria-current")).toBe("page");
+    expect(globalLink("Settings").getAttribute("href")).toBe("#/settings");
+    await userEvent.click(globalLink("Settings"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeTruthy();
+    // The theme lives in the bottom bar's Theme menu and lands on <html data-theme>.
+    await userEvent.click(screen.getByRole("button", { name: /^Theme: / }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "Dark" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(localStorage.getItem("factory-theme")).toBe("dark");
+    await userEvent.click(screen.getByRole("button", { name: "Theme: Dark" }));
+    await userEvent.click(await screen.findByRole("menuitemradio", { name: "System" }));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
   it("returns to the token prompt when the server rejects the token", async () => {
@@ -55,9 +66,10 @@ describe("App", () => {
   it("loads the project list on any screen, so the header selector works after a reload (H3)", async () => {
     const api = mockApi({ listProjects: [P1, P2], listIntakes: [] });
     render(<App api={api as unknown as ApiClient} initial={{ token: "t", view: "inbox" }} />);
-    const select = screen.getByLabelText("Project");
-    await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2));
-    expect((select as HTMLSelectElement).value).toBe("p1");
+    await waitFor(() => expect(projectPicker().getAttribute("aria-label")).toBe("Project: One"));
+    await userEvent.click(projectPicker());
+    const list = await screen.findByRole("listbox", { name: "Project" });
+    expect(within(list).getAllByRole("option", { name: /^(One|Two)/ })).toHaveLength(2);
     expect(api.listProjects).toHaveBeenCalledTimes(1);
   });
 
@@ -78,7 +90,7 @@ describe("App", () => {
       />,
     );
     await userEvent.selectOptions(await screen.findByLabelText("Approved spec"), "sa2");
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
     await waitFor(() =>
       expect(screen.getByLabelText("Approved spec").textContent).toMatch(/^B \(v1\)$/),
     );
@@ -116,7 +128,7 @@ describe("App", () => {
     await screen.findByRole("option", { name: "Add CSV" });
     await userEvent.selectOptions(screen.getByLabelText("Inbox item (optional)"), "i1");
     await userEvent.type(screen.getByLabelText("Request"), "x");
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
     await waitFor(() =>
       expect((screen.getByLabelText("Inbox item (optional)") as HTMLSelectElement).value).toBe(""),
     );

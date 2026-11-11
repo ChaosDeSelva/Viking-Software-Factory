@@ -8,7 +8,9 @@ export function latestVersions<T extends R>(rows: T[]): T[] {
     const key = r.lineageId ?? r.id;
     newest.set(key, Math.max(newest.get(key) ?? -Infinity, r.version ?? 0));
   }
-  return rows.filter((r) => (r.version ?? 0) === newest.get(r.lineageId ?? r.id));
+  return rows.filter(
+    (r) => (r.version ?? 0) === newest.get(r.lineageId ?? r.id),
+  );
 }
 
 /** Open questions of a specification, blocking ones first, otherwise in the drafter's order. */
@@ -23,7 +25,9 @@ export function orderedQuestions(spec: R | null | undefined): R[] {
 /** Badge text for a record, or undefined for kinds that carry no status at all. */
 export function statusBadge(kind: string, row: R): string | undefined {
   // Intakes carry only the tracker's status, which manual requests lack.
-  return row.status ?? row.type ?? (kind === "intakes" ? "received" : undefined);
+  return (
+    row.status ?? row.type ?? (kind === "intakes" ? "received" : undefined)
+  );
 }
 
 const needs: Record<string, [string[], string]> = {
@@ -31,7 +35,10 @@ const needs: Record<string, [string[], string]> = {
   "plan.submit": [["draft"], "Only a draft can be submitted for review"],
   "spec.approve": [["review"], "Submit it for review before approving"],
   "plan.approve": [["review"], "Submit it for review before approving"],
-  "plan.propose": [["approved"], "Approve the specification before proposing a plan"],
+  "plan.propose": [
+    ["approved"],
+    "Approve the specification before proposing a plan",
+  ],
   "execution.create": [["approved"], "Approve the plan before starting it"],
   "execution.export": [
     ["verified_pending_review"],
@@ -45,7 +52,8 @@ export function actionBlock(
   status: unknown,
   session: { operator?: boolean; pairedSindri?: boolean },
 ): string {
-  if (!session.operator) return "Unlock operator controls under Connections first.";
+  if (!session.operator)
+    return "Unlock operator controls under Connections first.";
   if (!session.pairedSindri) return "Pair with Sindri under Connections first.";
   const rule = needs[action];
   if (rule && !rule[0].includes(String(status)))
@@ -73,7 +81,9 @@ export function specRevision(
 export function mergeEventPages(fresh: R[], loaded: R[]): R[] {
   const bySequence = new Map<number, R>();
   for (const e of [...loaded, ...fresh]) bySequence.set(e.cacheSequence, e);
-  return [...bySequence.values()].sort((a, b) => b.cacheSequence - a.cacheSequence);
+  return [...bySequence.values()].sort(
+    (a, b) => b.cacheSequence - a.cacheSequence,
+  );
 }
 
 /** Stable across the switch from a Sindri-only project to Mimir's record of the same repository. */
@@ -84,7 +94,9 @@ export function mergeProjects(mimir: R[], sindri: R[]): R[] {
   return [
     ...mimir.map((p) => ({
       ...p,
-      name: sindri.find((sp) => p.repoPath && sp.repoPath === p.repoPath)?.name ?? p.name,
+      name:
+        sindri.find((sp) => p.repoPath && sp.repoPath === p.repoPath)?.name ??
+        p.name,
     })),
     ...sindri.filter((sp) => !mimir.some((mp) => mp.repoPath === sp.repoPath)),
   ];
@@ -95,7 +107,9 @@ export function projectAliases(p: R, sindri: R[]): string[] {
   return [
     ...new Set([
       p.id,
-      ...sindri.filter((sp) => p.repoPath && sp.repoPath === p.repoPath).map((sp) => sp.id),
+      ...sindri
+        .filter((sp) => p.repoPath && sp.repoPath === p.repoPath)
+        .map((sp) => sp.id),
     ]),
   ];
 }
@@ -109,8 +123,14 @@ export function intakeRequest(intake: R): string {
 }
 
 /** A delivery row is an execution; its plan or specification names what was delivered. */
-export function deliveryTitle(row: R, executions: R[], specs: R[]): string | undefined {
-  const plan = executions.find((e) => e.execution?.id === (row.executionId ?? row.id))?.plan;
+export function deliveryTitle(
+  row: R,
+  executions: R[],
+  specs: R[],
+): string | undefined {
+  const plan = executions.find(
+    (e) => e.execution?.id === (row.executionId ?? row.id),
+  )?.plan;
   return specs.find((spec) => spec.id === plan?.specId)?.title ?? plan?.title;
 }
 
@@ -125,11 +145,19 @@ export const recordLabel = (r: R) =>
   r.id;
 
 export const runTitle = (e: R, specs: R[]): string =>
-  specs.find((spec) => spec.id === e.plan?.specId)?.title ?? e.plan?.title ?? "Run " + e.execution.id;
+  specs.find((spec) => spec.id === e.plan?.specId)?.title ??
+  e.plan?.title ??
+  "Run " + e.execution.id;
 
 /** The specification behind the run that created a Mimir mission, when Sindri started it. */
-export const missionSpecTitle = (mission: R, executions: R[], specs: R[]): string | undefined =>
+export const missionSpecTitle = (
+  mission: R,
+  executions: R[],
+  specs: R[],
+): string | undefined =>
   specs.find(
     (spec) =>
-      spec.id === executions.find((e) => e.execution.mimirMissionId === mission.id)?.plan?.specId,
+      spec.id ===
+      executions.find((e) => e.execution.mimirMissionId === mission.id)?.plan
+        ?.specId,
   )?.title;

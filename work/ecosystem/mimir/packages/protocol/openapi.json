@@ -1048,7 +1048,6 @@
           "version",
           "agentId",
           "tokens",
-          "cachedTokens",
           "estimatedCost",
           "source"
         ]
@@ -2416,6 +2415,17 @@
             "required": true,
             "name": "id",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -2518,6 +2528,17 @@
             "required": true,
             "name": "id",
             "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
           }
         ],
         "requestBody": {
@@ -2769,12 +2790,7 @@
                                 "type": "string"
                               }
                             },
-                            "required": [
-                              "paneId",
-                              "terminalId",
-                              "workspaceId",
-                              "agentSessionId"
-                            ]
+                            "required": []
                           },
                           "state": {
                             "type": "string",

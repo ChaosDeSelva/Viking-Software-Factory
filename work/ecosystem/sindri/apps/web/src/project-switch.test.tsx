@@ -1,8 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApiClient } from "./api/client.js";
 import { App } from "./App.js";
+import { APP_URLS } from "./config.js";
+import { pickProject, projectPicker } from "./test/shell.js";
 import { mockApi } from "./test/utils.js";
 
 const P1 = { id: "p1", name: "One", repoPath: "/repo/one" };
@@ -18,8 +20,25 @@ const app = (api: ReturnType<typeof mockApi>, view: string) =>
 
 afterEach(() => sessionStorage.clear());
 
+/** Project settings tabs (the screen remounts per project, back on its first tab). */
+const openTab = async (name: string) => userEvent.click(await screen.findByRole("tab", { name }));
+
+describe("app switcher", () => {
+  it("carries the project only to Heimdall, which resolves Sindri ids", async () => {
+    app(mockApi({ listProjects: [P1, P2] }), "projects");
+    await userEvent.click(await screen.findByRole("button", { name: /Switch app/ }));
+    const menu = await screen.findByRole("menu");
+    const href = (name: RegExp) =>
+      within(menu).getByRole("menuitem", { name }).getAttribute("href");
+    // Mimir ids differ from Sindri's; a Sindri id would reset Mimir's own project choice.
+    expect(href(/Mimir/)).toBe(APP_URLS.mimir);
+    expect(href(/Sindri/)).toBe(APP_URLS.sindri);
+    expect(href(/Heimdall/)).toBe(`${APP_URLS.heimdall}/?project=p1`);
+  });
+});
+
 describe("switching the project", () => {
-  it("drops the previous project's search results on Projects", async () => {
+  it("drops the previous project's search results on Project settings", async () => {
     const api = mockApi({
       listProjects: [P1, P2],
       getProfile: {},
@@ -36,16 +55,20 @@ describe("switching the project", () => {
         },
       ],
     });
-    app(api, "projects");
+    app(api, "project-settings");
+    await openTab("Repository & index");
     await userEvent.type(await screen.findByLabelText("Search the project index"), "one");
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
     expect(await screen.findByRole("list", { name: "Search results" })).toBeTruthy();
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
     await waitFor(() => expect(screen.queryByRole("list", { name: "Search results" })).toBeNull());
+    await openTab("Repository & index");
+    expect(await screen.findByLabelText("Search the project index")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Search results" })).toBeNull();
     expect(screen.queryByText("only in project one")).toBeNull();
   });
 
-  it("does not carry an evidence-erasure confirmation over to another project on Settings", async () => {
+  it("does not carry an evidence-erasure confirmation over to another project's Danger zone", async () => {
     const api = mockApi({
       listProjects: [P1, P2],
       getSettings: {
@@ -54,11 +77,13 @@ describe("switching the project", () => {
       },
       deleteProjectData: { deleted: { projectId: "p2" } },
     });
-    app(api, "settings");
+    app(api, "project-settings");
+    await openTab("Danger zone");
     await userEvent.type(await screen.findByLabelText('Type "One" to confirm'), "One");
     await userEvent.click(screen.getByLabelText(/Also erase immutable task evidence/));
     await userEvent.type(screen.getByLabelText("Type ERASE EVIDENCE to confirm"), "ERASE EVIDENCE");
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
+    await openTab("Danger zone");
     const confirm = (await screen.findByLabelText('Type "Two" to confirm')) as HTMLInputElement;
     expect(confirm.value).toBe("");
     expect(
@@ -69,7 +94,7 @@ describe("switching the project", () => {
     expect(api.deleteProjectData).toHaveBeenCalledWith("p2", "Two");
   });
 
-  it("drops the previous project's harness explanation on Harnesses", async () => {
+  it("drops the previous project's harness explanation on Project settings", async () => {
     const api = mockApi({
       listProjects: [P1, P2],
       listHarnesses: { source: "fake", harnesses: [] },
@@ -86,12 +111,14 @@ describe("switching the project", () => {
         explanation: ["chosen from project one's repository"],
       },
     });
-    app(api, "harnesses");
+    app(api, "project-settings");
+    await openTab("Repository & index");
     await userEvent.type(await screen.findByLabelText("Task title"), "CSV");
     await userEvent.type(screen.getByLabelText("Task description"), "Add it");
     await userEvent.click(screen.getByRole("button", { name: "Explain selection" }));
     expect(await screen.findByRole("list", { name: "Explanation" })).toBeTruthy();
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
+    await openTab("Repository & index");
     await waitFor(() => expect(api.repoSignals).toHaveBeenCalledWith("p2"));
     expect(screen.queryByRole("list", { name: "Explanation" })).toBeNull();
   });
@@ -106,7 +133,7 @@ describe("switching the project", () => {
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
     expect(await screen.findByText(/No plans yet/)).toBeTruthy();
-    expect((screen.getByLabelText("Project") as HTMLSelectElement).value).toBe("p1");
+    expect(projectPicker().getAttribute("aria-label")).toBe("Project: One");
     expect(screen.queryByText("Create or select a project first.")).toBeNull();
     await waitFor(() => expect(window.location.hash).toBe("#/plans?project=p1"));
   });
@@ -127,12 +154,14 @@ describe("a request that answers after the project changed", () => {
       },
       explainHarness: () => new Promise((r) => (answer = r)),
     });
-    app(api, "harnesses");
+    app(api, "project-settings");
+    await openTab("Repository & index");
     await userEvent.type(await screen.findByLabelText("Task title"), "CSV");
     await userEvent.type(screen.getByLabelText("Task description"), "Add it");
     await userEvent.click(screen.getByRole("button", { name: "Explain selection" }));
     expect(api.explainHarness).toHaveBeenCalledWith(expect.objectContaining({ projectId: "p1" }));
-    await userEvent.selectOptions(screen.getByLabelText("Project"), "p2");
+    await pickProject("Two");
+    await openTab("Repository & index");
     await waitFor(() => expect(api.repoSignals).toHaveBeenCalledWith("p2"));
     await act(async () =>
       answer({

@@ -108,7 +108,8 @@ needs the approval factor. `auto` on `spec.approve` or `plan.approve` is 422. In
 steward applies a recommendation when it is at least 0.6 confident (`steward.autoMinConfidence`)
 and, for escalations, only `retry` and `skip`, with at most one automatic retry per task (a task
 that escalates again goes to the operator); anything else stays a recommendation (its `mode`
-becomes `recommend`, and the history says why). Auto mode never applies an approval.
+becomes `recommend`, and the history says why). An automatic apply that fails is likewise left to
+the operator and not retried on later ticks. Auto mode never applies an approval.
 
 ## Learning
 

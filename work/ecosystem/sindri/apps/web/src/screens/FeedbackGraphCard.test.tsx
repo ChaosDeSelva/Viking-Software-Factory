@@ -4,19 +4,22 @@ import { describe, expect, it } from "vitest";
 import { NoticeRegion } from "../components/Layout.js";
 import { projectFg } from "../test/steward-fixtures.js";
 import { mockApi, PROJECT, renderWithStore } from "../test/utils.js";
-import { ProjectsScreen } from "./ProjectsScreen.js";
+import { ProjectSettingsScreen } from "./ProjectSettingsScreen.js";
 
 const ui = (
   <>
     <NoticeRegion />
-    <ProjectsScreen />
+    <ProjectSettingsScreen />
   </>
 );
-const card = async () =>
-  (await screen.findByRole("heading", { name: "Feedback Graph" })).closest("section")!;
+/** The card lives on the Project settings "Feedback Graph" tab. */
+const card = async () => {
+  await userEvent.click(await screen.findByRole("tab", { name: "Feedback Graph" }));
+  return (await screen.findByRole("heading", { name: "Feedback Graph" })).closest("section")!;
+};
 const base = { listProjects: [PROJECT], getProfile: {} };
 
-describe("ProjectsScreen Feedback Graph card", () => {
+describe("Project settings: Feedback Graph card", () => {
   it("shows the automatic link, the key and the project's lessons", async () => {
     const api = mockApi({ ...base, getProjectFeedbackGraph: projectFg() });
     renderWithStore(ui, api);

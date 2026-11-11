@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mimir</title>
-  <link rel="icon" href="/icon.svg" type="image/svg+xml" /></head>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- @factory/ui themeScript plus a one-time move of the old `mimir.theme` key: apply the saved theme before first paint (no flash). -->
+    <script>
+      try {
+        var o = localStorage.getItem("mimir.theme");
+        if (o !== null) {
+          localStorage.removeItem("mimir.theme");
+          if ((o === "light" || o === "dark") && localStorage.getItem("factory-theme") === null)
+            localStorage.setItem("factory-theme", o);
+        }
+        var t = localStorage.getItem("factory-theme");
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {}
+    </script>
+  </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

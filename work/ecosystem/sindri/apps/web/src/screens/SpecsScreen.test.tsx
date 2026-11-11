@@ -49,9 +49,9 @@ describe("SpecsScreen", () => {
     expect(
       await screen.findByText(/Approval is blocked: 1 blocking open question \(Q1\)/),
     ).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    const approve = screen.getByRole("button", { name: /^Approve/ });
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
+    expect(approve.textContent).toMatch(/Answer the blocking open questions first/);
   });
 
   it("submits a draft and approves a spec in review", async () => {
@@ -89,8 +89,9 @@ describe("SpecsScreen", () => {
       },
     });
     renderWithStore(ui, api, { specId: "s1" });
-    const approve = (await screen.findByRole("button", { name: "Approve" })) as HTMLButtonElement;
-    expect(approve.disabled).toBe(true);
+    const approve = await screen.findByRole("button", { name: /^Approve/ });
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
+    expect(approve.textContent).toMatch(/pairing code/);
     expect(screen.queryByLabelText("Approver")).toBeNull();
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
@@ -111,8 +112,10 @@ describe("SpecsScreen", () => {
       approveSpec: { ...review, status: "approved" },
     });
     renderWithStore(ui, api, { specId: "s1" });
-    const approve = (await screen.findByRole("button", { name: "Approve" })) as HTMLButtonElement;
-    expect(approve.disabled).toBe(true);
+    const approve = await screen.findByRole("button", { name: /^Approve/ });
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(approve);
+    expect(api.approveSpec).not.toHaveBeenCalled();
     await userEvent.click(
       screen.getByRole("checkbox", { name: /I reviewed the flagged instructions/ }),
     );
@@ -145,6 +148,7 @@ describe("SpecsScreen", () => {
     renderWithStore(ui, api, { specId: "s2" });
     const versions = await screen.findByRole("navigation", { name: "Versions" });
     expect(within(versions).getAllByRole("button")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("tab", { name: "Compare versions" }));
     await userEvent.selectOptions(screen.getByLabelText("From"), "s1");
     await userEvent.selectOptions(screen.getByLabelText("To"), "s2");
     await userEvent.click(screen.getByRole("button", { name: "Compare" }));
@@ -178,9 +182,9 @@ describe("SpecsScreen", () => {
     });
     renderWithStore(ui, api, { specId: "s1" });
     const q2 = await screen.findByRole("form", { name: "Answer Q2" });
-    expect(within(q2).getByText("non-blocking")).toBeTruthy();
+    expect(within(q2).getByText("Not blocking")).toBeTruthy();
     expect(
-      within(screen.getByRole("form", { name: "Answer Q1" })).getByText("blocking"),
+      within(screen.getByRole("form", { name: "Answer Q1" })).getByText("Blocking"),
     ).toBeTruthy();
     await userEvent.type(screen.getByLabelText("Q2: File name?"), "report.csv");
     await userEvent.type(screen.getByLabelText("Q1: Which columns?"), "All");
@@ -269,5 +273,29 @@ describe("SpecsScreen", () => {
     expect(screen.queryByText("Loading…")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("# Rendered")).toBeTruthy();
+  });
+});
+
+describe("SpecsScreen layout", () => {
+  it("opens the newest spec from the empty detail and moves between section tabs", async () => {
+    const approved = spec({ status: "approved", body: { ...spec().body, openQuestions: [] } });
+    const api = mockApi({
+      listSpecs: [approved],
+      getSpec: { spec: approved, meta: meta(), lineage: lineage.slice(0, 1) },
+      renderSpec: "# Rendered",
+    });
+    renderWithStore(ui, api);
+    expect(await screen.findByRole("heading", { level: 1, name: "Specs" })).toBeTruthy();
+    await userEvent.click(await screen.findByRole("button", { name: "Open the newest spec" }));
+    expect(await screen.findByRole("heading", { name: "CSV export for reports" })).toBeTruthy();
+    // With no questions left, the spec itself opens first and the next step sits in the header.
+    expect(screen.getByRole("tab", { name: "Specification" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(screen.queryByRole("tab", { name: /Open questions/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Propose plan" })).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Rendered Markdown" }));
+    expect(await screen.findByText("# Rendered")).toBeTruthy();
+    expect(api.renderSpec).toHaveBeenCalledTimes(1);
   });
 });

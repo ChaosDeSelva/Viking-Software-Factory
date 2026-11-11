@@ -5,11 +5,11 @@ import { expectNoSeriousA11yViolations } from "../test/axe.js";
 import { agent, event, snapshot, task } from "../test/fixtures.js";
 import { mockClient } from "../test/mockClient.js";
 import { renderWithStore } from "../test/render.js";
-import { AgentInspector, TERMINAL_MIN_INTERVAL_MS } from "./AgentInspector.js";
+import { AgentInspector, TERMINAL_FOLLOW_MS, TERMINAL_MIN_INTERVAL_MS } from "./AgentInspector.js";
 
 afterEach(() => vi.useRealTimers());
 
-function setup({ noTerminal = false } = {}) {
+function setup({ noTerminal = false, query = "" } = {}) {
   const t = task({ title: "Implement parser", status: "running" });
   const ag = agent({ taskId: t.id, status: "running", agentKind: "claude" });
   const sessionId = ag.runtimeSessionId as string;
@@ -30,7 +30,7 @@ function setup({ noTerminal = false } = {}) {
   }
   const view = renderWithStore(<AgentInspector />, {
     client,
-    route: `/agents/${sessionId}`,
+    route: `/agents/${sessionId}${query}`,
     path: "/agents/:sessionId",
   });
   return { t, ag, sessionId, client, ...view };
@@ -41,7 +41,7 @@ describe("AgentInspector", () => {
     const { t, sessionId, container } = setup();
     expect(await screen.findByRole("heading", { level: 1, name: /Agent/ })).toBeTruthy();
     const state = screen.getByRole("region", { name: "State" });
-    expect(within(state).getByText("running")).toBeTruthy();
+    expect(within(state).getByRole("img", { name: "Status: Working" })).toBeTruthy();
     expect(within(state).getByText("observed")).toBeTruthy();
     expect(within(state).getByText("Implement parser").closest("a")?.getAttribute("href")).toBe(
       `/missions/${t.missionId}`,
@@ -82,6 +82,41 @@ describe("AgentInspector", () => {
     expect(
       within(screen.getByRole("region", { name: "Terminal" })).queryByText("observed"),
     ).toBeNull();
+  });
+
+  it("puts a working agent's terminal first and can follow it every 5 s", async () => {
+    const user = userEvent.setup();
+    const { client, sessionId } = setup();
+    const terminal = await screen.findByRole("region", { name: "Terminal" });
+    const state = screen.getByRole("region", { name: "State" });
+    // The live output comes before the state card.
+    expect(terminal.compareDocumentPosition(state) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await user.click(within(terminal).getByRole("switch", { name: /Follow/ }));
+    await waitFor(() => expect(client.sessions.terminal).toHaveBeenCalledTimes(1));
+    expect(client.sessions.terminal).toHaveBeenCalledWith(sessionId, { lines: 200 });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TERMINAL_FOLLOW_MS);
+    });
+    expect(client.sessions.terminal).toHaveBeenCalledTimes(2);
+    await user.click(within(terminal).getByRole("switch", { name: /Follow/ }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TERMINAL_FOLLOW_MS * 2);
+    });
+    expect(client.sessions.terminal).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts following when opened from a Live output link (?follow=1)", async () => {
+    const { client, sessionId } = setup({ query: "?follow=1" });
+    const terminal = await screen.findByRole("region", { name: "Terminal" });
+    await waitFor(() =>
+      expect(client.sessions.terminal).toHaveBeenCalledWith(sessionId, { lines: 200 }),
+    );
+    expect(
+      within(terminal)
+        .getByRole("switch", { name: /Follow/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
   });
 
   it("explains when the runtime cannot read terminals", async () => {

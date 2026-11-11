@@ -1,9 +1,37 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import {
+  Cluster,
+  DataTable,
+  EmptyState,
+  ErrorState,
+  InfoHint,
+  Page,
+  RecordList,
+  RecordRow,
+  SplitView,
+  Stack,
+  Tabs,
+  Toolbar,
+} from "@factory/ui";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ApiError } from "../api/client.js";
 import type { Spec, SpecDiff } from "../api/types.js";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import { OpenQuestions, SpecView } from "../components/SpecView.js";
-import { Badge, Button, Card, Empty, Field, LoadState, inputClass } from "../components/ui.js";
+import {
+  Badge,
+  Button,
+  Callout,
+  Card,
+  DetailHeading,
+  Field,
+  inputClass,
+  LoadState,
+  ScreenHeader,
+  Status,
+  textareaClass,
+  Timestamp,
+} from "../components/ui.js";
+import { APPROVALS_LOCKED } from "./RunsScreen.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
 /** Latest version of each lineage, newest lineage first. */
@@ -28,59 +56,117 @@ export function SpecsScreen() {
   const [answers, setAnswers] = useState<Record<string, Record<string, string>>>({});
   const list = useLoad(projectId ? () => api.listSpecs(projectId) : null, [projectId, listTick]);
 
+  const header = (
+    <ScreenHeader
+      screen="specs"
+      title="Specs"
+      term="Spec"
+      description="Versioned specifications: review them, answer open questions, approve, then propose a plan."
+      actions={
+        <Button
+          variant="secondary"
+          onClick={() => dispatch({ type: "navigate", view: "director" })}
+        >
+          Draft in Director
+        </Button>
+      }
+    />
+  );
   if (!projectId)
     return (
-      <Card title="Specs">
-        <Empty>Create or select a project first.</Empty>
-      </Card>
+      <Page>
+        {header}
+        <EmptyState
+          title="Create or select a project first."
+          action={
+            <Button onClick={() => dispatch({ type: "navigate", view: "projects" })}>
+              Open Projects
+            </Button>
+          }
+        />
+      </Page>
     );
 
+  const lineages = list.state.status === "ready" ? latestPerLineage(list.state.data) : [];
+
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <Card title="Specifications">
-        <LoadState state={list.state} what="specs" onRetry={list.reload}>
-          {(specs) =>
-            specs.length === 0 ? (
-              <Empty>No specs yet. Draft one in the Director.</Empty>
-            ) : (
-              <ul className="space-y-1">
-                {latestPerLineage(specs).map((s) => (
-                  <li key={s.lineageId}>
-                    <button
-                      type="button"
-                      aria-pressed={state.specId === s.id}
-                      onClick={() => dispatch({ type: "spec/open", specId: s.id })}
-                      className="w-full rounded px-2 py-1.5 text-left hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 dark:hover:bg-slate-800"
-                    >
-                      <span className="block">{s.title}</span>
-                      <span className="text-xs">
-                        v{s.version} · {s.versions} version{s.versions === 1 ? "" : "s"}{" "}
-                        <Badge>{s.status}</Badge>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </LoadState>
-      </Card>
-      <div className="lg:col-span-2">
-        {state.specId ? (
-          <SpecDetailPanel
-            key={state.specId}
-            specId={state.specId}
-            answers={answers}
-            setAnswers={setAnswers}
-            onChanged={() => setListTick((t) => t + 1)}
-          />
-        ) : (
-          <Card title="Spec detail">
-            <Empty>Select a spec to see its versions, diff and approval state.</Empty>
+    <Page>
+      {header}
+      <SplitView
+        showDetail={state.specId !== null}
+        onBack={() => dispatch({ type: "route", route: { specId: null } })}
+        backLabel="All specs"
+        list={
+          <Card
+            title="Specifications"
+            headingLevel={2}
+            flush
+            {...(list.state.status === "ready" ? { count: lineages.length } : {})}
+          >
+            <LoadState state={list.state} what="specs" onRetry={list.reload}>
+              {(specs) =>
+                specs.length === 0 ? (
+                  <EmptyState
+                    compact
+                    className="m-4"
+                    title="No specs yet."
+                    body="Draft one in the Director from an idea or an Inbox item."
+                    action={
+                      <Button
+                        variant="secondary"
+                        onClick={() => dispatch({ type: "navigate", view: "director" })}
+                      >
+                        Open Director
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <RecordList label="Specifications">
+                    {lineages.map((s) => (
+                      <RecordRow
+                        key={s.lineageId}
+                        title={s.title}
+                        meta={`v${s.version} · ${s.versions} version${s.versions === 1 ? "" : "s"}`}
+                        status={<Status value={s.status} domain="spec" tooltip={false} />}
+                        selected={state.specId === s.id}
+                        onClick={() => dispatch({ type: "spec/open", specId: s.id })}
+                      />
+                    ))}
+                  </RecordList>
+                )
+              }
+            </LoadState>
           </Card>
-        )}
-      </div>
-    </div>
+        }
+        detail={
+          state.specId ? (
+            <SpecDetailPanel
+              key={state.specId}
+              specId={state.specId}
+              answers={answers}
+              setAnswers={setAnswers}
+              onChanged={() => setListTick((t) => t + 1)}
+            />
+          ) : (
+            <Card>
+              <EmptyState
+                title="No spec selected"
+                body="Select a spec to see its versions, diff and approval state."
+                action={
+                  lineages[0] ? (
+                    <Button
+                      onClick={() => dispatch({ type: "spec/open", specId: lineages[0]!.id })}
+                    >
+                      Open the newest spec
+                    </Button>
+                  ) : undefined
+                }
+              />
+            </Card>
+          )
+        }
+      />
+    </Page>
   );
 }
 
@@ -105,7 +191,12 @@ function SpecDetailPanel({
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [markdownError, setMarkdownError] = useState<string | null>(null);
   const [proposing, setProposing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState<string | null>(null);
+  // Radix tabs report one click twice (mouse down, then focus): fetch the Markdown once.
+  const markdownRequested = useRef(false);
   const loadMarkdown = () => {
+    markdownRequested.current = true;
     setMarkdownError(null);
     api.renderSpec(specId).then(setMarkdown, (e: unknown) => {
       if (e instanceof ApiError && e.status === 401) report(e);
@@ -134,230 +225,320 @@ function SpecDetailPanel({
   };
 
   return (
-    <Card title="Spec detail">
-      <LoadState state={detail.state} what="the spec" onRetry={detail.reload}>
-        {({ spec, meta, lineage }) => {
-          const latest = Math.max(...lineage.map((l) => l.version));
-          const isLatest = spec.version === latest;
-          const open = spec.body.openQuestions;
-          const blocking = open.filter((q) => q.blocking);
-          const typed = answers[spec.lineageId] ?? {};
-          return (
-            <div className="space-y-4">
-              <nav aria-label="Versions">
-                <h3 className="text-sm font-semibold">Versions</h3>
-                <ul className="flex flex-wrap gap-1">
-                  {lineage.map((v) => (
-                    <li key={v.id}>
-                      <Button
-                        variant={v.id === spec.id ? "primary" : "secondary"}
-                        aria-current={v.id === spec.id ? "true" : undefined}
-                        onClick={() => dispatch({ type: "spec/open", specId: v.id })}
-                      >
-                        v{v.version} ({v.status})
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </nav>
+    <LoadState state={detail.state} what="the spec" onRetry={detail.reload}>
+      {({ spec, meta, lineage }) => {
+        const latest = Math.max(...lineage.map((l) => l.version));
+        const latestId = lineage.find((l) => l.version === latest)?.id;
+        const isLatest = spec.version === latest;
+        const open = spec.body.openQuestions;
+        const blocking = open.filter((q) => q.blocking);
+        const typed = answers[spec.lineageId] ?? {};
+        const editable = isLatest && (spec.status === "draft" || spec.status === "review");
+        const answerable = isLatest && open.length > 0 && spec.status !== "approved";
+        const approveBlocked =
+          blocking.length > 0
+            ? "Answer the blocking open questions first."
+            : !api.hasApprovalSession()
+              ? APPROVALS_LOCKED
+              : meta.untrustedInstructionDetected && !acknowledged
+                ? "Confirm you reviewed the flagged instructions first."
+                : null;
+        // Unanswered questions are the next step, so they open first; otherwise the spec itself.
+        const current = tab ?? (answerable ? "questions" : "spec");
 
-              <SpecView spec={spec} meta={meta} />
+        const primary = !isLatest ? null : spec.status === "draft" ? (
+          <Button
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                const s = await api.submitSpec(spec.id);
+                moveTo(s, `Submitted v${s.version} for review`);
+              })
+            }
+          >
+            Submit for review
+          </Button>
+        ) : spec.status === "review" ? (
+          <Button
+            disabled={busy}
+            {...(approveBlocked ? { disabledReason: approveBlocked } : {})}
+            aria-describedby={blocking.length > 0 ? "approve-guard" : undefined}
+            onClick={() =>
+              void run(async () => {
+                const s = await api.approveSpec(
+                  spec.id,
+                  meta.untrustedInstructionDetected ? { acknowledgeUntrusted: true } : {},
+                );
+                moveTo(s, `Approved v${s.version}`);
+              })
+            }
+          >
+            Approve
+          </Button>
+        ) : spec.status === "approved" ? (
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setProposing(true);
+              void run(async () => {
+                const { plan } = await api.proposePlan(spec.id);
+                dispatch({ type: "plan/open", planId: plan.id });
+                dispatch({
+                  type: "notice",
+                  notice: { kind: "info", text: `Proposed plan v${plan.version}` },
+                });
+              }).finally(() => setProposing(false));
+            }}
+          >
+            {proposing ? "Proposing plan…" : "Propose plan"}
+          </Button>
+        ) : null;
 
-              <section
-                aria-label="Review and approval"
-                className="space-y-2 rounded border border-slate-300 p-3 dark:border-slate-700"
-              >
-                <h3 className="font-semibold">Review and approval</h3>
-                {!isLatest ? (
-                  <p className="text-sm">
-                    This is not the latest version; only v{latest} can be submitted or approved.
-                  </p>
-                ) : spec.status === "draft" ? (
-                  <Button
-                    disabled={busy}
-                    onClick={() =>
-                      void run(async () => {
-                        const s = await api.submitSpec(spec.id);
-                        moveTo(s, `Submitted v${s.version} for review`);
-                      })
-                    }
-                  >
-                    Submit for review
-                  </Button>
-                ) : spec.status === "review" ? (
-                  <div className="space-y-2">
-                    {blocking.length > 0 ? (
-                      <p id="approve-guard" className="text-sm">
-                        Approval is blocked: {blocking.length} blocking open question
-                        {blocking.length === 1 ? "" : "s"} ({blocking.map((q) => q.id).join(", ")})
-                        must be answered first. Answering creates a new draft version.
-                      </p>
-                    ) : null}
-                    <ApprovalUnlock
-                      id="spec-approval-code"
-                      onUnlocked={() => setUnlockTick((n) => n + 1)}
-                    />
-                    {meta.untrustedInstructionDetected ? (
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={acknowledged}
-                          onChange={(e) => setAcknowledged(e.target.checked)}
-                        />
-                        I reviewed the flagged instructions in this spec&apos;s sources
-                      </label>
-                    ) : null}
-                    <Button
-                      disabled={
-                        busy ||
-                        blocking.length > 0 ||
-                        !api.hasApprovalSession() ||
-                        (meta.untrustedInstructionDetected && !acknowledged)
-                      }
-                      aria-describedby={blocking.length > 0 ? "approve-guard" : undefined}
-                      onClick={() =>
-                        void run(async () => {
-                          const s = await api.approveSpec(
-                            spec.id,
-                            meta.untrustedInstructionDetected ? { acknowledgeUntrusted: true } : {},
-                          );
-                          moveTo(s, `Approved v${s.version}`);
-                        })
-                      }
-                    >
-                      Approve
+        return (
+          <section aria-labelledby="spec-title" className="flex min-w-0 flex-col gap-6">
+            <Stack gap={3}>
+              <Cluster gap={3} justify="between" align="start">
+                <Cluster gap={3} className="min-w-0">
+                  <DetailHeading id="spec-title">{spec.title}</DetailHeading>
+                  <Status value={spec.status} domain="spec" size="md" />
+                </Cluster>
+                <Cluster gap={2}>
+                  {editable && !editing ? (
+                    <Button variant="secondary" onClick={() => setEditing(true)}>
+                      Edit
                     </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm">This version is {spec.status}.</p>
-                    {spec.status === "approved" ? (
-                      <Button
-                        disabled={busy}
-                        onClick={() => {
-                          setProposing(true);
-                          void run(async () => {
-                            const { plan } = await api.proposePlan(spec.id);
-                            dispatch({ type: "plan/open", planId: plan.id });
-                            dispatch({
-                              type: "notice",
-                              notice: { kind: "info", text: `Proposed plan v${plan.version}` },
-                            });
-                          }).finally(() => setProposing(false));
-                        }}
-                      >
-                        {proposing ? "Proposing plan…" : "Propose plan"}
-                      </Button>
-                    ) : null}
-                  </div>
-                )}
-                {isLatest && (spec.status === "draft" || spec.status === "review") ? (
-                  <EditSpec
-                    key={spec.id}
-                    spec={spec}
-                    busy={busy}
-                    onSave={(patch) =>
-                      void run(async () => {
-                        const s = await api.reviseSpec(spec.id, patch);
-                        moveTo(s, `Saved your edits as v${s.version}`);
-                      })
-                    }
-                  />
-                ) : null}
-                {isLatest && open.length > 0 && spec.status !== "approved" ? (
-                  <OpenQuestions
-                    questions={open}
-                    busy={busy}
-                    answers={typed}
-                    onAnswersChange={(next) =>
-                      setAnswers((all) => ({ ...all, [spec.lineageId]: next }))
-                    }
-                    onAnswer={(q, a) =>
-                      void run(async () => {
-                        const out = await api.answer(spec.id, q, a);
-                        setAnswers((all) => ({
-                          ...all,
-                          [spec.lineageId]: Object.fromEntries(
-                            Object.entries(all[spec.lineageId] ?? {}).filter(([id]) => id !== q),
-                          ),
-                        }));
-                        moveTo(out.spec, `Answered ${q}; spec revised to v${out.spec.version}`);
-                      })
-                    }
-                  />
-                ) : null}
-              </section>
+                  ) : null}
+                  {primary}
+                </Cluster>
+              </Cluster>
+              <p className="text-sm text-muted">
+                Version {spec.version} of {latest}
+                {spec.approvedBy ? ` · approved by ${spec.approvedBy}` : ""} · created{" "}
+                <Timestamp value={spec.createdAt} />
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1 text-sm font-medium">
+                  Versions <InfoHint term="Spec version" />
+                </span>
+                <nav aria-label="Versions">
+                  <ul className="flex flex-wrap gap-1">
+                    {lineage.map((v) => (
+                      <li key={v.id}>
+                        <Button
+                          size="sm"
+                          variant={v.id === spec.id ? "primary" : "secondary"}
+                          aria-current={v.id === spec.id ? "true" : undefined}
+                          onClick={() => dispatch({ type: "spec/open", specId: v.id })}
+                        >
+                          v{v.version} ({v.status})
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              </div>
+            </Stack>
 
-              {lineage.length > 1 ? (
-                <section aria-label="Compare versions" className="space-y-2">
-                  <h3 className="font-semibold">Compare versions</h3>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <Field label="From" id="diff-from">
-                      <select
-                        id="diff-from"
-                        className={inputClass}
-                        value={from}
-                        onChange={(e) => setFrom(e.target.value)}
-                      >
-                        <option value="">Choose…</option>
-                        {lineage.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            v{v.version}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="To" id="diff-to">
-                      <select
-                        id="diff-to"
-                        className={inputClass}
-                        value={to}
-                        onChange={(e) => setTo(e.target.value)}
-                      >
-                        <option value="">Choose…</option>
-                        {lineage.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            v{v.version}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+            {!isLatest ? (
+              <Callout
+                tone="info"
+                action={
+                  latestId ? (
                     <Button
                       variant="secondary"
-                      disabled={!from || !to || busy}
-                      onClick={() => void run(async () => setDiff(await api.diffSpecs(from, to)))}
+                      onClick={() => dispatch({ type: "spec/open", specId: latestId })}
                     >
-                      Compare
+                      Open v{latest}
                     </Button>
-                  </div>
-                  {diff ? <DiffView diff={diff} /> : null}
-                </section>
-              ) : null}
-
-              <details
-                onToggle={(e) => {
-                  if ((e.target as HTMLDetailsElement).open && markdown === null) loadMarkdown();
-                }}
+                  ) : undefined
+                }
               >
-                <summary className="cursor-pointer font-semibold">Rendered Markdown</summary>
-                {markdownError !== null && markdown === null ? (
-                  <div className="mt-2 space-y-2 text-sm">
-                    <p>Could not render the spec: {markdownError}</p>
-                    <Button variant="secondary" onClick={loadMarkdown}>
-                      Retry
-                    </Button>
-                  </div>
-                ) : (
-                  <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-slate-100 p-2 text-xs dark:bg-slate-800">
-                    {markdown ?? "Loading…"}
-                  </pre>
-                )}
-              </details>
-            </div>
-          );
-        }}
-      </LoadState>
-    </Card>
+                This is not the latest version; only v{latest} can be submitted or approved.
+              </Callout>
+            ) : spec.status !== "draft" && spec.status !== "review" ? (
+              <p className="text-sm text-muted">This version is {spec.status}.</p>
+            ) : null}
+
+            {isLatest && spec.status === "review" ? (
+              <Stack gap={3}>
+                {blocking.length > 0 ? (
+                  <Callout tone="warning">
+                    <span id="approve-guard">
+                      Approval is blocked: {blocking.length} blocking open question
+                      {blocking.length === 1 ? "" : "s"} ({blocking.map((q) => q.id).join(", ")})
+                      must be answered first. Answering creates a new draft version.
+                    </span>
+                  </Callout>
+                ) : null}
+                <ApprovalUnlock
+                  id="spec-approval-code"
+                  onUnlocked={() => setUnlockTick((n) => n + 1)}
+                />
+                {meta.untrustedInstructionDetected ? (
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-[var(--accent)]"
+                      checked={acknowledged}
+                      onChange={(e) => setAcknowledged(e.target.checked)}
+                    />
+                    I reviewed the flagged instructions in this spec&apos;s sources
+                    <InfoHint term="Flagged source instructions" />
+                  </label>
+                ) : null}
+              </Stack>
+            ) : null}
+
+            {editable && editing ? (
+              <EditSpec
+                key={spec.id}
+                spec={spec}
+                busy={busy}
+                onCancel={() => setEditing(false)}
+                onSave={(patch) =>
+                  void run(async () => {
+                    const s = await api.reviseSpec(spec.id, patch);
+                    moveTo(s, `Saved your edits as v${s.version}`);
+                  })
+                }
+              />
+            ) : null}
+
+            <Tabs
+              label="Spec sections"
+              value={current}
+              onValueChange={(v) => {
+                setTab(v);
+                if (v === "markdown" && !markdownRequested.current) loadMarkdown();
+              }}
+              items={[
+                {
+                  value: "spec",
+                  label: "Specification",
+                  content: <SpecView spec={spec} meta={meta} headless />,
+                },
+                ...(answerable
+                  ? [
+                      {
+                        value: "questions",
+                        label: "Open questions",
+                        count: open.length,
+                        content: (
+                          <OpenQuestions
+                            questions={open}
+                            busy={busy}
+                            answers={typed}
+                            onAnswersChange={(next) =>
+                              setAnswers((all) => ({ ...all, [spec.lineageId]: next }))
+                            }
+                            onAnswer={(q, a) =>
+                              void run(async () => {
+                                const out = await api.answer(spec.id, q, a);
+                                setAnswers((all) => ({
+                                  ...all,
+                                  [spec.lineageId]: Object.fromEntries(
+                                    Object.entries(all[spec.lineageId] ?? {}).filter(
+                                      ([id]) => id !== q,
+                                    ),
+                                  ),
+                                }));
+                                moveTo(
+                                  out.spec,
+                                  `Answered ${q}; spec revised to v${out.spec.version}`,
+                                );
+                              })
+                            }
+                          />
+                        ),
+                      },
+                    ]
+                  : []),
+                ...(lineage.length > 1
+                  ? [
+                      {
+                        value: "compare",
+                        label: "Compare versions",
+                        content: (
+                          <section aria-label="Compare versions" className="flex flex-col gap-4">
+                            <Toolbar
+                              label="Versions to compare"
+                              actions={
+                                <Button
+                                  variant="secondary"
+                                  disabled={busy}
+                                  {...(!from || !to
+                                    ? { disabledReason: "Choose both versions first." }
+                                    : {})}
+                                  onClick={() =>
+                                    void run(async () => setDiff(await api.diffSpecs(from, to)))
+                                  }
+                                >
+                                  Compare
+                                </Button>
+                              }
+                            >
+                              <Field label="From" id="diff-from">
+                                <select
+                                  id="diff-from"
+                                  className={inputClass}
+                                  value={from}
+                                  onChange={(e) => setFrom(e.target.value)}
+                                >
+                                  <option value="">Choose…</option>
+                                  {lineage.map((v) => (
+                                    <option key={v.id} value={v.id}>
+                                      v{v.version}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+                              <Field label="To" id="diff-to">
+                                <select
+                                  id="diff-to"
+                                  className={inputClass}
+                                  value={to}
+                                  onChange={(e) => setTo(e.target.value)}
+                                >
+                                  <option value="">Choose…</option>
+                                  {lineage.map((v) => (
+                                    <option key={v.id} value={v.id}>
+                                      v{v.version}
+                                    </option>
+                                  ))}
+                                </select>
+                              </Field>
+                            </Toolbar>
+                            {diff ? <DiffView diff={diff} /> : null}
+                          </section>
+                        ),
+                      },
+                    ]
+                  : []),
+                {
+                  value: "markdown",
+                  label: "Rendered Markdown",
+                  content:
+                    markdownError !== null && markdown === null ? (
+                      <ErrorState
+                        title={`Could not render the spec: ${markdownError}`}
+                        retryLabel="Retry"
+                        onRetry={loadMarkdown}
+                      />
+                    ) : (
+                      <pre
+                        tabIndex={0}
+                        className="max-h-[32rem] overflow-auto rounded-md bg-sunken p-3 font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]"
+                      >
+                        {markdown ?? "Loading…"}
+                      </pre>
+                    ),
+                },
+              ]}
+            />
+          </section>
+        );
+      }}
+    </LoadState>
   );
 }
 
@@ -366,21 +547,20 @@ function EditSpec(props: {
   spec: Spec;
   busy: boolean;
   onSave: (patch: { title: string; body: { problem: string; goals: string[] } }) => void;
+  onCancel: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(props.spec.title);
   const [problem, setProblem] = useState(props.spec.body.problem);
   const [goals, setGoals] = useState(props.spec.body.goals.join("\n"));
-  if (!open)
-    return (
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        Edit
-      </Button>
-    );
+  const missing = !title.trim()
+    ? "Give the spec a title."
+    : !problem.trim()
+      ? "Describe the problem."
+      : null;
   return (
     <form
       aria-label="Edit specification"
-      className="space-y-2 rounded border border-slate-300 p-3 dark:border-slate-700"
+      className="flex flex-col gap-4 rounded-lg border border-line bg-surface p-card"
       onSubmit={(e) => {
         e.preventDefault();
         props.onSave({
@@ -407,7 +587,7 @@ function EditSpec(props: {
         <textarea
           id="edit-spec-problem"
           rows={3}
-          className={inputClass}
+          className={textareaClass}
           value={problem}
           onChange={(e) => setProblem(e.target.value)}
         />
@@ -421,19 +601,23 @@ function EditSpec(props: {
           id="edit-spec-goals"
           aria-describedby="edit-spec-goals-hint"
           rows={4}
-          className={inputClass}
+          className={textareaClass}
           value={goals}
           onChange={(e) => setGoals(e.target.value)}
         />
       </Field>
-      <div className="flex gap-2">
-        <Button type="submit" disabled={props.busy || !title.trim() || !problem.trim()}>
+      <Cluster gap={2}>
+        <Button
+          type="submit"
+          disabled={props.busy}
+          {...(!props.busy && missing ? { disabledReason: missing } : {})}
+        >
           Save as new version
         </Button>
-        <Button variant="secondary" onClick={() => setOpen(false)}>
+        <Button variant="secondary" onClick={props.onCancel}>
           Cancel
         </Button>
-      </div>
+      </Cluster>
     </form>
   );
 }
@@ -441,7 +625,7 @@ function EditSpec(props: {
 const show = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
 
 export function DiffView({ diff }: { diff: SpecDiff }) {
-  if (!diff.changed) return <p className="text-sm">No differences.</p>;
+  if (!diff.changed) return <p className="text-sm text-muted">No differences.</p>;
   const rows: { section: string; kind: "added" | "removed" | "changed"; text: string }[] = [];
   if (diff.title)
     rows.push({ section: "title", kind: "changed", text: `${diff.title.from} → ${diff.title.to}` });
@@ -466,28 +650,33 @@ export function DiffView({ diff }: { diff: SpecDiff }) {
     for (const c of d.changed ?? []) rows.push({ section: key, kind: "changed", text: show(c) });
   }
   return (
-    <table className="w-full text-left text-sm">
-      <caption className="sr-only">Differences between versions</caption>
-      <thead>
-        <tr>
-          <th scope="col">Section</th>
-          <th scope="col">Change</th>
-          <th scope="col">Text</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={i} className="border-t border-slate-200 dark:border-slate-700">
-            <td className="pr-2 font-mono text-xs">{r.section}</td>
-            <td className="pr-2">
-              <Badge tone={r.kind === "added" ? "ok" : r.kind === "removed" ? "warn" : "neutral"}>
-                {r.kind}
-              </Badge>
-            </td>
-            <td>{r.text}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <DataTable
+      caption="Differences between versions"
+      layout="stack"
+      rows={rows.map((r, i) => ({ ...r, key: String(i) }))}
+      rowKey={(r) => r.key}
+      columns={[
+        {
+          key: "section",
+          header: "Section",
+          cell: (r) => <span className="font-mono text-xs">{r.section}</span>,
+        },
+        {
+          key: "kind",
+          header: "Change",
+          cell: (r) => (
+            <Badge tone={r.kind === "added" ? "ok" : r.kind === "removed" ? "danger" : "neutral"}>
+              {r.kind}
+            </Badge>
+          ),
+        },
+        {
+          key: "text",
+          header: "Text",
+          primary: true,
+          cell: (r) => <span className="[overflow-wrap:anywhere]">{r.text}</span>,
+        },
+      ]}
+    />
   );
 }

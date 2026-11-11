@@ -3,36 +3,45 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApiClient } from "./api/client.js";
 import { App } from "./App.js";
+import { globalLink, globalNav, projectNav, tab } from "./test/shell.js";
 import { mockApi } from "./test/utils.js";
 
 afterEach(() => sessionStorage.clear());
 
-describe("App navigation for plans, runs, reviews, deliveries and harnesses", () => {
-  it("lists the new screens and reaches them with Alt+7..0", async () => {
+const current = () =>
+  within(projectNav())
+    .getAllByRole("link")
+    .find((b) => b.getAttribute("aria-current") === "page")?.textContent;
+
+describe("App navigation for plans, runs, needs you, deliveries and harnesses", () => {
+  it("lists the project screens and reaches them with Alt+7..0, global pages in the bottom bar", async () => {
     const api = mockApi({
       listProjects: [],
       listHarnesses: { source: "fake", harnesses: [] },
+      listDecisions: [],
+      listStewardNotes: [],
     });
     render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
-    const nav = await screen.findByRole("navigation", { name: "Main" });
-    for (const name of ["Plans", "Runs", "Reviews", "Deliveries", "Harnesses"])
+    const nav = await screen.findByRole("navigation", { name: "Project pages" });
+    for (const name of ["Plans", "Runs", "Needs you", "Deliveries", "Knowledge", "Autonomy"])
       expect(nav.textContent).toContain(name);
-    const current = () =>
-      screen.getAllByRole("button").find((b) => b.getAttribute("aria-current") === "page")
-        ?.textContent;
+    for (const name of ["Projects", "Harnesses", "Autonomy (all)", "Settings"])
+      expect(within(globalNav()).getByRole("link", { name })).toBeTruthy();
     await userEvent.keyboard("{Alt>}7{/Alt}");
-    expect(current()).toBe("Plans");
+    expect(current()).toBe("Needs you");
     await userEvent.keyboard("{Alt>}8{/Alt}");
-    expect(current()).toBe("Runs");
-    await userEvent.keyboard("{Alt>}9{/Alt}");
-    expect(current()).toBe("Reviews");
-    await userEvent.keyboard("{Alt>}0{/Alt}");
     expect(current()).toBe("Deliveries");
-    await userEvent.click(screen.getByRole("button", { name: "Harnesses" }));
+    await userEvent.keyboard("{Alt>}9{/Alt}");
+    expect(current()).toBe("Knowledge");
+    await userEvent.keyboard("{Alt>}0{/Alt}");
+    expect(current()).toBe("Autonomy");
+    await userEvent.click(globalLink("Harnesses"));
     expect(await screen.findByText(/Fixture harnesses/)).toBeTruthy();
+    // A global page has no current project tab.
+    expect(current()).toBeUndefined();
   });
 
-  it("lists Autonomy last and opens it from the navigation", async () => {
+  it("lists Autonomy as the last project tab and opens Autonomy (all) from the bottom bar", async () => {
     const api = mockApi({
       listProjects: [],
       stewardStatus: {
@@ -50,14 +59,14 @@ describe("App navigation for plans, runs, reviews, deliveries and harnesses", ()
       listStewardNotes: [],
     });
     render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
-    const nav = await screen.findByRole("navigation", { name: "Main" });
-    const buttons = within(nav).getAllByRole("button");
-    expect(buttons.at(-1)!.textContent).toBe("Autonomy");
-    expect(buttons.at(-1)!.getAttribute("aria-keyshortcuts")).toBeNull();
-    await userEvent.click(buttons.at(-1)!);
+    await screen.findByRole("navigation", { name: "Project pages" });
+    const links = within(projectNav()).getAllByRole("link");
+    expect(links.at(-1)!.textContent).toBe("Autonomy");
+    expect(tab("Autonomy").getAttribute("aria-keyshortcuts")).toBeNull();
+    await userEvent.click(globalLink("Autonomy (all)"));
     expect(await screen.findByRole("heading", { name: "Decision log" })).toBeTruthy();
-    expect(window.location.hash).toBe("#/autonomy");
-    // No project selected: the log and notes cover all projects.
+    expect(window.location.hash).toBe("#/autonomy-all");
+    // The global page covers all projects: no projectId on the log or the notes.
     expect(api.listDecisions).toHaveBeenCalledWith({ limit: 50 });
     expect(api.listStewardNotes).toHaveBeenCalledWith(null);
   });

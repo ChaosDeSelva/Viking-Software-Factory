@@ -11,7 +11,9 @@ export type StubReply =
       headers?: Record<string, string>;
     }
   | { hang: true }
-  | { destroy: true };
+  | { destroy: true }
+  /** Headers and the start of a body, then the body never ends or the connection drops. */
+  | { status?: number; partial: string; then: "hang" | "destroy" };
 
 export interface StubFeedbackGraph {
   url: string;
@@ -53,6 +55,15 @@ export async function startStubFeedbackGraph(token = "fg-test-token"): Promise<S
     }
     if ("destroy" in reply) {
       res.socket?.destroy();
+      return;
+    }
+    if ("partial" in reply) {
+      res.writeHead(reply.status ?? 200, { "content-type": "application/json" });
+      if (reply.then === "destroy") res.write(reply.partial, () => res.socket?.destroy());
+      else {
+        res.write(reply.partial);
+        hanging.add(res);
+      }
       return;
     }
     if ("json" in reply) {

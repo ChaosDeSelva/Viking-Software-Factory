@@ -16,6 +16,8 @@ import type { ServerProcess } from "./serve.js";
 
 // The real spawnServer, with every started server recorded so a test can reach its process.
 const spawned = vi.hoisted(() => [] as ServerProcess[]);
+// Lines replayed through the demo's output callback as if the server had printed them.
+const serverLines = vi.hoisted(() => [] as [string, "stdout" | "stderr"][]);
 vi.mock("./serve.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./serve.js")>();
   return {
@@ -23,6 +25,7 @@ vi.mock("./serve.js", async (importOriginal) => {
     spawnServer: (...args: Parameters<typeof actual.spawnServer>) => {
       const s = actual.spawnServer(...args);
       spawned.push(s);
+      for (const [line, stream] of serverLines) args[2](line, stream);
       return s;
     },
   };
@@ -59,6 +62,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  serverLines.splice(0);
   for (const s of spawned.splice(0)) {
     s.child.kill("SIGKILL");
     await s.exited;
@@ -183,6 +187,16 @@ describe("runDemo", () => {
     expect(await d.done).toBe(0);
     expect(out).toEqual([]);
     expect(demoDirs()).toEqual([]);
+    noSignalListenersLeft(d.before);
+  });
+
+  it("passes the server's stderr lines on and keeps its stdout out of the demo's output", async () => {
+    serverLines.push(["server warning", "stderr"], ["server request log", "stdout"]);
+    const d = start();
+    (d.sigterm[0] as () => void)();
+    expect(await d.done).toBe(0);
+    expect(err).toEqual(["server warning"]);
+    expect(out).toEqual([]);
     noSignalListenersLeft(d.before);
   });
 

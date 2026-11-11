@@ -1,0 +1,2 @@
+# Must stay byte-identical to @factory/ui themeScript (tests/web.test.mjs checks it).
+apps/web/public/theme.js

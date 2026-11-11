@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { expectNoSeriousA11yViolations } from "../test/axe.js";
@@ -16,12 +16,23 @@ describe("badges", () => {
     );
     expect(screen.getByText("observed")).toBeTruthy();
     expect(screen.getByText("summarized")).toBeTruthy();
-    expect(screen.getByText("summarized").getAttribute("title")).toMatch(/AI summary/i);
   });
 
-  it("renders status text", () => {
-    render(<StatusBadge status="blocked" />);
-    expect(screen.getByText("blocked")).toBeTruthy();
+  it("explains provenance in a tooltip on focus", async () => {
+    render(<ProvenanceBadge provenance="summarized" />);
+    await userEvent.tab();
+    await waitFor(() => expect(screen.getByRole("tooltip").textContent).toMatch(/AI summary/i));
+  });
+
+  it("renders a human status label with the docs meaning, and unknown values raw", () => {
+    render(
+      <>
+        <StatusBadge status="blocked" domain="task" />
+        <StatusBadge status="teleporting" />
+      </>,
+    );
+    expect(screen.getByRole("img", { name: "Status: Blocked" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Status: teleporting" })).toBeTruthy();
   });
 
   it("shows measured/estimated/unavailable chips with counts", () => {

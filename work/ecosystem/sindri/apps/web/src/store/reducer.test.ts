@@ -4,17 +4,9 @@ import { initialState, reducer, type State } from "./reducer.js";
 const base = (over: Partial<State> = {}): State => ({ ...initialState({}), ...over });
 
 describe("store reducer", () => {
-  it("starts on the projects view without a token, honouring the given token and theme", () => {
-    expect(initialState({})).toMatchObject({
-      token: null,
-      view: "projects",
-      projectId: null,
-      theme: "light",
-    });
-    expect(initialState({ token: "abc", theme: "dark" })).toMatchObject({
-      token: "abc",
-      theme: "dark",
-    });
+  it("starts on the Overview without a token, honouring the given token", () => {
+    expect(initialState({})).toMatchObject({ token: null, view: "overview", projectId: null });
+    expect(initialState({ token: "abc" })).toMatchObject({ token: "abc" });
   });
 
   it("sets and clears the token", () => {
@@ -64,9 +56,10 @@ describe("store reducer", () => {
     expect(reducer(s, { type: "notice/dismiss" }).notice).toBeNull();
   });
 
-  it("toggles the theme", () => {
-    expect(reducer(base(), { type: "theme/toggle" }).theme).toBe("dark");
-    expect(reducer(base({ theme: "dark" }), { type: "theme/toggle" }).theme).toBe("light");
+  it("opens a docs page at a section", () => {
+    expect(
+      reducer(base(), { type: "docs/open", slug: "glossary", section: "steward" }),
+    ).toMatchObject({ view: "docs", docsSlug: "glossary", docsSection: "steward" });
   });
 
   it("an unauthorized error clears the token and explains why", () => {

@@ -48,14 +48,16 @@ describe("KnowledgeScreen", () => {
     });
     renderWithStore(ui, api);
     await userEvent.type(screen.getByLabelText("Claim"), "CSV uses papaparse");
-    const add = screen.getByRole("button", { name: "Add entry" }) as HTMLButtonElement;
-    expect(add.disabled).toBe(true);
+    // Soft-disabled with the reason in its name until a source is added.
+    const add = () => screen.getByRole("button", { name: /^Add entry/ });
+    expect(add().getAttribute("aria-disabled")).toBe("true");
+    expect(add().textContent).toMatch(/Add at least one source/);
     await userEvent.type(screen.getByLabelText("Cite from the project index"), "papaparse");
     await userEvent.click(screen.getByRole("button", { name: "Find" }));
     await userEvent.click(
       await screen.findByRole("button", { name: "Cite README.md lines 1 to 3" }),
     );
-    await userEvent.click(add);
+    await userEvent.click(add());
     expect(api.addKnowledge).toHaveBeenCalledWith("p1", {
       claim: "CSV uses papaparse",
       sourceRefs: [{ documentId: "d1", startLine: 1, endLine: 3 }],
@@ -99,7 +101,7 @@ describe("KnowledgeScreen", () => {
       await screen.findByRole("button", { name: "History CSV uses papaparse" }),
     );
     const hist = await screen.findByRole("list", { name: "History" });
-    expect(within(hist).getByText("superseded")).toBeTruthy();
+    expect(within(hist).getByText("Superseded")).toBeTruthy();
   });
 
   it("says so when a delivery has no proposals (L1)", async () => {

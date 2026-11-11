@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHeimdall } from "../apps/server/main.mjs";
@@ -316,4 +316,51 @@ test("a failure while recording a rejected command still releases its key", asyn
   const again = await call("commands", cancel, headers);
   assert.equal(again.status, 409, "the stored rejection answers, not 'still waiting'");
   assert.equal((await again.json()).message, "Source rejected this action");
+});
+
+test("without a data directory Heimdall keeps its state in a private .heimdall beside where it started", async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "heimdall-cwd-"));
+  const start = process.cwd();
+  process.chdir(dir);
+  let app;
+  try {
+    app = await startHeimdall({ env: { HEIMDALL_PORT: "0", HEIMDALL_TOKEN: "test-token" } });
+  } finally {
+    process.chdir(start);
+  }
+  t.after(async () => {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const state = join(dir, ".heimdall");
+  assert.equal(statSync(state).mode & 0o777, 0o700);
+  assert.equal(existsSync(join(state, "heimdall.sqlite")), true);
+});
+
+test("a response that fails to serialise after its headers went out drops the connection, not the server", async (t) => {
+  const { app, call, signIn } = await setup(t, { sources: [] });
+  await signIn();
+  const rejections = [];
+  const record = (e) => rejections.push(e);
+  process.on("unhandledRejection", record);
+  t.after(() => process.off("unhandledRejection", record));
+  const snapshot = app.hub.snapshot.bind(app.hub);
+  // JSON.stringify runs after writeHead, and a BigInt cannot be serialised.
+  app.hub.snapshot = () => ({ count: 1n });
+  await assert.rejects(call("snapshot"));
+  app.hub.snapshot = snapshot;
+  await wait(50);
+  assert.deepEqual(rejections, []);
+  assert.equal((await call("snapshot")).status, 200);
+});
+
+test("a thrown value that is not an Error is answered with its text", async (t) => {
+  const { app, call, signIn } = await setup(t, { sources: [] });
+  await signIn();
+  app.hub.snapshot = () => {
+    throw "database is locked";
+  };
+  const answer = await call("snapshot");
+  assert.equal(answer.status, 400);
+  assert.deepEqual(await answer.json(), { message: "database is locked" });
 });

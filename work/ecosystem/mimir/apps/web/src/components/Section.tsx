@@ -1,37 +1,42 @@
-import { useId, type ReactNode, type Ref } from "react";
+import { Card } from "@factory/ui";
+import type { ReactNode } from "react";
 
-/** A labelled region: `<section>` named by its `<h2>`. */
+/**
+ * A page region in a bordered card: `<section>` named by its `<h2>`. `flush` is for bodies that
+ * are a table or a list (no inner padding, a rule under the header).
+ */
 export function Section({
   title,
   children,
   actions,
-  headingRef,
+  description,
+  term,
+  count,
+  flush,
+  className,
 }: {
   title: string;
   children: ReactNode;
   actions?: ReactNode;
-  /** When given, the heading is programmatically focusable (focus recovery targets). */
-  headingRef?: Ref<HTMLHeadingElement>;
+  description?: ReactNode;
+  /** Glossary term for an InfoHint beside the title. */
+  term?: string;
+  count?: number;
+  flush?: boolean;
+  className?: string;
 }) {
-  const id = useId();
   return (
-    <section aria-labelledby={id} className="mb-6">
-      <div className="mb-2 flex items-center gap-3">
-        <h2
-          id={id}
-          ref={headingRef}
-          {...(headingRef ? { tabIndex: -1 } : {})}
-          className="text-xl font-semibold"
-        >
-          {title}
-        </h2>
-        {actions}
-      </div>
+    <Card
+      title={title}
+      headingLevel={2}
+      actions={actions}
+      description={description}
+      term={term}
+      count={count}
+      flush={flush}
+      className={className}
+    >
       {children}
-    </section>
+    </Card>
   );
-}
-
-export function PageTitle({ children }: { children: ReactNode }) {
-  return <h1 className="mb-4 text-2xl font-semibold">{children}</h1>;
 }

@@ -64,12 +64,14 @@ describe("KnowledgeScreen (sweep 2)", { timeout: 20_000 }, () => {
     await userEvent.click(screen.getByRole("button", { name: "Propose from delivery" }));
     expect(api.proposeKnowledge).toHaveBeenCalledWith("e1");
     expect(await screen.findByText("Reports use papaparse")).toBeTruthy();
-    expect(screen.getAllByText("proposed · 2 evidence references")).toHaveLength(2);
+    const proposals = () => within(screen.getByRole("list", { name: "Proposals" }));
+    expect(proposals().getAllByText("Proposed")).toHaveLength(2);
+    expect(proposals().getAllByText("2 evidence references")).toHaveLength(2);
 
     const listCalls = api.listKnowledge.mock.calls.length;
     await userEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]!);
     expect(api.decideProposal).toHaveBeenCalledWith("e1", "kp1", "accepted");
-    expect(await screen.findByText("accepted · 2 evidence references")).toBeTruthy();
+    expect(await proposals().findByText("Accepted")).toBeTruthy();
     // Accepting adds a valid entry, so the knowledge list is loaded again.
     expect(api.listKnowledge.mock.calls.length).toBeGreaterThan(listCalls);
     // A decided proposal offers no decision buttons.
@@ -77,7 +79,7 @@ describe("KnowledgeScreen (sweep 2)", { timeout: 20_000 }, () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Reject" }));
     expect(api.decideProposal).toHaveBeenLastCalledWith("e1", "kp2", "rejected");
-    expect(await screen.findByText("rejected · 2 evidence references")).toBeTruthy();
+    expect(await proposals().findByText("Rejected")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
   });
 
@@ -113,19 +115,15 @@ describe("KnowledgeScreen (sweep 2)", { timeout: 20_000 }, () => {
     await userEvent.selectOptions(screen.getByLabelText("Delivery"), "e1");
     await userEvent.click(screen.getByRole("button", { name: "Load proposals" }));
     await screen.findByText("Reports use papaparse");
-    expect(screen.getByRole("button", { name: "Propose from delivery" })).toHaveProperty(
-      "disabled",
-      true,
-    );
-    expect(screen.getByRole("button", { name: "Accept" })).toHaveProperty("disabled", true);
+    const off = (name: RegExp) =>
+      screen.getByRole("button", { name }).getAttribute("aria-disabled");
+    expect(off(/^Propose from delivery/)).toBe("true");
+    expect(off(/^Accept/)).toBe("true");
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     expect((await screen.findByRole("status")).textContent).toMatch(/Knowledge approvals unlocked/);
-    expect(screen.getByRole("button", { name: "Accept" })).toHaveProperty("disabled", false);
-    expect(screen.getByRole("button", { name: "Propose from delivery" })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    expect(off(/^Accept/)).toBeNull();
+    expect(off(/^Propose from delivery/)).toBeNull();
   });
 
   it("reports a failed request and lets the person try again", async () => {
@@ -163,10 +161,11 @@ describe("KnowledgeScreen (sweep 2)", { timeout: 20_000 }, () => {
     );
     const form = screen.getByRole("form", { name: "Retract entry" });
     // A blank reason is refused by the server, so it cannot be sent.
-    expect(within(form).getByRole("button", { name: "Confirm retraction" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      within(form)
+        .getByRole("button", { name: /^Confirm retraction/ })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
     await userEvent.type(within(form).getByLabelText("Reason for retraction"), "outdated");
     await userEvent.click(within(form).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("form", { name: "Retract entry" })).toBeNull();
@@ -225,9 +224,13 @@ describe("KnowledgeScreen (sweep 2)", { timeout: 20_000 }, () => {
     const conf = screen.getByLabelText("Confidence (0 to 1)");
     await userEvent.clear(conf);
     await userEvent.type(conf, "1.5");
-    expect(screen.getByRole("button", { name: "Add entry" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: /^Add entry/ }).getAttribute("aria-disabled")).toBe(
+      "true",
+    );
     await userEvent.clear(conf);
     await userEvent.type(conf, "1");
-    expect(screen.getByRole("button", { name: "Add entry" })).toHaveProperty("disabled", false);
+    expect(screen.getByRole("button", { name: "Add entry" }).hasAttribute("aria-disabled")).toBe(
+      false,
+    );
   });
 });

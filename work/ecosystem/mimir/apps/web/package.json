@@ -16,6 +16,8 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "dependencies": {
+    "@factory/docs": "0.1.2",
+    "@factory/ui": "0.1.1",
     "@mimir/protocol": "workspace:*",
     "@mimir/sdk": "workspace:*",
     "react": "^19.3.0",

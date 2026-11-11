@@ -6,12 +6,13 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { AppRoutes } from "../../src/App.js";
-import { applyTheme } from "../../src/lib/theme.js";
+import { RoutedProviders } from "../../src/components/Providers.js";
+import { migrateLegacyTheme } from "../../src/lib/theme.js";
 import { StoreProvider } from "../../src/store/StoreProvider.js";
 import "../../src/index.css";
 import { fixtureClient, IDS } from "./fixtureClient.js";
 
-applyTheme("system");
+migrateLegacyTheme();
 const path = (new URLSearchParams(window.location.search).get("path") ?? "/").replace(
   /:(\w+)/g,
   (_, k: string) => IDS[k as keyof typeof IDS] ?? k,
@@ -22,7 +23,9 @@ createRoot(root).render(
   <StrictMode>
     <StoreProvider client={fixtureClient}>
       <MemoryRouter initialEntries={[path]}>
-        <AppRoutes />
+        <RoutedProviders>
+          <AppRoutes />
+        </RoutedProviders>
       </MemoryRouter>
     </StoreProvider>
   </StrictMode>,

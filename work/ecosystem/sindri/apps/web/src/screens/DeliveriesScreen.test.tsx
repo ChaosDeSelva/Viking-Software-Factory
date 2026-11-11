@@ -19,6 +19,8 @@ function Where() {
   const { state } = useStore();
   return <output data-testid="where">{`${state.view}:${state.specId ?? ""}`}</output>;
 }
+/** The detail is split into tabs; Report is open first. */
+const openTab = async (name: RegExp) => userEvent.click(await screen.findByRole("tab", { name }));
 const summary = {
   id: "e1",
   executionId: "e1",
@@ -80,11 +82,14 @@ describe("DeliveriesScreen", () => {
       api,
       { deliveryId: "e1" },
     );
+    await openTab(/Request changes/);
     const form = await screen.findByRole("form", { name: "Request changes to this delivery" });
-    const send = within(form).getByRole("button", { name: "Request changes" });
-    expect(send).toHaveProperty("disabled", true);
+    // A soft-disabled button's name carries its reason, so match the start.
+    const send = () => within(form).getByRole("button", { name: /^Request changes/ });
+    expect(send().getAttribute("aria-disabled")).toBe("true");
+    expect(send().textContent).toMatch(/Describe what should change/);
     await userEvent.type(within(form).getByLabelText("What should change"), "  Use ISO dates  ");
-    await userEvent.click(send);
+    await userEvent.click(send());
     expect(api.requestRework).toHaveBeenCalledWith("e1", "Use ISO dates");
     expect(await screen.findByText(/A specification was drafted from your feedback/)).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("specs:s9");
@@ -93,16 +98,15 @@ describe("DeliveriesScreen", () => {
     const failing = mockApi(base);
     failing.requestRework.mockRejectedValue(new ApiError(409, "invalid_state", "no result yet"));
     renderWithStore(ui, failing, { deliveryId: "e1" });
+    await openTab(/Request changes/);
     const again = await screen.findByRole("form", { name: "Request changes to this delivery" });
     const box = within(again).getByLabelText("What should change") as HTMLTextAreaElement;
     await userEvent.type(box, "Rename the column");
     await userEvent.click(within(again).getByRole("button", { name: "Request changes" }));
     expect(await screen.findByText(/no result yet/)).toBeTruthy();
     expect(box.value).toBe("Rename the column");
-    expect(within(again).getByRole("button", { name: "Request changes" })).toHaveProperty(
-      "disabled",
-      false,
-    );
+    const retry = within(again).getByRole("button", { name: "Request changes" });
+    expect(retry.hasAttribute("disabled") || retry.hasAttribute("aria-disabled")).toBe(false);
   });
 
   it("shows an empty state", async () => {
@@ -123,13 +127,20 @@ describe("DeliveriesScreen", () => {
     const report = await screen.findByRole("region", { name: "Delivery report" });
     expect(report.textContent).toMatch(/AC1/);
     expect(report.textContent).toMatch(/pnpm test/);
-    expect(report.textContent).toMatch(/unverified/);
-    expect(report.textContent).toMatch(/verification_report_missing/);
+    expect(report.textContent).toMatch(/Unverified/);
+    expect(report.textContent).toMatch(/Verification report missing/);
+    expect(
+      report.querySelector('[data-reason-code="brokkr verification_report_missing"]'),
+    ).toBeTruthy();
     expect(report.textContent).toMatch(/\[ref:evt_8\]/);
-    expect(screen.getByLabelText("Delivery description").textContent).toMatch(/## Requirements/);
+    await openTab(/Local export/);
+    expect((await screen.findByLabelText("Delivery description")).textContent).toMatch(
+      /## Requirements/,
+    );
     await userEvent.click(screen.getByRole("button", { name: "Copy summary" }));
     expect(writeText).toHaveBeenCalledWith(delivery().prDescription);
     expect((await screen.findByRole("status")).textContent).toMatch(/copied/i);
+    await openTab(/Trace/);
     const tree = await screen.findByRole("list", { name: "Trace" });
     expect(within(tree).getByText(/Mimir mission msn_1/)).toBeTruthy();
     expect(within(tree).getByText(/test.output/)).toBeTruthy();
@@ -167,8 +178,10 @@ describe("DeliveriesScreen", () => {
       hasApprovalSession: () => false,
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
-    const button = await screen.findByRole("button", { name: "Export local result" });
-    expect(button.hasAttribute("disabled")).toBe(true);
+    const button = await screen.findByRole("button", { name: /^Export local result/ });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    await userEvent.click(button);
+    expect(api.requestPr).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Approval pairing code")).toBeTruthy();
   });
 
@@ -232,12 +245,14 @@ describe("DeliveriesScreen", () => {
       api,
       { deliveryId: "e1" },
     );
-    const earlier = await screen.findByRole("region", { name: "Earlier change requests" });
+    await openTab(/Request changes/);
+    const earlier = await screen.findByRole("region", { name: /Earlier change requests/ });
     expect(within(earlier).getByText(/Use ISO dates/)).toBeTruthy();
     await userEvent.click(within(earlier).getByRole("button", { name: /Open spec v2 \(draft\)/ }));
     expect(screen.getByTestId("where").textContent).toBe("specs:s8");
 
     expect(api.listReworks).toHaveBeenCalledTimes(1);
+    await openTab(/Request changes/);
     const form = screen.getByRole("form", { name: "Request changes to this delivery" });
     await userEvent.type(within(form).getByLabelText("What should change"), "Rename the column");
     await userEvent.click(within(form).getByRole("button", { name: "Request changes" }));
@@ -265,6 +280,7 @@ describe("DeliveriesScreen", () => {
       deliveryTrace: trace(),
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Local export/);
     const block = await screen.findByRole("region", { name: "Patch" });
     const pre = block.querySelector("pre")!;
     expect(pre.textContent).toBe(local.patch);
@@ -290,6 +306,7 @@ describe("DeliveriesScreen", () => {
       deliveryTrace: trace(),
     });
     renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Local export/);
     const follow = await screen.findByRole("region", {
       name: "Follow-up only — use this if you already applied the earlier delivery",
     });
@@ -304,5 +321,66 @@ describe("DeliveriesScreen", () => {
     expect(writeText).toHaveBeenCalledWith(followUp.patch);
     await userEvent.click(within(full).getByRole("button", { name: "Copy patch" }));
     expect(writeText).toHaveBeenLastCalledWith(local.patch);
+  });
+});
+
+describe("DeliveriesScreen layout", () => {
+  const base = {
+    listDeliveries: [summary],
+    getDelivery: delivery(),
+    localDelivery: null,
+    deliveryTrace: trace(),
+    listReworks: [],
+  };
+
+  it("opens the most recent delivery from the empty detail", async () => {
+    renderWithStore(ui, mockApi(base));
+    expect(await screen.findByRole("heading", { level: 1, name: "Deliveries" })).toBeTruthy();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open the most recent delivery" }),
+    );
+    expect(await screen.findByRole("region", { name: "Delivery report" })).toBeTruthy();
+  });
+
+  it("splits the detail into tabs and jumps to the export when exporting", async () => {
+    const api = mockApi({
+      ...base,
+      requestPr: { deliveryId: "d1", status: "exported", prs: [] },
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      "Report",
+      "Local export",
+      "Request changes",
+      "Trace",
+    ]);
+    expect(screen.getByRole("tab", { name: "Report" }).getAttribute("aria-selected")).toBe("true");
+    await userEvent.click(screen.getByRole("button", { name: "Export local result" }));
+    expect(screen.getByRole("tab", { name: "Local export" }).getAttribute("aria-selected")).toBe(
+      "true",
+    );
+    expect(await screen.findByText("No approved local export yet.")).toBeTruthy();
+  });
+
+  it("keeps the patch text collapsed until asked for", async () => {
+    const api = mockApi({
+      ...base,
+      localDelivery: {
+        baseSha: "a",
+        resultCommit: "b".repeat(40),
+        patch: "diff\n+x\n",
+        repoPath: "/repo/demo",
+        apply: "git apply result.patch",
+        undo: "git apply -R result.patch",
+      },
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    await openTab(/Local export/);
+    const block = await screen.findByRole("region", { name: "Patch" });
+    const details = block.querySelector("details")!;
+    expect(details.open).toBe(false);
+    await userEvent.click(within(block).getByText("Show result.patch (3 lines)"));
+    expect(details.open).toBe(true);
   });
 });

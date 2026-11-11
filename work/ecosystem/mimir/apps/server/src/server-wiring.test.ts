@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { openEventStore } from "@mimir/core";
 import { FakeRuntime } from "@mimir/fake-runtime";
 import { newId } from "@mimir/protocol";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildServer } from "./index.js";
 import { SupervisorStore, type Message } from "./supervision/store.js";
 import { AUTH, TOKEN, eventInput, makeServer, type TestServer } from "./test-helpers.js";
@@ -225,7 +225,7 @@ describe("supervisor control wiring", () => {
           .messages("sup")
           .find((m) => m.id === id && m.state !== "pending" && m.state !== "dispatching"),
       );
-    return { s, sup, post, sessionId, fake, settled, dataDir };
+    return { s, sup, post, sessionId, taskId, fake, settled, dataDir };
   }
 
   it("runs operator observe, input and stop controls through the runtime and orchestrator", async () => {
@@ -302,4 +302,72 @@ describe("supervisor control wiring", () => {
       sup.close();
     }
   }, 60_000);
+
+  it("thinks about an existing mission with its tasks and sessions as context", async () => {
+    const { s, sup, settled, sessionId, taskId } = await setup();
+    // A stub model CLI (never a real one): it logs its prompt and answers with a decision.
+    const bin = tempDir("supervisor-model-");
+    const promptLog = join(bin, "prompt.txt");
+    const codex = join(bin, "codex");
+    writeFileSync(
+      codex,
+      `#!/bin/sh\nfor a; do last="$a"; done\nprintf '%s' "$last" > '${promptLog}'\necho '{"report":"healthy","actions":[{"kind":"observe","sessionId":"${sessionId}"}]}'\n`,
+      { mode: 0o755 },
+    );
+    vi.stubEnv("MIMIR_CODEX_BIN", codex);
+    try {
+      const missionId = newId("msn");
+      s.store.append(eventInput({ streamId: `mission:${missionId}`, missionId }));
+      s.store.append(
+        eventInput({
+          type: "task.created",
+          streamId: `task:${taskId}`,
+          missionId,
+          taskId,
+          payload: { missionId, crewId: null, title: "t", acceptance: "a", dependsOn: [] },
+        }),
+      );
+      // A session of a task outside the mission is out of the supervisor's scope.
+      const otherSession = newId("ses");
+      const otherTask = newId("tsk");
+      s.store.append(
+        eventInput({
+          type: "session.requested",
+          streamId: `session:${otherSession}`,
+          sessionId: otherSession,
+          taskId: otherTask,
+          payload: {
+            agentKind: "shell",
+            crewId: newId("crw"),
+            taskId: otherTask,
+            workspaceLabel: "w",
+          },
+        }),
+      );
+      sup.configure("sup", {
+        missionId,
+        agentKind: "codex",
+        enabled: true,
+        intervalMs: 30_000,
+        maxTurns: 1,
+      });
+      const thought = await settled("think:sup:1");
+      expect(thought.state).toBe("done");
+      expect(JSON.parse(thought.result as string)).toEqual({
+        report: "healthy",
+        actions: [{ kind: "observe", sessionId }],
+      });
+      const prompt = readFileSync(promptLog, "utf8");
+      const context = JSON.parse(
+        prompt.slice(prompt.indexOf("Context: ") + 9, prompt.indexOf("\nPrevious supervisor")),
+      ) as { mission: { id: string }; tasks: { id: string }[]; sessionIds: string[] };
+      expect(context.mission.id).toBe(missionId);
+      expect(context.tasks.map((t) => t.id)).toEqual([taskId]);
+      expect(context.sessionIds).toEqual([sessionId]);
+      expect(await settled("think:sup:1:action:0")).toMatchObject({ state: "done" });
+    } finally {
+      vi.unstubAllEnvs();
+      sup.close();
+    }
+  }, 120_000);
 });

@@ -15,7 +15,7 @@ export function FeedbackGraphCard({ project }: { project: Project }) {
   const api = useApi();
   const loaded = useLoad(() => api.getProjectFeedbackGraph(project.id), [project.id]);
   return (
-    <Card title="Feedback Graph">
+    <Card title="Feedback Graph" term="Feedback Graph">
       <p className="text-sm">
         Lessons from your past feedback to coding agents, read from Feedback Graph (read-only). They
         inform spec drafting, plans and the steward.
@@ -23,11 +23,11 @@ export function FeedbackGraphCard({ project }: { project: Project }) {
       {/* Not LoadState: an optional integration failing to load is shown in place, not as an
           assertive alert competing with the screen's own errors. */}
       {loaded.state.status === "loading" ? (
-        <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
+        <p role="status" className="text-sm text-muted">
           Loading Feedback Graph link…
         </p>
       ) : loaded.state.status === "error" ? (
-        <div className="space-y-2 rounded border border-red-400 p-3 text-sm dark:border-red-500">
+        <div className="flex flex-col gap-2 rounded-md border border-danger-border bg-danger-bg p-3 text-sm">
           <p>Could not load the Feedback Graph link: {loaded.state.error}</p>
           <Button variant="secondary" onClick={loaded.reload}>
             Retry <span className="sr-only">Feedback Graph</span>
@@ -77,7 +77,7 @@ function FeedbackGraphLink(props: {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <p className="text-sm">
         <Badge tone={source.tone}>{source.text}</Badge>{" "}
         {link.projectKey ? (
@@ -89,7 +89,7 @@ function FeedbackGraphLink(props: {
         )}
       </p>
       {error ? (
-        <p className="rounded border border-amber-500 p-2 text-sm">
+        <p className="rounded-md border border-warning-border bg-warning-bg p-2 text-sm">
           Feedback Graph could not be read: {error}
         </p>
       ) : null}
@@ -131,17 +131,12 @@ function FeedbackGraphLink(props: {
             : "No lessons: not linked."}
         </Empty>
       ) : (
-        <ul className="space-y-2" aria-label="Feedback Graph lessons">
+        <ul className="flex flex-col gap-2" aria-label="Feedback Graph lessons">
           {lessons.map((l) => (
-            <li
-              key={l.id}
-              className="rounded border border-slate-200 p-2 text-sm dark:border-slate-700"
-            >
+            <li key={l.id} className="rounded-md border border-line p-2 text-sm">
               <p className="font-medium">{l.title || l.id}</p>
               <p className="whitespace-pre-wrap">{l.rule}</p>
-              {l.appliesWhen ? (
-                <p className="text-xs text-slate-600 dark:text-slate-300">When: {l.appliesWhen}</p>
-              ) : null}
+              {l.appliesWhen ? <p className="text-xs text-muted">When: {l.appliesWhen}</p> : null}
               {(l.paths ?? []).length > 0 ? (
                 <p className="font-mono text-xs">{l.paths.join(", ")}</p>
               ) : null}

@@ -1,0 +1,46 @@
+{
+  "name": "@factory/docs",
+  "version": "0.1.2",
+  "description": "Shared operator docs, glossary and status meanings for the factory web apps.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=24"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./glossary.json": "./dist/glossary.json",
+    "./docs.json": "./dist/docs.json",
+    "./statuses.json": "./dist/statuses.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "embed": "node scripts/embed-content.mjs",
+    "build": "node scripts/embed-content.mjs && rm -rf dist && tsc -p tsconfig.build.json && node scripts/emit-json.mjs",
+    "typecheck": "node scripts/embed-content.mjs && tsc --noEmit",
+    "lint": "node scripts/embed-content.mjs && eslint . --max-warnings 0",
+    "test": "node scripts/embed-content.mjs && vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.5",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.4"
+  }
+}

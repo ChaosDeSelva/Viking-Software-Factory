@@ -1,3 +1,4 @@
+import { StickyActionBar } from "@factory/ui";
 import { useState, type ReactNode } from "react";
 import { ApiError } from "../api/client.js";
 import {
@@ -22,7 +23,7 @@ export function ExecutionProfileCard({ project }: { project: Project }) {
   const api = useApi();
   const loaded = useLoad(() => api.getProfile(project.id), [project.id]);
   return (
-    <Card title="Execution profile">
+    <Card title="Execution profile" term="Execution profile">
       <p className="text-sm">
         How <strong>{project.name}</strong> is checked and what its tools need. The checks are the
         commands that decide whether work on this project passes. The other settings say what the
@@ -52,7 +53,7 @@ function issueLines(details: unknown): string[] {
 
 function Problem({ id, text }: { id: string; text: string | undefined }) {
   return text ? (
-    <p id={id} className="text-xs text-red-800 dark:text-red-300">
+    <p id={id} className="text-xs text-danger-fg">
       {text}
     </p>
   ) : null;
@@ -60,9 +61,12 @@ function Problem({ id, text }: { id: string; text: string | undefined }) {
 
 function Section(props: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-700">
-      <h3 className="font-semibold">{props.title}</h3>
-      {props.children}
+    // Title left, controls right on wide screens; buttons keep their own width.
+    <section className="grid gap-3 border-t border-line pt-5 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-6">
+      <h3 className="text-md font-semibold">{props.title}</h3>
+      <div className="flex max-w-3xl min-w-0 flex-col gap-3 [&>button]:self-start">
+        {props.children}
+      </div>
     </section>
   );
 }
@@ -120,7 +124,7 @@ function ProfileEditor(props: {
     <>
       <form
         aria-label="Execution profile"
-        className="space-y-3"
+        className="flex flex-col gap-3"
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
@@ -140,7 +144,7 @@ function ProfileEditor(props: {
             return (
               <fieldset
                 key={row.key}
-                className="space-y-2 rounded border border-slate-200 p-3 dark:border-slate-700"
+                className="flex flex-col gap-2 rounded-md border border-line p-3"
               >
                 <legend className="px-1 text-sm font-medium">
                   Check {i + 1} {row.title ? <Badge>{row.title}</Badge> : null}
@@ -263,13 +267,13 @@ function ProfileEditor(props: {
         </Section>
 
         <Section title="Environment variables">
-          <p className="text-xs text-slate-600 dark:text-slate-300">
+          <p className="text-xs text-muted">
             Variables the checks and the agents need. Do not put credentials here.
           </p>
           {form.env.map((row, i) => {
             const id = `profile-env-${row.key}`;
             return (
-              <div key={row.key} className="space-y-1">
+              <div key={row.key} className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-end gap-2">
                   <div className="w-56">
                     <Field label={`Variable ${i + 1} name`} id={`${id}-name`}>
@@ -383,7 +387,7 @@ function ProfileEditor(props: {
         </Section>
 
         {attempted && found.count > 0 ? (
-          <p role="alert" className="text-sm text-red-800 dark:text-red-300">
+          <p role="alert" className="text-sm text-danger-fg">
             Fix the marked {found.count === 1 ? "field" : "fields"} before saving.
           </p>
         ) : null}
@@ -391,7 +395,7 @@ function ProfileEditor(props: {
           <div
             role="alert"
             aria-label="The server did not accept the profile"
-            className="space-y-1 rounded border border-red-400 p-3 text-sm dark:border-red-500"
+            className="flex flex-col gap-1 rounded-md border border-danger-border bg-danger-bg p-3 text-sm"
           >
             <p>The server did not accept the profile:</p>
             <ul className="ml-4 list-disc font-mono text-xs">
@@ -406,18 +410,20 @@ function ProfileEditor(props: {
             Checks are installed as harness <span className="font-mono">{harness.name}</span>
           </p>
         ) : null}
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
-          <Button type="submit" disabled={busy || !api.hasApprovalSession()}>
-            {busy ? "Saving profile…" : "Save profile"}
-          </Button>
+        <StickyActionBar status="Saving replaces the whole profile. Plans proposed earlier keep the checks they were approved with. Reset discards your edits and loads the saved profile.">
           <Button variant="secondary" disabled={busy} onClick={props.onReset}>
             Reset
           </Button>
-          <p className="text-xs text-slate-600 dark:text-slate-300">
-            Saving replaces the whole profile. Plans proposed earlier keep the checks they were
-            approved with. Reset discards your edits and loads the saved profile.
-          </p>
-        </div>
+          <Button
+            type="submit"
+            {...(!api.hasApprovalSession()
+              ? { disabledReason: "Saving needs the approval pairing code (below)" }
+              : {})}
+            disabled={busy || !api.hasApprovalSession()}
+          >
+            {busy ? "Saving profile…" : "Save profile"}
+          </Button>
+        </StickyActionBar>
       </form>
       <ApprovalUnlock id="profile-approval-code" onUnlocked={() => setUnlockTick((n) => n + 1)} />
     </>

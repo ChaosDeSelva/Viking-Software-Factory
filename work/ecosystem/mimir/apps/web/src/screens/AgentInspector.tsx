@@ -1,27 +1,50 @@
 import type { AgentId, SessionId } from "@mimir/protocol";
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, useParams } from "react-router";
+import {
+  Button,
+  ConfirmDialog,
+  Field,
+  Id,
+  KeyValue,
+  Link,
+  Switch,
+  Textarea,
+  Timestamp,
+} from "@factory/ui";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useLocation, useParams } from "react-router";
 import { describeError, type TerminalReadResponse } from "../api/client.js";
 import { ActionResult } from "../components/ActionResult.js";
 import { ProvenanceBadge, StatusBadge, UsageChips } from "../components/Badges.js";
 import { EventList } from "../components/EventList.js";
-import { PageTitle, Section } from "../components/Section.js";
+import { Screen } from "../components/Screen.js";
+import { Section } from "../components/Section.js";
 import { EmptyState, ErrorState, LoadingState } from "../components/StateViews.js";
 import { StoreGate } from "../components/StoreGate.js";
+import { crewLabel, missionName, taskName } from "../lib/names.js";
 import { useAction } from "../lib/useAction.js";
 import { useAsync } from "../lib/useAsync.js";
 import { useStore } from "../store/StoreProvider.js";
 
 /** Terminal reads are on demand; refresh is never allowed faster than this. */
 export const TERMINAL_MIN_INTERVAL_MS = 2000;
+/** While "Follow" is on, the terminal is re-read this often. */
+export const TERMINAL_FOLLOW_MS = 5000;
 const TERMINAL_LINES = 200;
 
-function Terminal({ sessionId }: { sessionId: SessionId }) {
+const LIVE = new Set(["starting", "running", "waiting", "idle"]);
+
+function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) {
   const { client, reportError } = useStore();
   const [data, setData] = useState<TerminalReadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cooling, setCooling] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Arriving from a "Live output" link (?follow=1) starts following right away.
+  const { search } = useLocation();
+  const [follow, setFollow] = useState(
+    () => live && new URLSearchParams(search).get("follow") === "1",
+  );
+  const preRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     if (!cooling) return;
@@ -29,11 +52,7 @@ function Terminal({ sessionId }: { sessionId: SessionId }) {
     return () => clearTimeout(t);
   }, [cooling]);
 
-  const caps = useAsync(() => client.capabilities(), "caps");
-  if (caps.status === "ready" && !caps.data.runtime?.features.terminalRead) {
-    return <EmptyState>The runtime does not support terminal reads.</EmptyState>;
-  }
-  const load = async () => {
+  const load = useCallback(async () => {
     setBusy(true);
     setCooling(true);
     setError(null);
@@ -45,46 +64,66 @@ function Terminal({ sessionId }: { sessionId: SessionId }) {
     } finally {
       setBusy(false);
     }
-  };
+  }, [client, reportError, sessionId]);
+
+  // Follow: one read now, then every TERMINAL_FOLLOW_MS (well above the 2 s floor) until off.
+  useEffect(() => {
+    if (!follow) return;
+    void load();
+    const t = setInterval(() => void load(), TERMINAL_FOLLOW_MS);
+    return () => clearInterval(t);
+  }, [follow, load]);
+
+  useEffect(() => {
+    const pre = preRef.current;
+    if (pre) pre.scrollTop = pre.scrollHeight;
+  }, [data]);
+
+  const caps = useAsync(() => client.capabilities(), "caps");
+  if (caps.status === "ready" && !caps.data.runtime?.features.terminalRead) {
+    return (
+      <EmptyState body="Use the timeline below and the agent's events instead.">
+        The runtime does not support terminal reads
+      </EmptyState>
+    );
+  }
   return (
-    <div>
-      <div className="mb-2 flex items-center gap-2">
-        {data === null ? (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy || cooling}
-            onClick={() => void load()}
-          >
-            Read terminal
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="btn"
-            disabled={busy || cooling}
-            onClick={() => void load()}
-          >
-            Refresh terminal
-          </button>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          size="sm"
+          icon="refresh"
+          disabled={busy || cooling || follow}
+          onClick={() => void load()}
+        >
+          {data === null ? "Read terminal" : "Refresh terminal"}
+        </Button>
+        {live && (
+          <Switch
+            checked={follow}
+            onCheckedChange={setFollow}
+            label="Follow"
+            description={`Re-read every ${TERMINAL_FOLLOW_MS / 1000} s`}
+          />
         )}
-        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-          Last {TERMINAL_LINES} lines, read on demand (at most every{" "}
-          {TERMINAL_MIN_INTERVAL_MS / 1000} s). Terminal text is never used as agent state.
-        </span>
       </div>
-      {error && <ErrorState message={error} />}
+      <p className="text-xs text-muted">
+        Last {TERMINAL_LINES} lines, read on demand (at most every {TERMINAL_MIN_INTERVAL_MS / 1000}{" "}
+        s). Terminal text is never used as agent state.
+      </p>
+      {error && <ErrorState title="Could not read the terminal" message={error} />}
       {data && (
         <>
-          <p className="mb-1 flex items-center gap-2 text-xs">
+          <p className="flex items-center gap-2 text-xs text-muted">
             {data.provenance && <ProvenanceBadge provenance={data.provenance} />}
-            {data.capturedAt && <span>captured {data.capturedAt}</span>}
+            {data.capturedAt && <Timestamp value={data.capturedAt} prefix="Captured" />}
           </p>
           <pre
+            ref={preRef}
             data-testid="terminal"
             tabIndex={0}
             aria-label="Terminal output"
-            className="max-h-96 overflow-auto rounded bg-zinc-950 p-2 font-mono text-xs whitespace-pre text-zinc-100"
+            className="max-h-[28rem] overflow-auto rounded-md bg-zinc-950 p-4 font-mono text-xs leading-relaxed whitespace-pre text-zinc-100"
           >
             {data.text}
           </pre>
@@ -98,16 +137,6 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
   const { client } = useStore();
   const [text, setText] = useState("");
   const [confirmForce, setConfirmForce] = useState(false);
-  const forceRef = useRef<HTMLButtonElement>(null);
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  const refocusForce = useRef(false);
-  useEffect(() => {
-    if (confirmForce) confirmRef.current?.focus();
-    else if (refocusForce.current) {
-      refocusForce.current = false;
-      forceRef.current?.focus();
-    }
-  }, [confirmForce]);
   const input = useAction();
   const stop = useAction();
   const send = async (e: FormEvent) => {
@@ -122,89 +151,70 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
   const denied = stop.outcome?.kind === "error" && stop.outcome.error.code === "policy_denied";
   return (
     <>
-      <Section title="Inputs">
-        <form onSubmit={(e) => void send(e)} className="grid max-w-xl gap-2">
-          <label className="grid gap-1">
-            <span className="font-medium">Instruction</span>
-            <textarea className="input" value={text} onChange={(e) => setText(e.target.value)} />
-          </label>
+      <Section title="Inputs" description="Typed into the agent's session as if at its prompt.">
+        <form onSubmit={(e) => void send(e)} className="flex max-w-2xl flex-col gap-field">
+          <Field label="Instruction">
+            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} />
+          </Field>
           <div>
-            <button type="submit" className="btn btn-primary" disabled={input.busy}>
+            <Button type="submit" variant="primary" loading={input.busy}>
               Send instruction
-            </button>
+            </Button>
           </div>
           <ActionResult outcome={input.outcome} />
         </form>
       </Section>
-      <Section title="Controls">
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="btn"
-            disabled={stop.busy}
-            onClick={() =>
-              void stop.run(
-                () => client.sessions.stop(sessionId, { mode: "soft" }),
-                () => "Soft stop requested",
-              )
-            }
-          >
-            Soft stop
-          </button>
-          {!confirmForce ? (
-            <button
-              ref={forceRef}
-              type="button"
-              className="btn btn-danger"
-              onClick={() => setConfirmForce(true)}
+      <Section
+        title="Controls"
+        description="Soft stop asks the agent to finish; force stop kills it."
+      >
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              disabled={stop.busy}
+              onClick={() =>
+                void stop.run(
+                  () => client.sessions.stop(sessionId, { mode: "soft" }),
+                  () => "Soft stop requested",
+                )
+              }
             >
+              Soft stop
+            </Button>
+            <Button variant="danger" onClick={() => setConfirmForce(true)}>
               Force stop…
-            </button>
-          ) : (
-            <>
-              <button
-                ref={confirmRef}
-                type="button"
-                className="btn btn-danger"
-                disabled={stop.busy}
-                onClick={() => {
-                  refocusForce.current = true;
-                  setConfirmForce(false);
-                  void stop.run(
-                    () => client.sessions.stop(sessionId, { mode: "force" }),
-                    () => "Force stop requested",
-                  );
-                }}
-              >
-                Confirm force stop
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  refocusForce.current = true;
-                  setConfirmForce(false);
-                }}
-              >
-                Cancel
-              </button>
-            </>
+            </Button>
+          </div>
+          <p className="text-sm text-muted">
+            Force stop requires an approved runtime.force_stop request; without it the server
+            refuses (403).
+          </p>
+          <ActionResult outcome={stop.outcome} />
+          {denied && (
+            <p className="text-sm">
+              Request or decide the approval in{" "}
+              <Link href="/reviews" className="font-medium text-accent-fg underline">
+                Reviews
+              </Link>
+              .
+            </p>
           )}
         </div>
-        <p className="mt-1 text-sm text-zinc-700 dark:text-zinc-300">
-          Force stop requires an approved runtime.force_stop request; without it the server refuses
-          (403).
-        </p>
-        <ActionResult outcome={stop.outcome} />
-        {denied && (
-          <p className="mt-1 text-sm">
-            Request or decide the approval in{" "}
-            <Link className="underline" to="/reviews">
-              Reviews
-            </Link>
-            .
-          </p>
-        )}
+        <ConfirmDialog
+          open={confirmForce}
+          onOpenChange={setConfirmForce}
+          title="Force stop this agent?"
+          description="The session is killed at once; unsaved work in it is lost."
+          confirmLabel="Confirm force stop"
+          tone="danger"
+          onConfirm={() => {
+            setConfirmForce(false);
+            void stop.run(
+              () => client.sessions.stop(sessionId, { mode: "force" }),
+              () => "Force stop requested",
+            );
+          }}
+        />
       </Section>
     </>
   );
@@ -224,77 +234,157 @@ export function AgentInspector() {
   const agent = state.agents.find((a) => a.runtimeSessionId === sessionId);
   if (state.status === "ready" && !agent) {
     return (
-      <>
-        <PageTitle>Agent</PageTitle>
-        <EmptyState>
-          No agent is bound to session <code>{sessionId}</code>. It may have exited or not started
-          yet. <Link to="/missions">Back to missions</Link>
+      <Screen screen="agent" title="Agent">
+        <EmptyState
+          compact={false}
+          body={
+            <>
+              No agent is bound to session <code className="font-mono">{sessionId}</code>. It may
+              have exited or not started yet.
+            </>
+          }
+          action={<Link href="/missions">Back to missions</Link>}
+        >
+          Agent not found
         </EmptyState>
-      </>
+      </Screen>
     );
   }
   const boundSession = agent?.runtimeSessionId ?? null;
   const task = agent?.taskId ? state.tasks.find((t) => t.id === agent.taskId) : undefined;
+  const crew = agent ? state.crews.find((c) => c.id === agent.crewId) : undefined;
+  const missionId = task?.missionId ?? crew?.missionId;
+  const mission = missionId ? state.missions.find((m) => m.id === missionId) : undefined;
+  const project = mission ? state.projects.find((p) => p.id === mission.projectId) : undefined;
   const worktree = task ? state.worktrees.find((w) => w.taskId === task.id) : undefined;
   const timeline = state.events.filter(
     (e) => e.sessionId === sessionId || (agent?.taskId != null && e.taskId === agent.taskId),
   );
+  const title = agent ? `Agent ${agent.role} (${agent.agentKind})` : "Agent";
+  const live = agent ? LIVE.has(agent.status) : false;
+
+  const terminal = boundSession && (
+    <Section
+      title="Terminal"
+      term="Agent session"
+      description="What the agent's terminal shows now: the live output of the session."
+    >
+      <Terminal sessionId={boundSession} live={live} />
+    </Section>
+  );
+
   return (
-    <StoreGate label="agent">
-      {agent && boundSession && (
-        <>
-          <PageTitle>
-            Agent {agent.role} ({agent.agentKind})
-          </PageTitle>
-          <Section title="State">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-              <dt className="font-medium">Runtime state</dt>
-              <dd className="flex items-center gap-2">
-                <StatusBadge status={agent.status} />
-                {agent.status === "unknown" ? (
-                  <span>not reported</span>
-                ) : (
-                  <ProvenanceBadge provenance="observed" />
-                )}
-              </dd>
-              <dt className="font-medium">Task</dt>
-              <dd>
-                {task ? (
-                  <Link className="underline" to={`/missions/${task.missionId}`}>
-                    {task.title}
-                  </Link>
-                ) : (
-                  "none"
-                )}
-                {task ? ` (${task.status})` : ""}
-              </dd>
-              <dt className="font-medium">Session</dt>
-              <dd className="font-mono">{sessionId}</dd>
-              {worktree && (
-                <>
-                  <dt className="font-medium">Worktree</dt>
-                  <dd className="font-mono">
-                    {worktree.path} ({worktree.branch})
-                  </dd>
-                </>
-              )}
-            </dl>
-          </Section>
-          <Section title="Terminal">
-            <Terminal sessionId={boundSession} />
-          </Section>
-          <Controls sessionId={boundSession} />
-          <Section title="Timeline">
-            <EventList
-              events={timeline}
-              empty="No events for this session since this page loaded."
-            />
-          </Section>
-          <Section title="Cost">
-            <Cost agentId={agent.id} />
-          </Section>
-        </>
-      )}
-    </StoreGate>
+    <Screen
+      screen="agent"
+      title={title}
+      breadcrumbs={[
+        ...(project ? [{ label: project.name }] : []),
+        ...(mission
+          ? [{ label: missionName(mission, state.tasks), href: `/missions/${mission.id}` }]
+          : [{ label: "Missions", href: "/missions" }]),
+        { label: title },
+      ]}
+      description={
+        agent ? (
+          <span className="inline-flex flex-wrap items-center gap-2 align-middle">
+            <StatusBadge status={agent.status} domain="session" />
+            {task ? taskName(task) : "No task assigned"}
+          </span>
+        ) : undefined
+      }
+    >
+      <StoreGate label="agent">
+        {agent && boundSession && (
+          <>
+            {live && terminal}
+            <Section title="State">
+              <KeyValue
+                items={[
+                  {
+                    label: "Runtime state",
+                    value: (
+                      <span className="flex items-center gap-2">
+                        <StatusBadge status={agent.status} domain="session" />
+                        {agent.status === "unknown" ? (
+                          <span className="text-muted">not reported</span>
+                        ) : (
+                          <ProvenanceBadge provenance="observed" />
+                        )}
+                      </span>
+                    ),
+                  },
+                  {
+                    label: "Task",
+                    term: "Task",
+                    value: task ? (
+                      <span className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/missions/${task.missionId}`}
+                          className="text-accent-fg hover:underline"
+                        >
+                          {taskName(task)}
+                        </Link>
+                        <StatusBadge status={task.status} domain="task" size="sm" />
+                      </span>
+                    ) : (
+                      "none"
+                    ),
+                  },
+                  ...(crew
+                    ? [
+                        {
+                          label: "Crew",
+                          term: "Crew",
+                          value: (
+                            <Link
+                              href={`/crews/${crew.id}`}
+                              className="text-accent-fg hover:underline"
+                            >
+                              {crewLabel(crew)}
+                            </Link>
+                          ),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Session",
+                    term: "Agent session",
+                    value: <span className="font-mono text-xs break-all">{sessionId}</span>,
+                  },
+                  ...(worktree
+                    ? [
+                        {
+                          label: "Worktree",
+                          term: "Worktree",
+                          value: (
+                            <span className="font-mono text-xs break-all">
+                              {worktree.path} ({worktree.branch})
+                            </span>
+                          ),
+                        },
+                      ]
+                    : []),
+                  { label: "Agent ID", value: <Id value={agent.id} label="Agent ID" /> },
+                ]}
+              />
+            </Section>
+            {!live && terminal}
+            <Controls sessionId={boundSession} />
+            <Section title="Timeline">
+              <EventList
+                events={timeline}
+                tasks={task ? [task] : []}
+                maxHeight="28rem"
+                empty="No events for this session since this page loaded"
+                emptyBody="Older events are in the mission's Timeline tab."
+              />
+            </Section>
+            <Section title="Cost">
+              <Cost agentId={agent.id} />
+            </Section>
+          </>
+        )}
+      </StoreGate>
+    </Screen>
   );
 }

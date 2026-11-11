@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { MimirError } from "./errors.js";
 import {
   EVENT_TYPES,
@@ -8,6 +9,7 @@ import {
   type EventType,
   parseEvent,
   payloadSchemaFor,
+  toValidationIssues,
 } from "./events.js";
 import { newId } from "./ids.js";
 
@@ -458,5 +460,18 @@ describe("artifact collection events (T12b)", () => {
     const truncated = payloadSchemaFor("artifact.collection_truncated");
     expect(truncated.safeParse({ taskId, found: 3, kept: 2, limit: 2 }).success).toBe(true);
     expect(truncated.safeParse({ taskId, found: 3, kept: -1, limit: 2 }).success).toBe(false);
+  });
+});
+
+describe("toValidationIssues", () => {
+  it("prefixes paths and renders symbol keys as strings", () => {
+    const sym = Symbol("key");
+    const error = new z.ZodError([
+      { code: "custom", path: ["a", 0, sym], message: "bad", input: undefined },
+    ]);
+    expect(toValidationIssues(error, ["payload"])).toEqual([
+      { path: ["payload", "a", 0, "Symbol(key)"], message: "bad", code: "custom" },
+    ]);
+    expect(toValidationIssues(error)[0]?.path).toEqual(["a", 0, "Symbol(key)"]);
   });
 });

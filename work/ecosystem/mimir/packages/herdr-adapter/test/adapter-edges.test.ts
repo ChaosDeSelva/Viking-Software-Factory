@@ -845,3 +845,196 @@ describe("envelopes at awkward moments", () => {
     expect((await adapter.reconcile()).lost).toEqual([s.sessionId]);
   });
 });
+
+class FlakyStore extends MemoryBindingStore {
+  failGet = false;
+  failPut = false;
+  getFailures = 0;
+  override getBySessionId(sessionId: string): Promise<SessionBinding | undefined> {
+    if (!this.failGet) return super.getBySessionId(sessionId);
+    this.getFailures += 1;
+    return Promise.reject(new Error("disk gone"));
+  }
+  override put(binding: SessionBinding): Promise<void> {
+    return this.failPut ? Promise.reject(new Error("disk full")) : super.put(binding);
+  }
+}
+
+describe("failure paths (sweep 2)", () => {
+  it("a launch failure is reported even when closing the pane fails too", async () => {
+    const { adapter, fake } = await setup({ agentBehavior: () => ({ kind: "interactive" }) });
+    fake.failNext.set("agent.wait", { code: "server_unavailable", message: "down", count: 1 });
+    fake.failNext.set("pane.close", { code: "server_unavailable", message: "busy", count: 1 });
+    const s = spec({ agentKind: "claude", argv: ["claude"] });
+    const err = await rejection(adapter.createSession(s));
+    expect(err.code).toBe("runtime_unavailable");
+    expect(err.message).toContain("down");
+    expect(fake.panes.has("w1:p1")).toBe(true);
+    expect((await adapter.getSession(s.sessionId))?.state).toBe("failed");
+  });
+
+  it("shell: a watcher that dies on a store error is restarted by reconcile and completes", async () => {
+    const store = new FlakyStore();
+    const fake = new FakeHerdr({ msPerShellSecond: 200 });
+    await fake.start();
+    const adapter = new HerdrAdapter({
+      socketPath: fake.socketPath,
+      bindings: store,
+      timing: FAST_TIMING,
+    });
+    opened.push({ adapter, fake });
+    const s = spec({ argv: ["sleep", "1"] });
+    await adapter.createSession(s);
+    store.failGet = true;
+    await until(() => store.getFailures > 0);
+    store.failGet = false;
+    // The dead watcher no longer polls; the command finishes meanwhile.
+    const polls = () => fake.requests.filter((r) => r.method === "pane.process_info").length;
+    await until(async () => {
+      const n = polls();
+      await new Promise((r) => setTimeout(r, 100));
+      return polls() === n;
+    });
+    await until(() => !fake.panes.get("w1:p1")!.fg);
+    expect((await adapter.getSession(s.sessionId))?.state).toBe("running");
+    await adapter.reconcile();
+    await until(async () => (await adapter.getSession(s.sessionId))?.state === "completed");
+    expect(await store.getBySessionId(s.sessionId)).toMatchObject({ exitCode: 0 });
+  });
+
+  it("shell: a sentinel counts only once the shell is confirmed bare; a failed check is retried", async () => {
+    const { adapter, client, bindings } = await tampered();
+    // The process check that directly follows each sentinel read: 1st sees a foreground
+    // process, 2nd fails, later ones are real.
+    let afterRead = false;
+    let busy = false;
+    let checks = 0;
+    client.beforeRequest = (method) => {
+      if (method === "pane.read") afterRead = true;
+      else if (method === "pane.process_info" && afterRead) {
+        afterRead = false;
+        checks += 1;
+        if (checks === 1) busy = true;
+        if (checks === 2) throw new HerdrError("server_unavailable", "busy");
+      }
+    };
+    client.mapResult = (method, result) => {
+      if (method !== "pane.process_info" || !busy) return result;
+      busy = false;
+      return { process_info: { pane_id: "w1:p1", shell_pid: 1, foreground_process_group_id: 2 } };
+    };
+    const s = spec({ argv: ["true"] });
+    await adapter.createSession(s);
+    await until(async () => (await bindings.getBySessionId(s.sessionId))?.finalState !== undefined);
+    expect(await bindings.getBySessionId(s.sessionId)).toMatchObject({
+      finalState: "completed",
+      exitCode: 0,
+    });
+    expect(checks).toBeGreaterThanOrEqual(3);
+  });
+
+  it("soft stop from an adapter that never observed the session is reported unconfirmed when the agent stays", async () => {
+    const { adapter, fake, bindings } = await setup({
+      agentBehavior: () => ({ kind: "interactive", ctrlCToExit: 99 }),
+    });
+    const s = spec({ agentKind: "claude", argv: ["claude"] });
+    await adapter.createSession(s);
+    await adapter.dispose();
+    // Not subscribed and never listed: this adapter has no observation of the session.
+    const other = secondAdapter(fake, bindings);
+    const ctrlC = () =>
+      fake.requests.filter(
+        (r) => r.method === "pane.send_keys" && (r.params.keys as string[])[0] === "ctrl+c",
+      ).length;
+    const err = await rejection(other.requestStop(s.sessionId, "soft"));
+    expect(err.code).toBe("conflict");
+    expect(err.details).toMatchObject({ reason: "stop_unconfirmed", retryable: true });
+    expect(ctrlC()).toBe(2); // once, then again halfway for interactive agents
+    expect(fake.panes.has("w1:p1")).toBe(true);
+  });
+
+  it("bootstrap skips bindings already marked lost", async () => {
+    const { adapter, fake, bindings } = await setup();
+    const gone = bound({ paneId: "w1:p1", lost: true });
+    await bindings.put(gone);
+    seed(fake, "w1:p1");
+    const c = new Collector();
+    await adapter.subscribe(c.handler);
+    expect(c.events.filter((e) => "sessionId" in e && e.sessionId === gone.sessionId)).toEqual([]);
+    expect(fake.subscriptionCount).toBe(1); // lifecycle only
+  });
+
+  it("status events while a soft stop is in progress do not move the session", async () => {
+    const { adapter, fake } = await setup(
+      { agentBehavior: () => ({ kind: "interactive", ctrlCToExit: 99 }) },
+      { stopPollIntervalMs: 100 },
+    );
+    const c = new Collector();
+    await adapter.subscribe(c.handler);
+    const s = spec({ agentKind: "claude", argv: ["claude"] });
+    await adapter.createSession(s);
+    await c.waitFor((e) => stateOf(e, s.sessionId, "idle"));
+    const stop = rejection(adapter.requestStop(s.sessionId, "soft"));
+    await c.waitFor((e) => stateOf(e, s.sessionId, "stopping"));
+    const gets = () => fake.requests.filter((r) => r.method === "agent.get").length;
+    const before = gets();
+    fake.setStatus("w1:p1", "working");
+    await until(() => gets() > before);
+    expect((await stop).details).toMatchObject({ reason: "stop_unconfirmed" });
+    const states = c.states(s.sessionId);
+    expect(states.slice(states.indexOf("stopping"))).toEqual(["stopping", "idle"]);
+  });
+
+  it("an unknown agent status before any release is applied as unknown", async () => {
+    const { adapter, fake } = await setup({ agentBehavior: () => ({ kind: "interactive" }) });
+    const c = new Collector();
+    await adapter.subscribe(c.handler);
+    const s = spec({ agentKind: "claude", argv: ["claude"] });
+    await adapter.createSession(s);
+    await c.waitFor((e) => stateOf(e, s.sessionId, "idle"));
+    fake.setStatus("w1:p1", "unknown");
+    await c.waitFor((e) => stateOf(e, s.sessionId, "unknown"));
+  });
+
+  it("an envelope whose handling fails on the store is dropped; the next one is handled", async () => {
+    const store = new FlakyStore();
+    const { adapter, fake, client } = await tampered(
+      { agentBehavior: () => ({ kind: "interactive" }) },
+      {},
+      store,
+    );
+    const c = new Collector();
+    await adapter.subscribe(c.handler);
+    const s = spec({ agentKind: "claude", argv: ["claude"] });
+    await adapter.createSession(s);
+    await c.waitFor((e) => stateOf(e, s.sessionId, "idle"));
+    store.failPut = true;
+    const pane = { ...fake.paneInfo(fake.panes.get("w1:p1")!), agent_session: { value: "A-1" } };
+    client.sinks[0]!({ event: "pane_updated", data: { pane } });
+    await new Promise((r) => setTimeout(r, 50));
+    store.failPut = false;
+    fake.setStatus("w1:p1", "working");
+    await c.waitFor((e) => stateOf(e, s.sessionId, "running"));
+    expect((await store.getBySessionId(s.sessionId))?.agentSessionId).toBeUndefined();
+  });
+
+  it("the newest of several live bindings at one pane wins whatever order they were stored in", async () => {
+    const { adapter, fake, bindings } = await setup();
+    const older = bound({ paneId: "w1:p1", cwd: "/usr", launchTerminalId: "term_a" });
+    const newest = bound({
+      paneId: "w1:p1",
+      launchTerminalId: "term_now",
+      createdAt: "2026-06-01T00:00:00.000Z",
+    });
+    for (const b of [older, newest]) await bindings.put(b); // stored oldest first
+    Object.assign(seed(fake, "w1:p1"), { agent: "claude", agent_name: "a", agent_status: "idle" });
+    const c = new Collector();
+    await adapter.subscribe(c.handler);
+    expect(c.events.filter((e) => e.kind === "session.lost").map((e) => e.sessionId)).toEqual([
+      older.sessionId,
+    ]);
+    await until(() => hasStatusWatch(fake, "w1:p1"));
+    fake.setStatus("w1:p1", "working");
+    await c.waitFor((e) => stateOf(e, newest.sessionId, "running"));
+  });
+});

@@ -56,6 +56,13 @@ export interface ClientOptions {
 
 const enc = encodeURIComponent;
 
+/** Where the operator is asking from; the Guide scopes its state snapshot to the project. */
+export interface GuideContext {
+  app: "sindri";
+  screen?: string;
+  projectId?: string;
+}
+
 /**
  * Routes that need the approval secret: spec and plan approval, PR requests (audit M9),
  * decisions on agents' gated actions (review I1), a project's execution profile and the
@@ -149,6 +156,13 @@ export function createApiClient(opts: ClientOptions) {
       (await call<{ reworks: ReworkSummary[] }>("GET", `/v1/deliveries/${enc(id)}/reworks`))
         .reworks,
     health: () => call<{ status: string }>("GET", "/v1/health"),
+    /** The read-only Guide (docs + a redacted state snapshot); it never acts. */
+    askGuide: (question: string, context: GuideContext) =>
+      call<{ answer: string; links: { label: string; href: string }[]; sources: string[] }>(
+        "POST",
+        "/v1/guide/ask",
+        { question, context },
+      ),
     capabilities: () => call<Capabilities>("GET", "/v1/capabilities"),
 
     listProjects: async () => (await call<{ projects: Project[] }>("GET", "/v1/projects")).projects,

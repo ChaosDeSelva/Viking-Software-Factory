@@ -1,7 +1,9 @@
+import { ToastProvider } from "@factory/ui";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import type { MimirClient } from "../api/client.js";
+import { RoutedProviders } from "../components/Providers.js";
 import { StoreProvider } from "../store/StoreProvider.js";
 
 /** Renders `ui` at `route` (matched against `path`) inside the store with a mocked SDK client. */
@@ -21,9 +23,14 @@ export function renderWithStore(
       {...(onUnauthorized ? { onUnauthorized } : {})}
     >
       <MemoryRouter initialEntries={[route]}>
-        <Routes>
-          <Route path={path} element={ui} />
-        </Routes>
+        <RoutedProviders>
+          {/* AppShell provides toasts in the app; screens rendered alone need their own. */}
+          <ToastProvider>
+            <Routes>
+              <Route path={path} element={ui} />
+            </Routes>
+          </ToastProvider>
+        </RoutedProviders>
       </MemoryRouter>
     </StoreProvider>,
   );

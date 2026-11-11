@@ -124,3 +124,15 @@ describe("normalizeLessons", () => {
     expect(normalizeLessons(many)).toHaveLength(MAX_LESSONS);
   });
 });
+
+describe("normalize edges", () => {
+  it("falls back to the rule when the title cleans to nothing", () => {
+    expect(normalizeLesson({ id: "l1", title: "​​", rule: "Keep tests green." })).toMatchObject({
+      title: "Keep tests green.",
+    });
+  });
+
+  it("orders entries that are not objects as undecided and skips them", () => {
+    expect(normalizeLessons([null, 7, fgLesson("a")])?.map((l) => l.id)).toEqual(["a"]);
+  });
+});

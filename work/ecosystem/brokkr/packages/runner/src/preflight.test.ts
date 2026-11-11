@@ -462,3 +462,35 @@ describe("package.json written by the work under test", () => {
     }
   });
 });
+
+describe("preflight edge inputs", () => {
+  it("skips a PATH entry that is a directory with the command's name", async () => {
+    const ws = workspace();
+    const shadow = join(tmp(), "shadow");
+    mkdirSync(join(shadow, "tool"), { recursive: true });
+    const real = join(tmp(), "bin");
+    exe(join(real, "tool"));
+    const r = await preflightCheck(
+      { id: "c", command: ["tool"] },
+      { workspace: ws, path: `${shadow}:${real}` },
+    );
+    expect(r).toMatchObject({ ok: true, command: ["tool"] });
+  });
+
+  it("counts only object dependency maps and needs a script for the install guard", async () => {
+    const { dependencyInstallNeeded } = await import("./index.js");
+    const ws = tmp();
+    writeFileSync(
+      join(ws, "package.json"),
+      JSON.stringify({ dependencies: "not-a-map", devDependencies: { a: "1", b: "2" } }),
+    );
+    expect(await dependencyInstallNeeded(["npm", "test"], ws, ws)).toMatch(
+      /package\.json declares 2 but node_modules is missing/,
+    );
+    // No scripts at all: `pnpm build` is not a package-script run.
+    expect(await dependencyInstallNeeded(["pnpm", "build"], ws, ws)).toBeUndefined();
+    expect(await dependencyInstallNeeded([], ws, ws)).toBeUndefined();
+    writeFileSync(join(ws, "package.json"), JSON.stringify({ scripts: { test: "x" } }));
+    expect(await dependencyInstallNeeded(["npm", "test"], ws, ws)).toBeUndefined();
+  });
+});

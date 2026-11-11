@@ -2,6 +2,8 @@
 import type { EventEnvelope, Provenance, Task, TaskDependency, TaskStatus } from "@mimir/protocol";
 import type { AttentionItem } from "../api/client.js";
 import type { State } from "../store/reducer.js";
+import { describeBlockedReason } from "./blockedReason.js";
+import { taskName } from "./names.js";
 
 export interface Progress {
   completed: number;
@@ -123,8 +125,8 @@ export function deriveAttention(state: State, now: number): AttentionItem[] {
       items.push({
         id: `blocked:${t.id}`,
         kind: "blocked",
-        title: `Blocked: ${t.title}`,
-        detail: `Reason: ${t.blockedReason ?? "not reported"}`,
+        title: `Blocked: ${taskName(t)}`,
+        detail: `Reason: ${t.blockedReason ? describeBlockedReason(t.blockedReason).words : "not reported"}`,
         missionId: t.missionId,
         taskId: t.id,
       });
@@ -136,7 +138,7 @@ export function deriveAttention(state: State, now: number): AttentionItem[] {
       items.push({
         id: `stuck:${t.id}`,
         kind: "stuck",
-        title: `Stuck: ${t.title}`,
+        title: `Stuck: ${taskName(t)}`,
         detail: `Lease expired at ${t.leaseExpiresAt}`,
         missionId: t.missionId,
         taskId: t.id,

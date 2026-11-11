@@ -22,6 +22,8 @@ const dry = {
   order: ["implement-frontend", "docs"],
 };
 const detail = (p = plan()) => ({ plan: p, versions: [versionOf(p)] });
+/** The plan detail is split into tabs; Tasks is open first. */
+const openTab = async (name: RegExp) => userEvent.click(await screen.findByRole("tab", { name }));
 
 describe("PlansScreen", () => {
   it("saves edited budgets as a new draft instead of modifying an approved run", async () => {
@@ -35,6 +37,7 @@ describe("PlansScreen", () => {
       revisePlan: next,
     });
     renderWithStore(ui, api, { planId: "pl1" });
+    await openTab(/Task budgets/);
     const tokens = await screen.findByLabelText("implement-frontend: tokens");
     await userEvent.clear(tokens);
     await userEvent.type(tokens, "500000");
@@ -83,6 +86,7 @@ describe("PlansScreen", () => {
     expect(task.textContent).toMatch(/task types frontend match/);
     const docs = screen.getByRole("article", { name: "Task docs" });
     expect(docs.textContent).toMatch(/after implement-frontend/);
+    await openTab(/Dry-run order/);
     const order = await screen.findByRole("list", { name: "Dry-run order" });
     expect(order.textContent).toMatch(/Step 1.*implement-frontend.*Step 2.*docs/);
   });
@@ -155,10 +159,9 @@ describe("PlansScreen", () => {
       },
     });
     renderWithStore(ui, api, { planId: "pl1" });
-    const button = (await screen.findByRole("button", {
-      name: "Approve plan",
-    })) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    const button = await screen.findByRole("button", { name: /^Approve plan/ });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(button.textContent).toMatch(/pairing code/);
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     await userEvent.click(await screen.findByRole("button", { name: "Approve plan" }));
@@ -178,6 +181,7 @@ describe("PlansScreen", () => {
       revisePlan: next,
     });
     renderWithStore(ui, api, { planId: "pl1" });
+    await openTab(/Task budgets/);
     const tokens = (await screen.findByLabelText("implement-frontend: tokens")) as HTMLInputElement;
     expect(tokens.value).toBe("1000");
     // The server sets no upper limit, so the form does not either.
@@ -206,5 +210,26 @@ describe("PlansScreen", () => {
     expect(screen.getByRole("button", { name: "Starting run…" }).hasAttribute("disabled")).toBe(
       true,
     );
+  });
+});
+
+describe("PlansScreen layout", () => {
+  it("names plans by their spec and opens the newest from the empty detail", async () => {
+    const p = plan();
+    const api = mockApi({
+      listPlans: [p],
+      listSpecs: [spec({ id: "s1", status: "approved" })],
+      getPlan: detail(p),
+      dryRunPlan: dry,
+    });
+    renderWithStore(ui, api);
+    const row = await screen.findByRole("button", { name: /Plan v1 for spec v2/ });
+    expect(row.textContent).toMatch(/^CSV export for reports/);
+    await userEvent.click(screen.getByRole("button", { name: "Open the newest plan" }));
+    expect(await screen.findByRole("heading", { name: "Plan v1" })).toBeTruthy();
+    // Tasks open first; the other sections are one tab away.
+    expect(screen.getByRole("tab", { name: /Tasks/ }).getAttribute("aria-selected")).toBe("true");
+    await userEvent.click(screen.getByRole("tab", { name: "Task budgets" }));
+    expect(await screen.findByLabelText("docs: minutes")).toBeTruthy();
   });
 });

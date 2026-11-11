@@ -1,3 +1,4 @@
+import { Field, InfoHint, Select } from "@factory/ui";
 import { EVENT_TYPE_LIST } from "../lib/eventTypes.js";
 import type { EventFilter } from "../lib/derive.js";
 
@@ -6,38 +7,33 @@ interface Option {
   label: string;
 }
 
+/** A labelled 40px select with a fixed width, so long option text never sets the row width. */
 function FilterSelect({
   label,
   value,
   options,
   onChange,
+  allLabel = "All",
+  width = "w-44",
 }: {
   label: string;
   value: string;
   options: Option[];
   onChange: (v: string) => void;
+  allLabel?: string;
+  width?: string;
 }) {
   return (
-    <label className="flex flex-col text-sm">
-      <span className="font-medium">{label}</span>
-      <select
-        className="input"
-        aria-label={label}
+    <Field label={label} className={`${width} max-w-full`}>
+      <Select
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">All</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        onValueChange={onChange}
+        options={[{ value: "", label: allLabel }, ...options]}
+      />
+    </Field>
   );
 }
 
-/** Filters for crew, agent (session), task, event type and provenance. */
 export function EventFilters({
   filter,
   onChange,
@@ -58,13 +54,14 @@ export function EventFilters({
     onChange(next);
   };
   return (
-    <div className="mb-2 flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-end gap-3">
       {crews.length > 0 && (
         <FilterSelect
           label="Crew"
           value={filter.crewId ?? ""}
           options={crews}
           onChange={set("crewId")}
+          allLabel="All crews"
         />
       )}
       {sessions.length > 0 && (
@@ -73,6 +70,7 @@ export function EventFilters({
           value={filter.sessionId ?? ""}
           options={sessions}
           onChange={set("sessionId")}
+          allLabel="All agents"
         />
       )}
       {tasks.length > 0 && (
@@ -81,6 +79,8 @@ export function EventFilters({
           value={filter.taskId ?? ""}
           options={tasks}
           onChange={set("taskId")}
+          allLabel="All tasks"
+          width="w-56"
         />
       )}
       <FilterSelect
@@ -88,17 +88,28 @@ export function EventFilters({
         value={filter.type ?? ""}
         options={EVENT_TYPE_LIST.map((t) => ({ value: t, label: t }))}
         onChange={set("type")}
+        allLabel="All types"
+        width="w-52"
       />
-      <FilterSelect
-        label="Provenance"
-        value={filter.provenance ?? ""}
-        options={[
-          { value: "observed", label: "observed" },
-          { value: "derived", label: "derived" },
-          { value: "summarized", label: "summarized (AI)" },
-        ]}
-        onChange={set("provenance")}
-      />
+      <div className="flex items-end gap-1">
+        <FilterSelect
+          label="Provenance"
+          value={filter.provenance ?? ""}
+          options={[
+            { value: "observed", label: "observed" },
+            { value: "derived", label: "derived" },
+            { value: "summarized", label: "summarized (AI)" },
+          ]}
+          onChange={set("provenance")}
+          allLabel="Any source"
+        />
+        <span className="mb-2.5">
+          <InfoHint term="Provenance" label="What is provenance?">
+            Where an event came from: observed (reported by the runtime), derived (computed by
+            Mimir) or summarized (written by an AI).
+          </InfoHint>
+        </span>
+      </div>
     </div>
   );
 }

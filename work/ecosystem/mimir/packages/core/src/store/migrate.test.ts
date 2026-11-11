@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -134,5 +134,19 @@ describe("migrate guards (fix round 1: M7, M11)", () => {
       ]),
     ).toThrow(/duplicate migration version 1/);
     db.close();
+  });
+});
+
+describe("listMigrations", () => {
+  it("ignores files that are not NNN_name.sql and sorts by version", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mimir-migrations-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, "README.md"), "notes");
+    writeFileSync(join(dir, "002_second.sql"), "SELECT 2;");
+    writeFileSync(join(dir, "001_first.sql"), "SELECT 1;");
+    expect(listMigrations(dir)).toEqual([
+      { version: 1, name: "first", sql: "SELECT 1;" },
+      { version: 2, name: "second", sql: "SELECT 2;" },
+    ]);
   });
 });

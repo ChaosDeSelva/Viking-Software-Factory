@@ -1,7 +1,8 @@
+import { Cluster, EmptyState, Page } from "@factory/ui";
 import { useEffect, useState } from "react";
 import type { ContextItemView, Spec, SpecMeta } from "../api/types.js";
 import { ContextList, OpenQuestions, SpecView } from "../components/SpecView.js";
-import { Button, Card, Empty, Field, inputClass } from "../components/ui.js";
+import { Button, Card, Field, inputClass, ScreenHeader, textareaClass } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
 export function DirectorScreen() {
@@ -26,11 +27,27 @@ export function DirectorScreen() {
     context: ContextItemView[];
   } | null>(null);
 
+  const header = (
+    <ScreenHeader
+      screen="director"
+      title="Director"
+      term="Director"
+      description="Describe what you want built; the Director drafts a spec that cites project context, then asks what it could not decide."
+    />
+  );
   if (!projectId)
     return (
-      <Card title="Director">
-        <Empty>Create or select a project first.</Empty>
-      </Card>
+      <Page>
+        {header}
+        <EmptyState
+          title="Create or select a project first."
+          action={
+            <Button onClick={() => dispatch({ type: "navigate", view: "projects" })}>
+              Open Projects
+            </Button>
+          }
+        />
+      </Page>
     );
 
   const run = async (fn: () => Promise<void>) => {
@@ -75,76 +92,114 @@ export function DirectorScreen() {
     });
 
   const open = result ? result.spec.body.openQuestions : [];
-  return (
-    <div className="space-y-4">
-      <Card title="Ask the Director">
-        <form
-          aria-label="Draft a spec"
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void draft();
-          }}
+  const composer = (
+    <Card
+      title="Ask the Director"
+      term="Director"
+      description="One request becomes one draft spec. Link an Inbox item to keep its source."
+    >
+      <form
+        aria-label="Draft a spec"
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void draft();
+        }}
+      >
+        <Field
+          label="Request"
+          id="director-request"
+          hint="Describe what you want built. The Director drafts a spec citing project context."
         >
-          <Field
-            label="Request"
+          <textarea
             id="director-request"
-            hint="Describe what you want built. The Director drafts a spec citing project context."
+            aria-describedby="director-request-hint"
+            rows={5}
+            className={textareaClass}
+            value={request}
+            onChange={(e) => setRequest(e.target.value)}
+          />
+        </Field>
+        <Field label="Inbox item (optional)" id="director-intake" term="Intake">
+          <select
+            id="director-intake"
+            className={inputClass}
+            value={intakeId}
+            onChange={(e) => setIntakeId(e.target.value)}
           >
-            <textarea
-              id="director-request"
-              aria-describedby="director-request-hint"
-              rows={4}
-              className={inputClass}
-              value={request}
-              onChange={(e) => setRequest(e.target.value)}
-            />
-          </Field>
-          <Field label="Inbox item (optional)" id="director-intake">
-            <select
-              id="director-intake"
-              className={inputClass}
-              value={intakeId}
-              onChange={(e) => setIntakeId(e.target.value)}
-            >
-              <option value="">None (record the request as a new intake)</option>
-              {intakes.state.status === "ready"
-                ? intakes.state.data.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.display.title}
-                    </option>
-                  ))
-                : null}
-            </select>
-          </Field>
-          <Button type="submit" disabled={busy || !request.trim()}>
+            <option value="">None (record the request as a new intake)</option>
+            {intakes.state.status === "ready"
+              ? intakes.state.data.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.display.title}
+                  </option>
+                ))
+              : null}
+          </select>
+        </Field>
+        <Cluster gap={3}>
+          <Button
+            type="submit"
+            disabled={busy}
+            {...(!busy && !request.trim()
+              ? { disabledReason: "Describe what you want built first." }
+              : {})}
+          >
             {drafting ? "Drafting…" : "Draft spec"}
           </Button>
-          <p className="text-xs text-slate-600 dark:text-slate-300">
-            Drafting can take several minutes. If you leave this screen, the draft will appear in
-            Specs when it is ready.
-          </p>
-        </form>
-      </Card>
-      {result ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <Card title="Draft specification">
+        </Cluster>
+        <p className="text-xs text-muted">
+          Drafting can take several minutes. If you leave this screen, the draft will appear in
+          Specs when it is ready.
+        </p>
+      </form>
+    </Card>
+  );
+
+  return (
+    <Page>
+      {header}
+      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          {result ? (
+            <Card
+              title="Draft specification"
+              term="Spec"
+              actions={
+                <Button
+                  variant="secondary"
+                  onClick={() => dispatch({ type: "spec/open", specId: result.spec.id })}
+                >
+                  Open in Specs
+                </Button>
+              }
+            >
               <SpecView spec={result.spec} meta={result.meta} context={result.context} />
               <ContextList items={result.context} />
-              <Button
-                variant="secondary"
-                onClick={() => dispatch({ type: "spec/open", specId: result.spec.id })}
-              >
-                Open in Specs
-              </Button>
             </Card>
-          </div>
-          <Card title="Open questions">
-            <OpenQuestions questions={open} busy={busy} onAnswer={(q, a) => void answer(q, a)} />
-          </Card>
+          ) : (
+            <Card>
+              <EmptyState
+                icon="guide"
+                title={drafting ? "Drafting a spec…" : "No draft yet"}
+                body={
+                  drafting
+                    ? "The Director is reading project context. This can take several minutes."
+                    : "Write a request and choose Draft spec. The draft shows here with its sources, and open questions appear beside it."
+                }
+              />
+            </Card>
+          )}
         </div>
-      ) : null}
-    </div>
+        <div className="flex min-w-0 flex-col gap-6">
+          {composer}
+          {result ? (
+            <Card title="Open questions" term="Open question" count={open.length}>
+              <OpenQuestions questions={open} busy={busy} onAnswer={(q, a) => void answer(q, a)} />
+            </Card>
+          ) : null}
+        </div>
+      </div>
+    </Page>
   );
 }

@@ -1,100 +1,116 @@
+import { Callout, EmptyState, KeyValue, Page, RecordList, RecordRow, SplitView } from "@factory/ui";
 import { useEffect, useRef, useState } from "react";
 import type { HarnessSummary } from "../api/delivery-types.js";
 import {
   Badge,
   Button,
-  Card,
   DetailHeading,
   Empty,
   Field,
   LoadState,
+  ScreenHeader,
   inputClass,
+  textareaClass,
+  Card,
 } from "../components/ui.js";
-import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
+import { useApi, useLoad, useReportError } from "../store/context.js";
 
 const key = (h: HarnessSummary) => `${h.name}@${h.version}`;
+const none = (xs: string[]) => xs.join(", ") || "none";
 
+/**
+ * Global: the verification harnesses this machine can use. A project's repository signals and
+ * "why this harness" live on Project settings, because they depend on the project.
+ */
 export function HarnessesScreen() {
   const api = useApi();
-  const { state } = useStore();
-  const projectId = state.projectId;
   const list = useLoad(() => api.listHarnesses(), []);
-  const signals = useLoad(projectId ? () => api.repoSignals(projectId) : null, [projectId]);
   const [selected, setSelected] = useState<string | null>(null);
+  const harnesses = list.state.status === "ready" ? list.state.data.harnesses : [];
+  const current = selected ? (harnesses.find((h) => key(h) === selected) ?? null) : undefined;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <Card title="Harnesses">
-        <LoadState state={list.state} what="harnesses" onRetry={list.reload}>
-          {({ source, harnesses }) => (
-            <div className="space-y-3">
-              <p className="text-sm">
-                {source === "fake" ? (
-                  <>
-                    <Badge tone="warn">fixtures</Badge> Fixture harnesses: Brokkr is disabled in
-                    Settings, so selections come from Sindri&apos;s built-in fake service.
-                  </>
+    <Page>
+      <ScreenHeader
+        screen="harnesses"
+        title="Harnesses"
+        global
+        term="Harness"
+        description="The checks and skills an agent's work is verified with. Plans pick one per task from the task type and the repository."
+      />
+      <LoadState state={list.state} what="harnesses" onRetry={list.reload}>
+        {({ source }) => (
+          <>
+            {source === "fake" ? (
+              <Callout tone="warning">
+                <Badge tone="warn" tooltip="Built-in sample harnesses, not resolved by Brokkr">
+                  fixtures
+                </Badge>{" "}
+                Fixture harnesses: Brokkr is disabled in Settings, so selections come from
+                Sindri&apos;s built-in fake service.
+              </Callout>
+            ) : (
+              <Callout tone="info">
+                <Badge tone="ok">{source}</Badge> Harnesses resolved by Brokkr.
+              </Callout>
+            )}
+            <SplitView
+              showDetail={Boolean(selected)}
+              onBack={() => setSelected(null)}
+              backLabel="All harnesses"
+              list={
+                <Card title="Installed" count={harnesses.length} flush>
+                  {harnesses.length === 0 ? (
+                    <div className="p-card">
+                      <Empty body="Enable Brokkr in Settings, or install harnesses with the Brokkr CLI.">
+                        No harnesses installed.
+                      </Empty>
+                    </div>
+                  ) : (
+                    <RecordList label="Harnesses">
+                      {harnesses.map((h) => (
+                        <RecordRow
+                          key={key(h)}
+                          title={<span className="font-mono">{key(h)}</span>}
+                          meta={h.description}
+                          selected={selected === key(h)}
+                          onClick={() => setSelected(key(h))}
+                        />
+                      ))}
+                    </RecordList>
+                  )}
+                </Card>
+              }
+              detail={
+                current === undefined ? (
+                  <Card>
+                    <EmptyState
+                      icon="info"
+                      title="Select a harness"
+                      body="See its task types, skills and checks."
+                      {...(harnesses[0]
+                        ? {
+                            action: (
+                              <Button
+                                variant="secondary"
+                                onClick={() => setSelected(key(harnesses[0]!))}
+                              >
+                                Open {key(harnesses[0])}
+                              </Button>
+                            ),
+                          }
+                        : {})}
+                    />
+                  </Card>
                 ) : (
-                  <>
-                    <Badge tone="ok">{source}</Badge> Harnesses resolved by Brokkr.
-                  </>
-                )}
-              </p>
-              {harnesses.length === 0 ? (
-                <Empty>No harnesses installed.</Empty>
-              ) : (
-                <ul className="space-y-1">
-                  {harnesses.map((h) => (
-                    <li key={key(h)}>
-                      <button
-                        type="button"
-                        aria-pressed={selected === key(h)}
-                        onClick={() => setSelected(key(h))}
-                        className="w-full rounded px-2 py-1.5 text-left font-mono text-sm hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 dark:hover:bg-slate-800"
-                      >
-                        {key(h)}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </LoadState>
-      </Card>
-      <div className="space-y-4 lg:col-span-2">
-        {list.state.status === "ready" && selected ? (
-          <Manifest harness={list.state.data.harnesses.find((h) => key(h) === selected) ?? null} />
-        ) : (
-          <Card title="Manifest">
-            <Empty>Select a harness to see its task types, skills and checks.</Empty>
-          </Card>
+                  <Manifest harness={current} />
+                )
+              }
+            />
+          </>
         )}
-        <ExplainForm projectId={projectId} />
-        <Card title="Repository signals">
-          {projectId ? (
-            <LoadState state={signals.state} what="repository signals" onRetry={signals.reload}>
-              {(s) => (
-                <section aria-label="Repository signals">
-                  <dl className="grid grid-cols-2 gap-1 text-sm">
-                    <dt className="font-medium">Package manager</dt>
-                    <dd>{s.packageManager ?? "unknown"}</dd>
-                    <dt className="font-medium">Frameworks</dt>
-                    <dd>{s.frameworks.join(", ") || "none"}</dd>
-                    <dt className="font-medium">Test runners</dt>
-                    <dd>{s.testRunners.join(", ") || "none"}</dd>
-                    <dt className="font-medium">Scripts</dt>
-                    <dd>{s.scripts.join(", ") || "none"}</dd>
-                  </dl>
-                </section>
-              )}
-            </LoadState>
-          ) : (
-            <Empty>Select a project to inspect its repository.</Empty>
-          )}
-        </Card>
-      </div>
-    </div>
+      </LoadState>
+    </Page>
   );
 }
 
@@ -105,46 +121,87 @@ function Manifest({ harness }: { harness: HarnessSummary | null }) {
         <Empty>That harness is no longer installed.</Empty>
       </Card>
     );
+  const unavailable =
+    "Install, pin and verify run in Brokkr. Sindri's Brokkr wiring is not built yet; the server answers 501 not_supported.";
   return (
     <section
       aria-label={`Manifest ${key(harness)}`}
-      className="space-y-2 rounded-lg border border-slate-300 p-4 text-sm dark:border-slate-700"
+      className="flex min-w-0 flex-col gap-4 rounded-lg border border-line bg-surface p-card"
     >
-      <DetailHeading className="font-mono text-lg font-semibold">{key(harness)}</DetailHeading>
-      <p>{harness.description}</p>
-      <p>Task types: {harness.taskTypes.join(", ") || "none"}</p>
-      <p>Required skills: {harness.skills.required.join(", ") || "none"}</p>
-      <p>Optional skills: {harness.skills.optional.join(", ") || "none"}</p>
-      <div className="space-y-1">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled aria-describedby="harness-ops-hint">
-            Install from a local path
-          </Button>
-          <Button variant="secondary" disabled aria-describedby="harness-ops-hint">
-            Pin this version
-          </Button>
-          <Button variant="secondary" disabled aria-describedby="harness-ops-hint">
-            Verify
-          </Button>
-        </div>
-        <p id="harness-ops-hint" className="text-xs text-slate-600 dark:text-slate-300">
-          Install, pin and verify run in Brokkr. Sindri&apos;s Brokkr wiring (S4b) is not built yet,
-          so they are unavailable here; the server answers 501 not_supported.
-        </p>
+      <div className="flex flex-col gap-1">
+        <DetailHeading className="text-lg font-semibold break-all">{key(harness)}</DetailHeading>
+        <p className="text-sm text-muted">{harness.description}</p>
       </div>
-      <h3 className="font-medium">Checks</h3>
-      <ul className="ml-4 list-disc">
-        {harness.checks.map((c) => (
-          <li key={c.id}>
-            {c.id} ({c.required ? "required" : "optional"})
-          </li>
-        ))}
-      </ul>
+      <KeyValue
+        items={[
+          { label: "Task types", value: none(harness.taskTypes) },
+          { label: "Required skills", value: none(harness.skills.required) },
+          { label: "Optional skills", value: none(harness.skills.optional) },
+        ]}
+      />
+      {/* Plain text copies keep the manifest readable as one line (search, screen readers). */}
+      <p className="sr-only">
+        Task types: {none(harness.taskTypes)}. Required skills: {none(harness.skills.required)}.
+        Optional skills: {none(harness.skills.optional)}.
+      </p>
+      <div className="flex flex-col gap-2">
+        <h3 className="text-md font-semibold">Checks</h3>
+        <ul className="flex flex-col gap-1 text-sm">
+          {harness.checks.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-2">
+              <span className="font-mono">{c.id}</span>{" "}
+              <Badge tone={c.required ? "info" : "neutral"}>
+                ({c.required ? "required" : "optional"})
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+        <Button variant="secondary" disabledReason={unavailable}>
+          Install from a local path
+        </Button>
+        <Button variant="secondary" disabledReason={unavailable}>
+          Pin this version
+        </Button>
+        <Button variant="secondary" disabledReason={unavailable}>
+          Verify
+        </Button>
+      </div>
     </section>
   );
 }
 
-function ExplainForm({ projectId }: { projectId: string | null }) {
+/** The selected project's detected tooling (Project settings). */
+export function RepositorySignals({ projectId }: { projectId: string }) {
+  const api = useApi();
+  const signals = useLoad(() => api.repoSignals(projectId), [projectId]);
+  return (
+    <Card
+      title="Repository signals"
+      term="Repository signals"
+      description="What Sindri detected in the repository; harness selection uses it."
+    >
+      <LoadState state={signals.state} what="repository signals" onRetry={signals.reload}>
+        {(s) => (
+          <section aria-label="Repository signals">
+            <KeyValue
+              items={[
+                { label: "Package manager", value: s.packageManager ?? "unknown" },
+                { label: "Frameworks", value: none(s.frameworks) },
+                { label: "Test runners", value: none(s.testRunners) },
+                { label: "Scripts", value: none(s.scripts) },
+              ]}
+            />
+          </section>
+        )}
+      </LoadState>
+    </Card>
+  );
+}
+
+/** Asks which harness a described task would get, for this project's repository. */
+export function ExplainForm({ projectId }: { projectId: string | null }) {
   const api = useApi();
   const report = useReportError();
   const [title, setTitle] = useState("");
@@ -160,10 +217,14 @@ function ExplainForm({ projectId }: { projectId: string | null }) {
     setLines(null);
   }, [projectId]);
   return (
-    <Card title="Why this harness?">
+    <Card
+      title="Why this harness?"
+      term="Harness"
+      description="Describe a task to see which harness and skills a plan would pick, and why."
+    >
       <form
         aria-label="Explain harness selection"
-        className="space-y-3"
+        className="flex flex-col gap-field"
         onSubmit={(e) => {
           e.preventDefault();
           setBusy(true);
@@ -199,14 +260,18 @@ function ExplainForm({ projectId }: { projectId: string | null }) {
         <Field label="Task description" id="explain-description">
           <textarea
             id="explain-description"
-            className={inputClass}
+            className={textareaClass}
             required
             rows={3}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
         </Field>
-        <Field label="Task types (comma separated)" id="explain-types">
+        <Field
+          label="Task types (comma separated)"
+          id="explain-types"
+          info="Optional, e.g. frontend, backend, docs. Without them the description decides."
+        >
           <input
             id="explain-types"
             className={inputClass}
@@ -214,12 +279,14 @@ function ExplainForm({ projectId }: { projectId: string | null }) {
             onChange={(e) => setTypes(e.target.value)}
           />
         </Field>
-        <Button type="submit" disabled={busy}>
-          Explain selection
-        </Button>
+        <div>
+          <Button type="submit" loading={busy}>
+            Explain selection
+          </Button>
+        </div>
       </form>
       {lines ? (
-        <ul aria-label="Explanation" className="ml-4 list-disc text-sm">
+        <ul aria-label="Explanation" className="mt-4 ml-4 list-disc text-sm">
           {lines.map((l) => (
             <li key={l}>{l}</li>
           ))}

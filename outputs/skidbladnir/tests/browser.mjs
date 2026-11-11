@@ -1,13 +1,15 @@
 import { chromium } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import assert from 'node:assert/strict';
-const browser=await chromium.launch({headless:true});
+// Against a running site preview (4381) and dashboard (4380); override with SKIDBLADNIR_SITE_URL / SKIDBLADNIR_APP_URL.
+const site=process.env.SKIDBLADNIR_SITE_URL??'http://127.0.0.1:4381',dashboard=process.env.SKIDBLADNIR_APP_URL??'http://127.0.0.1:4380';
+const browser=await chromium.launch({headless:true,channel:process.env.SKIDBLADNIR_BROWSER_CHANNEL||undefined});
 try {
  const context=await browser.newContext({viewport:{width:1440,height:1000}});
  const page=await context.newPage();
  const label=`Browser acceptance ${Date.now()}`;
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:4381');
+ await page.goto(site);
  await page.locator('.hero-art').evaluate(image=>image.decode());
  assert.ok(await page.locator('.hero-art').evaluate(image=>image.naturalWidth>2000));
  await page.getByRole('button',{name:'02 Observe'}).click();await page.getByRole('heading',{name:'Know where the work stands.'}).waitFor();
@@ -23,15 +25,16 @@ try {
  await page.setViewportSize({width:320,height:740});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.setViewportSize({width:1440,height:1000});
- await page.goto('http://127.0.0.1:4380');await page.getByRole('status').filter({hasText:'Live connection'}).waitFor();
- await page.getByLabel('Worker name').fill(label);
+ await page.goto(dashboard);await page.getByRole('status').filter({hasText:'Live'}).first().waitFor();
+ await page.getByRole('link',{name:'Launch',exact:true}).click();await page.getByLabel('Worker name').fill(label);
  await page.getByRole('button',{name:'Launch simulated worker'}).click();
  await page.getByRole('heading',{name:label,exact:true}).waitFor();
  await page.getByRole('button',{name:'Stop',exact:true}).click();await page.getByRole('button',{name:'Start',exact:true}).waitFor();
- await page.reload();await page.getByRole('button',{name:new RegExp(label)}).click();await page.getByRole('button',{name:'Start',exact:true}).click();
+ await page.reload();await page.getByRole('list',{name:'Workers'}).getByRole('button',{name:new RegExp(label)}).click();await page.getByRole('button',{name:'Start',exact:true}).click();
  await page.getByRole('button',{name:'Stop',exact:true}).waitFor();
+ await page.evaluate(()=>document.activeElement?.blur());await page.mouse.move(0,0);await page.getByRole('tooltip').first().waitFor({state:'detached'}).catch(()=>{});
  const appAxe=await new AxeBuilder({page}).analyze();
- await page.evaluate(()=>document.activeElement?.blur());
+ await page.evaluate(()=>document.activeElement?.blur());await page.mouse.move(0,0);await page.getByRole('tooltip').first().waitFor({state:'detached'}).catch(()=>{});
  await page.screenshot({path:'docs/app-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
@@ -40,7 +43,7 @@ try {
  const appMobileAxe=await new AxeBuilder({page}).analyze();
  await page.setViewportSize({width:320,height:740});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
- await page.getByRole('button',{name:'Terminate',exact:true}).click();await page.getByRole('button',{name:'Confirm termination',exact:true}).click();
+ await page.setViewportSize({width:1440,height:1000});await page.getByRole('button',{name:'Terminate',exact:true}).click();await page.getByRole('alertdialog').getByRole('button',{name:'Confirm termination',exact:true}).click();
  await page.getByText('Simulated terminate requested.',{exact:true}).waitFor();
  console.log(JSON.stringify({errors,siteMobileViolations:siteMobileAxe.violations.map(v=>v.id),appMobileViolations:appMobileAxe.violations.map(v=>v.id),siteViolations:siteAxe.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)})),appViolations:appAxe.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}))},null,2));
  assert.equal(siteMobileAxe.violations.length,0);assert.equal(appMobileAxe.violations.length,0);assert.equal(errors.length,0);assert.equal(siteAxe.violations.length,0);assert.equal(appAxe.violations.length,0);

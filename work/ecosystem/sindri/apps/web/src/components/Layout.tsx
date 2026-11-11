@@ -1,42 +1,96 @@
-import { useEffect, type ReactNode } from "react";
+import { getTerm, glossary, NAV, screenHref, termHref } from "@factory/docs";
+import {
+  AppShell,
+  Button,
+  Dialog,
+  Drawer,
+  GlossaryProvider,
+  GuideChat,
+  Icon,
+  KeyValue,
+  Link,
+  LinkProvider,
+  Tooltip,
+  useNarrow,
+  type ConnectionState,
+  type GlobalLink,
+  type GlossaryEntry,
+  type LinkProps,
+  type NavTab,
+} from "@factory/ui";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { switcherApps } from "../config.js";
 import { useApi, useReportError, useStore } from "../store/context.js";
 import type { View } from "../store/reducer.js";
-import { Button, inputClass } from "./ui.js";
+import { appHref, routeHash } from "../store/route.js";
+import { ApprovalUnlock } from "./ApprovalUnlock.js";
 
-export const VIEWS: { view: View; label: string }[] = [
-  { view: "projects", label: "Projects" },
-  { view: "inbox", label: "Inbox" },
-  { view: "director", label: "Director" },
-  { view: "specs", label: "Specs" },
-  { view: "knowledge", label: "Knowledge" },
-  { view: "settings", label: "Settings" },
-  { view: "plans", label: "Plans" },
-  { view: "runs", label: "Runs" },
-  { view: "reviews", label: "Reviews" },
-  { view: "deliveries", label: "Deliveries" },
-  { view: "harnesses", label: "Harnesses" },
-  { view: "autonomy", label: "Autonomy" },
+/** Top-bar project tabs and bottom-bar global pages, labels and groups from `@factory/docs` NAV. */
+const NAV_SINDRI = NAV.sindri;
+const label = (id: string) => NAV_SINDRI.find((s) => s.id === id)?.label ?? id;
+
+export const TOP_VIEWS: readonly View[] = [
+  "overview",
+  "inbox",
+  "director",
+  "specs",
+  "plans",
+  "runs",
+  "needs-you",
+  "deliveries",
+  "knowledge",
+  "autonomy",
+  "project-settings",
 ];
+export const GLOBAL_VIEWS: readonly View[] = ["projects", "harnesses", "autonomy-all", "settings"];
+const GLOBAL_ICONS: Partial<Record<View, GlobalLink["icon"]>> = {
+  projects: "folder",
+  harnesses: "check",
+  "autonomy-all": "info",
+  settings: "settings",
+};
 
-/** Alt+1..9 then Alt+0 switch screens, in nav order (later ones have no shortcut). */
+/** Every view with its visible name (document title, shortcuts, tests). */
+export const VIEWS: { view: View; label: string }[] = [
+  ...TOP_VIEWS,
+  ...GLOBAL_VIEWS,
+  "docs" as View,
+].map((view) => ({ view, label: label(view) }));
+
+const isGlobal = (v: View) => GLOBAL_VIEWS.includes(v);
+
+/** Alt+1..9 then Alt+0 switch the first ten project tabs (outside text fields). */
 const SHORTCUT_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
+
+/** Glossary for InfoHints: concept terms plus their aliases (so `term="Index"` resolves). */
+const GLOSSARY: GlossaryEntry[] = glossary
+  .filter((e) => e.category !== "status")
+  .flatMap((e) => [e, ...e.aliases.map((a) => ({ ...e, term: a }))]);
+const glossaryHref = (term: string) => {
+  const e = getTerm(term);
+  return e ? termHref(e) : "/docs/glossary";
+};
 
 export function NoticeRegion() {
   const { state, dispatch } = useStore();
   const n = state.notice;
   const box = (kind: "info" | "error", text: string) => (
     <div
-      className={`flex items-start justify-between gap-4 rounded border p-3 text-sm ${
+      className={`mt-4 flex items-start justify-between gap-4 rounded-md border p-3 text-sm ${
         kind === "error"
-          ? "border-red-500 bg-red-50 text-red-950 dark:bg-red-950 dark:text-red-50"
-          : "border-emerald-500 bg-emerald-50 text-emerald-950 dark:bg-emerald-950 dark:text-emerald-50"
+          ? "border-danger-border bg-danger-bg text-fg"
+          : "border-success-border bg-success-bg text-fg"
       }`}
     >
-      <p>
-        <span className="font-semibold">{kind === "error" ? "Error: " : "Done: "}</span>
+      <p className="min-w-0 break-words">
+        <span
+          className={`font-semibold ${kind === "error" ? "text-danger-fg" : "text-success-fg"}`}
+        >
+          {kind === "error" ? "Error: " : "Done: "}
+        </span>
         {text}
       </p>
-      <Button variant="secondary" onClick={() => dispatch({ type: "notice/dismiss" })}>
+      <Button variant="secondary" size="sm" onClick={() => dispatch({ type: "notice/dismiss" })}>
         Dismiss
       </Button>
     </div>
@@ -44,13 +98,173 @@ export function NoticeRegion() {
   // Errors are assertive and stay until dismissed (audit S-I5); confirmations are polite.
   return (
     <>
-      <div aria-live="polite" role="status" className="min-h-0">
+      <div aria-live="polite" role="status">
         {n && n.kind !== "error" ? box(n.kind, n.text) : null}
       </div>
-      <div role="alert" className="min-h-0">
-        {n && n.kind === "error" ? box("error", n.text) : null}
-      </div>
+      <div role="alert">{n && n.kind === "error" ? box("error", n.text) : null}</div>
     </>
+  );
+}
+
+/** Routes every library link through the hash router; `/docs/…` links open the Docs view. */
+export function SindriLinks(props: { children: ReactNode }) {
+  const { state } = useStore();
+  const projectId = state.projectId;
+  const render = useCallback(
+    (p: LinkProps) => {
+      const hash = appHref(p.href, projectId);
+      return <a {...p} href={hash ?? p.href} />;
+    },
+    [projectId],
+  );
+  return (
+    <LinkProvider render={render}>
+      <GlossaryProvider entries={GLOSSARY} docsHref={glossaryHref}>
+        {props.children}
+      </GlossaryProvider>
+    </LinkProvider>
+  );
+}
+
+/** Polls `/v1/health` so the bottom bar can say Live / Offline; Reconnect re-checks now. */
+function useConnection(): { state: ConnectionState; detail: string; reconnect: () => void } {
+  const api = useApi();
+  const [state, setState] = useState<ConnectionState>("connecting");
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    let live = true;
+    const check = () =>
+      api.health().then(
+        () => live && setState("live"),
+        () => live && setState("offline"),
+      );
+    void check();
+    const t = setInterval(check, 30_000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [api, tick]);
+  return {
+    state,
+    detail:
+      state === "live"
+        ? `Connected to the Sindri server (${location.host || "local"})`
+        : state === "offline"
+          ? "Cannot reach the Sindri server; showing what was loaded last"
+          : "Checking the Sindri server…",
+    reconnect: () => {
+      setState("connecting");
+      setTick((n) => n + 1);
+    },
+  };
+}
+
+/** Items waiting for the operator in this project (approvals, escalations, budget blocks). */
+function useNeedsYouCount(projectId: string | null, view: View): number | undefined {
+  const api = useApi();
+  const [count, setCount] = useState<number>();
+  useEffect(() => {
+    if (!projectId) return setCount(undefined);
+    let live = true;
+    api.reviews(projectId).then(
+      // A partial answer (older server) counts what it has instead of throwing.
+      (r) =>
+        live &&
+        setCount(
+          (r.approvals?.length ?? 0) + (r.escalations?.length ?? 0) + (r.budgetAlerts?.length ?? 0),
+        ),
+      () => live && setCount(undefined),
+    );
+    return () => {
+      live = false;
+    };
+    // Refreshed on every navigation: cheap, and the count follows decisions made elsewhere.
+  }, [api, projectId, view]);
+  return count;
+}
+
+const RECENT_KEY = "sindri.recentProjects";
+function readRecent(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string").slice(0, 5) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The last five projects picked here, newest first, for the picker's Recent group. */
+function useRecentProjects(projectId: string | null): string[] {
+  const [recent, setRecent] = useState(readRecent);
+  useEffect(() => {
+    if (!projectId) return;
+    setRecent((r) => {
+      const next = [projectId, ...r.filter((id) => id !== projectId)].slice(0, 5);
+      try {
+        localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+      } catch {
+        /* storage blocked: Recent lasts for this page only */
+      }
+      return next;
+    });
+  }, [projectId]);
+  return recent;
+}
+
+function SessionContent(props: { onChange: () => void }) {
+  const api = useApi();
+  if (api.hasApprovalSession())
+    return (
+      <div className="flex flex-col gap-3 text-sm">
+        <p className="font-semibold">Operator unlocked</p>
+        <p className="text-muted">
+          Approvals and gated actions are available in this tab until it closes or you lock them
+          again.
+        </p>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon="lock"
+          onClick={() => {
+            api.forgetApproval();
+            props.onChange();
+          }}
+        >
+          Lock approvals
+        </Button>
+      </div>
+    );
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <p className="font-semibold">Read-only for approvals</p>
+      <p className="text-muted">
+        You can browse and draft. Approving specs and plans, deciding gated actions and changing
+        modes needs the approval pairing code.
+      </p>
+      <ApprovalUnlock id="session-approval-code" onUnlocked={props.onChange} />
+    </div>
+  );
+}
+
+function ShortcutsDialog(props: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      title="Keyboard shortcuts"
+      description="Shortcuts work outside text fields."
+    >
+      <KeyValue
+        items={[
+          ...TOP_VIEWS.slice(0, SHORTCUT_KEYS.length).map((v, i) => ({
+            label: `Alt+${SHORTCUT_KEYS[i]}`,
+            value: label(v),
+          })),
+          { label: "?", value: "Show this list" },
+        ]}
+      />
+    </Dialog>
   );
 }
 
@@ -58,119 +272,162 @@ export function Layout(props: { children: ReactNode }) {
   const { state, dispatch } = useStore();
   const api = useApi();
   const report = useReportError();
+  const [askOpen, setAskOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [, setSessionTick] = useState(0);
+  const connection = useConnection();
+  const needsYou = useNeedsYouCount(state.projectId, state.view);
+  const recent = useRecentProjects(state.projectId);
+  const narrow = useNarrow();
 
-  // The header's project selector needs the list on every screen, not only on Projects (which
-  // loads and refreshes it itself). Layout mounts once per sign-in.
+  // The project picker needs the list on every screen, not only on Projects (which loads and
+  // refreshes it itself). Layout mounts once per sign-in.
   useEffect(() => {
     if (state.view === "projects") return;
     api.listProjects().then((projects) => dispatch({ type: "projects/loaded", projects }), report);
   }, [api]);
 
-  // Keyboard-first: Alt+1..9, Alt+0 switch screens. `code` keeps it working where Alt
-  // changes the produced character (macOS).
+  // A Guide link (or any navigation) closes the Ask drawer so the screen is visible.
+  useEffect(() => setAskOpen(false), [state.view, state.projectId]);
+
+  // Keyboard-first: Alt+1..9, Alt+0 switch project tabs; "?" lists the shortcuts. `code` keeps
+  // Alt working where it changes the produced character (macOS).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey) return;
       // Never steal keys while the user types (audit S-I4).
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
-      const digit = /^Digit(\d)$/.exec(e.code)?.[1] ?? e.key;
-      const v = VIEWS[SHORTCUT_KEYS.indexOf(digit)];
-      if (v) {
+      if (e.key === "?" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        dispatch({ type: "navigate", view: v.view });
+        setShortcutsOpen(true);
+        return;
+      }
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const digit = /^Digit(\d)$/.exec(e.code)?.[1] ?? e.key;
+      const v = TOP_VIEWS[SHORTCUT_KEYS.indexOf(digit)];
+      if (v && SHORTCUT_KEYS.includes(digit)) {
+        e.preventDefault();
+        dispatch({ type: "navigate", view: v });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [dispatch]);
 
-  const current = VIEWS.find((v) => v.view === state.view)?.label ?? "";
-  useEffect(() => {
-    document.title = current ? `${current} · Sindri` : "Sindri";
-  }, [current]);
+  const projectId = state.projectId;
+  const hashFor = (view: View) =>
+    routeHash({
+      view,
+      projectId,
+      specId: null,
+      planId: null,
+      executionId: null,
+      deliveryId: null,
+      docsSlug: null,
+      docsSection: null,
+    });
+  // Wide screens: Project settings is a gear at the right end of the top bar, so the ten work
+  // tabs fit at 1440px; phones list it in the page menu with the other tabs.
+  const tabViews = narrow ? TOP_VIEWS : TOP_VIEWS.filter((v) => v !== "project-settings");
+  const tabs: NavTab[] = tabViews.map((view) => ({
+    id: view,
+    label: label(view),
+    href: hashFor(view),
+    group: NAV_SINDRI.find((s) => s.id === view)?.group ?? undefined,
+    ...(view === "needs-you" && needsYou ? { count: needsYou } : {}),
+  }));
+  const globalLinks: GlobalLink[] = GLOBAL_VIEWS.map((view) => ({
+    id: view,
+    label: label(view),
+    href: hashFor(view),
+    icon: GLOBAL_ICONS[view],
+  }));
+  const apps = useMemo(() => switcherApps(projectId), [projectId]);
+  const docsHref =
+    (state.view === "docs" ? null : screenHref("sindri", state.view)) ?? "/docs/sindri-screens";
+  const pageTitle = label(state.view);
+
   return (
-    <div className="min-h-screen bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <a
-        href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:rounded focus:bg-white focus:p-2 focus:text-black"
-      >
-        Skip to content
-      </a>
-      <header className="border-b border-slate-300 dark:border-slate-700">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-4 px-4 py-3">
-          <h1 className="project-brand text-2xl font-semibold">
-            <span className="project-initial" aria-hidden="true">
-              S
-            </span>
-            Sindri
-          </h1>
-          <nav aria-label="Main" aria-describedby="nav-shortcuts" className="flex-1">
-            <ul className="flex flex-wrap gap-1">
-              {VIEWS.map((v, i) => (
-                <li key={v.view}>
-                  <button
-                    type="button"
-                    aria-current={state.view === v.view ? "page" : undefined}
-                    aria-keyshortcuts={
-                      SHORTCUT_KEYS[i] === undefined ? undefined : `Alt+${SHORTCUT_KEYS[i]}`
-                    }
-                    onClick={() => dispatch({ type: "navigate", view: v.view })}
-                    className={`rounded px-3 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 ${
-                      state.view === v.view
-                        ? "bg-indigo-700 text-white dark:bg-indigo-400 dark:text-black"
-                        : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    {v.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <p id="nav-shortcuts" className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-              Alt+1 to Alt+0 switch screens (outside text fields).
-            </p>
-          </nav>
-          <div className="flex items-center gap-2">
-            <label htmlFor="project-select" className="text-sm">
-              Project
-            </label>
-            <select
-              id="project-select"
-              className={`${inputClass} w-48`}
-              value={state.projectId ?? ""}
-              onChange={(e) => dispatch({ type: "project/select", projectId: e.target.value })}
-              disabled={state.projects.length === 0}
-            >
-              {state.projects.length === 0 ? <option value="">No projects</option> : null}
-              {state.projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="secondary"
-              aria-label={`Switch to ${state.theme === "dark" ? "light" : "dark"} theme`}
-              onClick={() => dispatch({ type: "theme/toggle" })}
-            >
-              {state.theme === "dark" ? "Light" : "Dark"}
-            </Button>
-            <Button variant="secondary" onClick={() => dispatch({ type: "token/clear" })}>
-              Sign out
-            </Button>
-          </div>
-        </div>
-      </header>
-      <main
-        id="main"
-        tabIndex={-1}
-        className="mx-auto max-w-6xl space-y-4 px-4 py-6 focus:outline-none"
-      >
-        <h2 className="sr-only">{current}</h2>
+    <AppShell
+      appName="Sindri"
+      pageTitle={pageTitle}
+      routeKey={state.view}
+      apps={apps}
+      currentApp="sindri"
+      projects={state.projects.map((p) => ({ id: p.id, name: p.name, description: p.repoPath }))}
+      projectId={projectId}
+      onProjectChange={(id) => id && dispatch({ type: "project/select", projectId: id })}
+      recentProjectIds={recent}
+      onManageProjects={() => dispatch({ type: "navigate", view: "projects" })}
+      {...(isGlobal(state.view)
+        ? { projectPickerDisabledReason: "This page covers every project" }
+        : {})}
+      tabs={tabs}
+      activeTabId={state.view}
+      primaryAction={
+        <Tooltip content="Project settings: execution profile, Feedback Graph, index, delete data">
+          <Link
+            href={hashFor("project-settings")}
+            aria-label="Project settings"
+            aria-current={state.view === "project-settings" ? "page" : undefined}
+            className="inline-flex h-control-sm items-center gap-1.5 rounded-md border border-line px-2.5 text-sm font-medium text-muted hover:bg-hover hover:text-fg aria-[current=page]:border-accent aria-[current=page]:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+          >
+            <Icon name="settings" size={16} />
+            <span className="max-2xl:sr-only">Project settings</span>
+          </Link>
+        </Tooltip>
+      }
+      connection={{
+        state: connection.state,
+        detail: connection.detail,
+        onReconnect: connection.reconnect,
+      }}
+      session={{
+        mode: api.hasApprovalSession() ? "operator" : "read-only",
+        content: <SessionContent onChange={() => setSessionTick((n) => n + 1)} />,
+      }}
+      globalLinks={globalLinks}
+      docsHref={docsHref}
+      onAsk={() => setAskOpen(true)}
+      onShortcuts={() => setShortcutsOpen(true)}
+      onSignOut={() => dispatch({ type: "token/clear" })}
+    >
+      <div className="mx-auto w-full max-w-page px-4 sm:px-6">
         <NoticeRegion />
-        {props.children}
-      </main>
-    </div>
+      </div>
+      {props.children}
+      <Drawer open={askOpen} onOpenChange={setAskOpen} title="Ask the factory">
+        <AskGuide screen={state.view} title="Guide" />
+      </Drawer>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+    </AppShell>
+  );
+}
+
+/** GuideChat wired to `POST /v1/guide/ask` with the current screen and project as context. */
+export function AskGuide(props: {
+  screen: string;
+  suggestions?: readonly string[];
+  title?: string;
+  intro?: ReactNode;
+}) {
+  const api = useApi();
+  const { state } = useStore();
+  const context = {
+    app: "sindri" as const,
+    screen: props.screen,
+    ...(state.projectId ? { projectId: state.projectId } : {}),
+  };
+  return (
+    <GuideChat
+      ask={(question, ctx: typeof context) => api.askGuide(question, ctx)}
+      context={context}
+      {...(props.suggestions ? { suggestions: props.suggestions } : {})}
+      {...(props.title ? { title: props.title } : {})}
+      intro={
+        props.intro ??
+        "Answers come from the docs and this project's state. The Guide never changes anything; it links to where you act."
+      }
+    />
   );
 }

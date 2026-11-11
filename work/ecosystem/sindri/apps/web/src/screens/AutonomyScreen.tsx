@@ -8,8 +8,20 @@ import {
   type StewardStatus,
   type StewardType,
 } from "../api/steward-types.js";
+import { Callout, Cluster, InfoHint, Page, Stack, Toolbar } from "@factory/ui";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
-import { Badge, Button, Card, Empty, Field, inputClass, LoadState } from "../components/ui.js";
+import {
+  Badge,
+  Button,
+  Empty,
+  Field,
+  inputClass,
+  LoadState,
+  ScreenHeader,
+  Status,
+  textareaClass,
+  Card,
+} from "../components/ui.js";
 import { useApi, useReportError, useStore, type Loadable } from "../store/context.js";
 import type { Action } from "../store/reducer.js";
 
@@ -31,12 +43,6 @@ const STATUS_LABELS: Record<string, string> = {
   applied: "Applied",
   rolled_back: "Rolled back",
   expired: "Expired",
-};
-const STATUS_TONES: Record<string, "warn" | "ok"> = {
-  pending: "warn",
-  accepted: "ok",
-  changed: "ok",
-  applied: "ok",
 };
 const MODE_LABELS: Record<string, string> = { off: "Off", recommend: "Recommend", auto: "Auto" };
 const OUTCOME_LABELS: Record<string, string> = {
@@ -98,7 +104,7 @@ function OpenLink(props: { kind: string; id: string; projectId: string; children
   return (
     <button
       type="button"
-      className="text-left text-indigo-700 underline hover:text-indigo-900 dark:text-indigo-300"
+      className="text-left text-accent-fg underline underline-offset-2 hover:decoration-2 [overflow-wrap:anywhere]"
       onClick={() => {
         if (
           props.projectId !== state.projectId &&
@@ -113,51 +119,68 @@ function OpenLink(props: { kind: string; id: string; projectId: string; children
   );
 }
 
+/**
+ * Project tab: the steward's decisions and notes for the selected project only. Modes, the
+ * steward itself and every project's log are global (Autonomy (all), bottom bar).
+ */
 export function AutonomyScreen() {
-  const { state } = useStore();
-  const [scope, setScope] = useState<"project" | "all">(state.projectId ? "project" : "all");
-  const projectId = scope === "project" ? state.projectId : null;
-  const project = state.projects.find((p) => p.id === state.projectId);
+  const { state, dispatch } = useStore();
+  const projectId = state.projectId;
   return (
-    <div className="space-y-4">
-      <StewardPanel />
-      <div className="flex flex-wrap items-end gap-2">
-        <Field label="Show" id="autonomy-scope">
-          <select
-            id="autonomy-scope"
-            className={`${inputClass} w-64`}
-            value={scope}
-            onChange={(e) => setScope(e.target.value === "all" ? "all" : "project")}
+    <Page>
+      <ScreenHeader
+        screen="autonomy"
+        title="Autonomy"
+        term="Steward"
+        description="What the steward recommended or decided in this project, and the notes it reads before it decides."
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => dispatch({ type: "navigate", view: "autonomy-all" })}
           >
-            <option value="project" disabled={!state.projectId}>
-              {project ? `This project (${project.name})` : "This project"}
-            </option>
-            <option value="all">All projects</option>
-          </select>
-        </Field>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <DecisionLog projectId={projectId} />
-        </div>
+            Modes and steward
+          </Button>
+        }
+      />
+      <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <DecisionLog projectId={projectId} />
         <NotesFeed projectId={projectId} />
       </div>
-    </div>
+    </Page>
   );
 }
 
-function fgLine(fg: FeedbackGraphStatus | undefined): {
-  text: string;
-  tone: "ok" | "warn" | "neutral";
-} {
-  if (!fg) return { text: "Unknown", tone: "neutral" };
-  if (!fg.configured) return { text: "Not configured (set it up in Settings)", tone: "neutral" };
-  if (!fg.enabled) return { text: "Disabled in Settings", tone: "neutral" };
+/** Global: steward state, per-type modes and track record, every project's decisions. */
+export function AutonomyAllScreen() {
+  return (
+    <Page>
+      <ScreenHeader
+        screen="autonomy-all"
+        title="Autonomy (all)"
+        global
+        term="Autonomy"
+        description="The steward and its modes apply to every project. Each decision type starts by recommending; switch it to automatic once its track record is good."
+      />
+      <StewardPanel />
+      <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+        <DecisionLog projectId={null} allProjects />
+        <NotesFeed projectId={null} />
+      </div>
+    </Page>
+  );
+}
+
+/** Feedback Graph connection as a status (for the pill) and a sentence (with the detail). */
+function fgLine(fg: FeedbackGraphStatus | undefined): { text: string; status: string } {
+  if (!fg) return { text: "Unknown", status: "unknown" };
+  if (!fg.configured)
+    return { text: "Not configured (set it up in Settings)", status: "not_configured" };
+  if (!fg.enabled) return { text: "Disabled in Settings", status: "disabled" };
   if (fg.reachable === true)
-    return { text: `Connected${fg.url ? ` to ${fg.url}` : ""}`, tone: "ok" };
+    return { text: `Connected${fg.url ? ` to ${fg.url}` : ""}`, status: "connected" };
   if (fg.reachable === false)
-    return { text: `Unreachable${fg.error ? `: ${fg.error}` : ""}`, tone: "warn" };
-  return { text: "Not checked yet", tone: "neutral" };
+    return { text: `Unreachable${fg.error ? `: ${fg.error}` : ""}`, status: "unreachable" };
+  return { text: "Not checked yet", status: "not_checked" };
 }
 
 function StewardPanel() {
@@ -194,24 +217,24 @@ function StewardPanel() {
     setStatus((s) => (s.status === "ready" ? { status: "ready", data: { ...s.data, types } } : s));
 
   return (
-    <Card title="Steward">
+    <Card title="Steward" term="Steward">
       <LoadState state={status} what="steward status" onRetry={() => setTick((t) => t + 1)}>
         {(s) => {
           const fg = fgLine(s.feedbackGraph);
           const unlocked = api.hasApprovalSession();
           return (
-            <>
+            <Stack gap={5}>
               <div
-                className="flex flex-wrap items-center gap-3 text-sm"
+                className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm"
                 aria-label="Steward status"
               >
-                <span>
-                  Steward:{" "}
-                  <Badge tone={s.running ? "ok" : "warn"}>{s.running ? "Running" : "Paused"}</Badge>
+                <span className="inline-flex items-center gap-2">
+                  Steward <Status value={s.running ? "running" : "paused"} domain="steward-state" />
                 </span>
                 <Button
                   variant="secondary"
-                  disabled={busy}
+                  size="sm"
+                  loading={busy}
                   onClick={() =>
                     run(async () => {
                       const next = s.running ? await api.pauseSteward() : await api.resumeSteward();
@@ -221,35 +244,56 @@ function StewardPanel() {
                 >
                   {s.running ? "Pause" : "Resume"}
                 </Button>
-                <span>
-                  Feedback Graph: <Badge tone={fg.tone}>{fg.text}</Badge>
+                <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
+                  Feedback Graph <Status value={fg.status} domain="fg-connection" />
+                  <span className="text-muted [overflow-wrap:anywhere]">{fg.text}</span>
                 </span>
               </div>
-              <h3 className="font-semibold">Decision types</h3>
-              <p className="text-sm">
-                Every type starts by recommending; you accept, change or reject. Switch a type to
-                automatic once its track record is good. Approvals are never automatic. Changing a
-                mode needs the approval pairing code.
-              </p>
-              <ApprovalUnlock
-                id="steward-mode-approval"
-                onUnlocked={() => setUnlockTick((n) => n + 1)}
-              />
+              <div className="flex flex-col gap-1">
+                <h3 className="flex items-center gap-1.5 text-md font-semibold">
+                  Decision types <InfoHint term="Decision type" />
+                </h3>
+                <p className="text-sm text-muted">
+                  Every type starts by recommending; you accept, change or reject. Switch a type to
+                  automatic once its track record is good. Approvals are never automatic. Changing a
+                  mode needs the approval pairing code.
+                </p>
+              </div>
+              {unlocked ? null : (
+                <Callout tone="info" title="Modes are locked">
+                  <ApprovalUnlock
+                    id="steward-mode-approval"
+                    onUnlocked={() => setUnlockTick((n) => n + 1)}
+                  />
+                </Callout>
+              )}
               {s.types.length === 0 ? (
                 <Empty>The steward reports no decision types.</Empty>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
+                <div className="overflow-x-auto rounded-md border border-line">
+                  <table className="w-full min-w-[720px] text-left text-sm">
+                    <thead className="bg-sunken text-xs font-semibold text-muted">
                       <tr>
-                        <th scope="col">Type</th>
-                        <th scope="col">Mode</th>
-                        <th scope="col">Accepted</th>
-                        <th scope="col">Changed</th>
-                        <th scope="col">Rejected</th>
-                        <th scope="col">Rolled back</th>
-                        <th scope="col">Auto-applied</th>
-                        <th scope="col">Accuracy</th>
+                        <th scope="col" className="px-3 py-2">
+                          Type
+                        </th>
+                        <th scope="col" className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1">
+                            Mode <InfoHint term="Steward mode" />
+                          </span>
+                        </th>
+                        {["Accepted", "Changed", "Rejected", "Rolled back", "Auto-applied"].map(
+                          (h) => (
+                            <th key={h} scope="col" className="px-3 py-2 text-right">
+                              {h}
+                            </th>
+                          ),
+                        )}
+                        <th scope="col" className="px-3 py-2 text-right">
+                          <span className="inline-flex items-center gap-1">
+                            Accuracy <InfoHint term="Accuracy" />
+                          </span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -267,7 +311,7 @@ function StewardPanel() {
                   </table>
                 </div>
               )}
-            </>
+            </Stack>
           );
         }}
       </LoadState>
@@ -281,17 +325,17 @@ function TypeRow(props: { t: StewardType; disabled: boolean; onMode: (mode: stri
   const stats = t.stats ?? ({} as Partial<StewardType["stats"]>);
   const known = ["off", "recommend", "auto"].includes(t.mode);
   return (
-    <tr className="border-t border-slate-200 align-top dark:border-slate-700">
-      <th scope="row" className="py-2 pr-2 font-medium">
+    <tr className="border-t border-line align-top">
+      <th scope="row" className="px-3 py-2.5 font-medium">
         {typeLabel(t.type)}
       </th>
-      <td className="py-2 pr-2">
+      <td className="px-3 py-2">
         <label htmlFor={id} className="sr-only">
           Mode for {typeLabel(t.type)}
         </label>
         <select
           id={id}
-          className={inputClass}
+          className={inputClass.replace("w-full", "w-40")}
           value={t.mode}
           disabled={props.disabled}
           aria-describedby={t.autoAllowed ? undefined : `${id}-hint`}
@@ -305,22 +349,31 @@ function TypeRow(props: { t: StewardType; disabled: boolean; onMode: (mode: stri
           </option>
         </select>
         {t.autoAllowed ? null : (
-          <p id={`${id}-hint`} className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+          <p id={`${id}-hint`} className="mt-1 max-w-48 text-xs text-muted">
             Auto is not available: this is an approval, which always needs you.
           </p>
         )}
       </td>
-      <td className="py-2 pr-2">{stats.accepted ?? 0}</td>
-      <td className="py-2 pr-2">{stats.changed ?? 0}</td>
-      <td className="py-2 pr-2">{stats.rejected ?? 0}</td>
-      <td className="py-2 pr-2">{stats.rolledBack ?? 0}</td>
-      <td className="py-2 pr-2">{stats.autoApplied ?? 0}</td>
-      <td className="py-2 pr-2">{pct(stats.accuracy)}</td>
+      {[stats.accepted, stats.changed, stats.rejected, stats.rolledBack, stats.autoApplied].map(
+        (n, i) => (
+          <td key={i} className="px-3 py-2.5 text-right tabular-nums">
+            {n ?? 0}
+          </td>
+        ),
+      )}
+      <td className="px-3 py-2.5 text-right tabular-nums">{pct(stats.accuracy)}</td>
     </tr>
   );
 }
 
-function DecisionLog({ projectId }: { projectId: string | null }) {
+function DecisionLog({
+  projectId,
+  allProjects = false,
+}: {
+  projectId: string | null;
+  allProjects?: boolean;
+}) {
+  const { state } = useStore();
   const api = useApi();
   const report = useReportError();
   const [type, setType] = useState("");
@@ -395,60 +448,92 @@ function DecisionLog({ projectId }: { projectId: string | null }) {
     );
 
   return (
-    <Card title="Decision log">
-      <div className="flex flex-wrap gap-2">
-        <Field label="Type" id="decision-type-filter">
-          <select
-            id="decision-type-filter"
-            className={inputClass}
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-          >
-            <option value="">All types</option>
-            {Object.entries(TYPE_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Status" id="decision-status-filter">
-          <select
-            id="decision-status-filter"
-            className={inputClass}
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="">All statuses</option>
-            {Object.entries(STATUS_LABELS).map(([v, l]) => (
-              <option key={v} value={v}>
-                {l}
-              </option>
-            ))}
-          </select>
-        </Field>
-      </div>
-      {refreshError && log.status === "ready" ? (
-        <p className="text-xs text-red-800 dark:text-red-300">Could not refresh: {refreshError}</p>
-      ) : null}
-      <LoadState state={log} what="decisions" onRetry={() => setTick((t) => t + 1)}>
-        {(decisions) =>
-          decisions.length === 0 ? (
-            <Empty>No decisions match.</Empty>
-          ) : (
-            <ol className="space-y-2" aria-label="Decisions">
-              {decisions.map((d) => (
-                <DecisionEntry key={d.id} d={d} onChange={replace} />
+    <Card
+      title="Decision log"
+      description={allProjects ? "Every project, newest first." : "This project, newest first."}
+    >
+      <Stack gap={4}>
+        <Toolbar label="Filter decisions">
+          <Field label="Type" id="decision-type-filter" term="Decision type">
+            <select
+              id="decision-type-filter"
+              className={inputClass}
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+            >
+              <option value="">All types</option>
+              {Object.entries(TYPE_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
               ))}
-            </ol>
-          )
-        }
-      </LoadState>
+            </select>
+          </Field>
+          <Field label="Status" id="decision-status-filter">
+            <select
+              id="decision-status-filter"
+              className={inputClass}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">All statuses</option>
+              {Object.entries(STATUS_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </Toolbar>
+        {refreshError && log.status === "ready" ? (
+          <p className="text-xs text-danger-fg">Could not refresh: {refreshError}</p>
+        ) : null}
+        <LoadState state={log} what="decisions" onRetry={() => setTick((t) => t + 1)}>
+          {(decisions) =>
+            decisions.length === 0 ? (
+              <Empty
+                body={
+                  type || status
+                    ? "Clear the filters to see every decision."
+                    : "The steward records a decision when a spec question, escalation, rework or approval comes up."
+                }
+              >
+                No decisions match.
+              </Empty>
+            ) : (
+              <ol className="flex flex-col gap-3" aria-label="Decisions">
+                {decisions.map((d) => (
+                  <DecisionEntry
+                    key={d.id}
+                    d={d}
+                    onChange={replace}
+                    {...(allProjects
+                      ? {
+                          project:
+                            state.projects.find((p) => p.id === d.projectId)?.name ?? d.projectId,
+                        }
+                      : {})}
+                  />
+                ))}
+              </ol>
+            )
+          }
+        </LoadState>
+      </Stack>
     </Card>
   );
 }
 
-function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) => void }) {
+function DecisionEntry({
+  d,
+  onChange,
+  project,
+}: {
+  d: Decision;
+  onChange: (d: Decision) => void;
+  /** Shown on the all-projects log. */
+  project?: string;
+}) {
   const api = useApi();
   const report = useReportError();
   const { dispatch } = useStore();
@@ -484,22 +569,23 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
   const name = subject.label || subject.id;
 
   return (
-    <li className="space-y-2 rounded border border-slate-200 p-3 dark:border-slate-700">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="space-y-1">
-          <p className="font-medium">
+    <li className="flex min-w-0 flex-col gap-3 rounded-md border border-line p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <Cluster gap={2}>
+            <Status value={d.status} domain="steward-decision" />
+            <Badge>{typeLabel(d.type)}</Badge>
+            {project ? <Badge tone="info">{project}</Badge> : null}
+          </Cluster>
+          <p className="line-clamp-2 font-medium [overflow-wrap:anywhere]">
             <OpenLink kind={subject.kind} id={subject.id} projectId={d.projectId}>
               {name}
-            </OpenLink>{" "}
-            <Badge>{typeLabel(d.type)}</Badge>{" "}
-            <Badge tone={STATUS_TONES[d.status] ?? "neutral"}>
-              {label(STATUS_LABELS, d.status)}
-            </Badge>
+            </OpenLink>
           </p>
-          <p className="text-sm">
-            <span className="font-semibold">Recommendation:</span> {recommended}
+          <p className="text-sm [overflow-wrap:anywhere]">
+            <span className="text-muted">Recommendation:</span> {recommended}
           </p>
-          <p className="text-xs text-slate-600 dark:text-slate-300">
+          <p className="text-xs text-muted">
             Confidence {pct(d.confidence)} · Mode {label(MODE_LABELS, d.mode)}
             {d.outcome ? ` · Outcome ${label(OUTCOME_LABELS, d.outcome.result)}` : ""}
             {d.outcome?.detail ? ` (${d.outcome.detail})` : ""} · {when(d.createdAt)}
@@ -507,6 +593,8 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
         </div>
         <Button
           variant="secondary"
+          size="sm"
+          iconRight={open ? "chevronUp" : "chevronDown"}
           aria-expanded={open}
           aria-controls={`${id}-details`}
           onClick={() => setOpen((o) => !o)}
@@ -515,26 +603,23 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
         </Button>
       </div>
       {open ? (
-        <div
-          id={`${id}-details`}
-          className="space-y-3 border-t border-slate-200 pt-2 dark:border-slate-700"
-        >
+        <div id={`${id}-details`} className="flex flex-col gap-4 border-t border-line pt-3">
           {d.recommendation?.detail ? <p className="text-sm">{d.recommendation.detail}</p> : null}
           <div>
             <h4 className="text-sm font-semibold">Reasoning</h4>
-            <p className="whitespace-pre-wrap text-sm">{d.reasoning}</p>
+            <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">{d.reasoning}</p>
           </div>
           <div>
             <h4 className="text-sm font-semibold">Inputs considered</h4>
             {(d.inputs ?? []).length === 0 ? (
               <Empty>None recorded.</Empty>
             ) : (
-              <ul className="space-y-1 text-sm" aria-label="Inputs considered">
+              <ul className="flex flex-col gap-1 text-sm" aria-label="Inputs considered">
                 {d.inputs.map((input, i) => (
                   <li key={`${input.kind}:${input.ref}:${i}`}>
                     <Badge>{label(INPUT_LABELS, input.kind)}</Badge>{" "}
                     <OpenLink kind={input.kind} id={input.ref} projectId={d.projectId}>
-                      <span className="font-mono text-xs">{input.ref}</span>
+                      <span className="font-mono text-xs break-all">{input.ref}</span>
                     </OpenLink>{" "}
                     {input.summary}
                   </li>
@@ -545,7 +630,7 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
           {(d.notes ?? []).length > 0 ? (
             <div>
               <h4 className="text-sm font-semibold">Notes</h4>
-              <ul className="space-y-1 text-sm" aria-label="Decision notes">
+              <ul className="flex flex-col gap-1 text-sm" aria-label="Decision notes">
                 {d.notes.map((n) => (
                   <li key={n.id}>
                     <span className="font-medium">{n.author}</span>: {n.text}
@@ -556,7 +641,7 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
           ) : null}
 
           {pending ? (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-3">
               {gated ? (
                 <ApprovalUnlock
                   id={`${id}-approval`}
@@ -565,7 +650,7 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
               ) : null}
               <form
                 aria-label={`Accept ${name}`}
-                className="space-y-2"
+                className="flex flex-col gap-2"
                 onSubmit={(e) => {
                   e.preventDefault();
                   run(
@@ -584,14 +669,22 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
                     <textarea
                       id={`${id}-value`}
                       aria-describedby={`${id}-value-hint`}
-                      className={inputClass}
+                      className={textareaClass}
                       rows={2}
                       value={value}
                       onChange={(e) => setValue(e.target.value)}
                     />
                   </Field>
                 ) : null}
-                <Button type="submit" disabled={busy || locked || (editable && !value.trim())}>
+                <Button
+                  type="submit"
+                  {...(locked
+                    ? { disabledReason: "Unlock approvals with the pairing code first" }
+                    : editable && !value.trim()
+                      ? { disabledReason: "Enter an answer" }
+                      : {})}
+                  disabled={busy || locked || (editable && !value.trim())}
+                >
                   {changed ? "Accept changed answer" : "Accept"}
                 </Button>
               </form>
@@ -644,7 +737,12 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
                   onChange={(e) => setRollbackReason(e.target.value)}
                 />
               </Field>
-              <Button type="submit" variant="danger" disabled={busy || !rollbackReason.trim()}>
+              <Button
+                type="submit"
+                variant="danger"
+                {...(!rollbackReason.trim() ? { disabledReason: "Give a reason first" } : {})}
+                disabled={busy || !rollbackReason.trim()}
+              >
                 Roll back
               </Button>
             </form>
@@ -671,7 +769,12 @@ function DecisionEntry({ d, onChange }: { d: Decision; onChange: (d: Decision) =
                 onChange={(e) => setNote(e.target.value)}
               />
             </Field>
-            <Button type="submit" variant="secondary" disabled={busy || !note.trim()}>
+            <Button
+              type="submit"
+              variant="secondary"
+              {...(!note.trim() ? { disabledReason: "Write the note first" } : {})}
+              disabled={busy || !note.trim()}
+            >
               Add note
             </Button>
           </form>
@@ -709,83 +812,91 @@ function NotesFeed({ projectId }: { projectId: string | null }) {
   }, [api, projectId, tick]);
 
   return (
-    <Card title="Notes for the steward">
-      <form
-        aria-label="Add a note for the steward"
-        className="space-y-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!text.trim()) return;
-          setBusy(true);
-          api
-            .addStewardNote(noteProject, text.trim())
-            .then((note) => {
-              setText("");
-              setNotes((n) =>
-                n.status === "ready" ? { status: "ready", data: [note, ...n.data] } : n,
-              );
-              dispatch({ type: "notice", notice: { kind: "info", text: "Note added" } });
-            })
-            .catch(report)
-            .finally(() => setBusy(false));
-        }}
-      >
-        <Field
-          label="New note"
-          id="steward-note"
-          hint="Guidance the steward reads before it decides, for example a rule it should follow."
+    <Card title="Notes for the steward" term="Notes for the steward">
+      <Stack gap={4}>
+        <form
+          aria-label="Add a note for the steward"
+          className="flex flex-col gap-field"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!text.trim()) return;
+            setBusy(true);
+            api
+              .addStewardNote(noteProject, text.trim())
+              .then((note) => {
+                setText("");
+                setNotes((n) =>
+                  n.status === "ready" ? { status: "ready", data: [note, ...n.data] } : n,
+                );
+                dispatch({ type: "notice", notice: { kind: "info", text: "Note added" } });
+              })
+              .catch(report)
+              .finally(() => setBusy(false));
+          }}
         >
-          <textarea
+          <Field
+            label="New note"
             id="steward-note"
-            aria-describedby="steward-note-hint"
-            className={inputClass}
-            rows={3}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-          />
-        </Field>
-        <Field label="Applies to" id="steward-note-scope">
-          <select
-            id="steward-note-scope"
-            className={inputClass}
-            value={target}
-            onChange={(e) => setTarget(e.target.value === "global" ? "global" : "project")}
+            hint="Guidance the steward reads before it decides, for example a rule it should follow."
           >
-            <option value="project" disabled={!(projectId ?? state.projectId)}>
-              This project
-            </option>
-            <option value="global">All projects (global)</option>
-          </select>
-        </Field>
-        <Button type="submit" disabled={busy || !text.trim()}>
-          Add note
-        </Button>
-      </form>
-      <LoadState state={notes} what="notes" onRetry={() => setTick((t) => t + 1)}>
-        {(list) =>
-          list.length === 0 ? (
-            <Empty>No notes yet.</Empty>
-          ) : (
-            <ul className="space-y-2" aria-label="Notes">
-              {list.map((n) => (
-                <li
-                  key={n.id}
-                  className="rounded border border-slate-200 p-2 text-sm dark:border-slate-700"
-                >
-                  <p>
-                    <Badge>{n.projectId === null ? "Global" : "Project"}</Badge>{" "}
-                    {n.decisionId ? <Badge>On a decision</Badge> : null}
-                  </p>
-                  <p className="whitespace-pre-wrap">{n.text}</p>
-                  <p className="text-xs text-slate-600 dark:text-slate-300">
-                    {n.author} · {when(n.createdAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )
-        }
-      </LoadState>
+            <textarea
+              id="steward-note"
+              aria-describedby="steward-note-hint"
+              className={textareaClass}
+              rows={3}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+          </Field>
+          <Field label="Applies to" id="steward-note-scope">
+            <select
+              id="steward-note-scope"
+              className={inputClass}
+              value={target}
+              onChange={(e) => setTarget(e.target.value === "global" ? "global" : "project")}
+            >
+              <option value="project" disabled={!(projectId ?? state.projectId)}>
+                This project
+              </option>
+              <option value="global">All projects (global)</option>
+            </select>
+          </Field>
+          <div>
+            <Button
+              type="submit"
+              {...(!text.trim() ? { disabledReason: "Write the note first" } : {})}
+              disabled={busy || !text.trim()}
+            >
+              Add note
+            </Button>
+          </div>
+        </form>
+        <LoadState state={notes} what="notes" onRetry={() => setTick((t) => t + 1)}>
+          {(list) =>
+            list.length === 0 ? (
+              <Empty>No notes yet.</Empty>
+            ) : (
+              <ul className="flex flex-col gap-2" aria-label="Notes">
+                {list.map((n) => (
+                  <li
+                    key={n.id}
+                    className="flex flex-col gap-1.5 rounded-md border border-line p-3 text-sm"
+                  >
+                    <Cluster gap={2}>
+                      <Badge>{n.projectId === null ? "Global" : "Project"}</Badge>
+                      {n.decisionId ? <Badge>On a decision</Badge> : null}
+                    </Cluster>
+                    <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</p>
+                    <p className="text-xs text-muted">
+                      {n.author} · {when(n.createdAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </LoadState>
+      </Stack>
     </Card>
   );
 }

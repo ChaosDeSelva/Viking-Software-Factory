@@ -441,14 +441,27 @@ impl Manager {
     }
     fn restore_transaction(&self) -> Result<()> {
         let transaction: Value = read_json(&self.root.join("transaction.json"))?;
+        let mut restored = None;
         if !transaction["previous"].is_null() {
             let receipt: Receipt = serde_json::from_value(transaction["previous"].clone())?;
             self.restore_data(Path::new(
                 transaction["backup"].as_str().ok_or("Missing backup")?,
             ))?;
             write_json(&self.root.join("current.json"), &receipt)?;
+            restored = Some(receipt.version);
         } else {
-            fs::remove_file(self.root.join("current.json"))?;
+            // The journal precedes the pointer, so an interrupted first install may have none yet.
+            let current = self.root.join("current.json");
+            if current.exists() {
+                fs::remove_file(current)?;
+            }
+        }
+        // The release being activated never became current; kept, it would block installing it again.
+        if let Some(next) = transaction["next"]["version"].as_str() {
+            let dir = self.root.join("releases").join(next);
+            if safe_name(next) && restored.as_deref() != Some(next) && dir.exists() {
+                fs::remove_dir_all(dir)?;
+            }
         }
         // An install journal records the rollback target it replaced; a rollback journal does not.
         match transaction.get("previous_pointer") {

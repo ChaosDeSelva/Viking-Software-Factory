@@ -193,7 +193,10 @@ describe("RunsScreen live updates", () => {
       within(log)
         .getAllByRole("listitem")
         .map((li) => li.textContent),
-    ).toEqual(["2026-01-01T00:00:01Z task.completed", "2026-01-01T00:00:02Z agent.output"]);
+    ).toEqual([
+      expect.stringMatching(/ago\s*task\.completed$/),
+      expect.stringMatching(/ago\s*agent\.output$/),
+    ]);
     expect(api.getExecution).toHaveBeenCalledTimes(3);
     // The second task event's refresh succeeded: the run is shown as running, with no approvals.
     await waitFor(() =>
@@ -230,8 +233,9 @@ describe("RunsScreen live updates", () => {
     });
     const items = within(screen.getByRole("log", { name: "Events" })).getAllByRole("listitem");
     expect(items).toHaveLength(200);
-    expect(items[0]!.textContent).toBe("t agent.line2");
-    expect(items[199]!.textContent).toBe("t agent.line201");
+    // An unreadable time shows "—" rather than throwing.
+    expect(items[0]!.textContent).toBe("—agent.line2");
+    expect(items[199]!.textContent).toBe("—agent.line201");
   });
 
   it("aborts the stream when another run is opened", async () => {
@@ -259,11 +263,11 @@ describe("RunsScreen live updates", () => {
       },
     });
     renderWithStore(ui, api, { executionId: "e1" });
-    await screen.findByRole("heading", { name: "Run of plan v1" });
-    await userEvent.click(screen.getByRole("button", { name: /e2/ }));
-    expect(await screen.findByRole("heading", { name: "Run of plan v7" })).toBeTruthy();
+    await screen.findByRole("heading", { name: "Run 1 · Plan v1" });
+    await userEvent.click(screen.getByRole("button", { name: /Run 2/ }));
+    expect(await screen.findByRole("heading", { name: "Run 2 · Plan v7" })).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toMatch(/^runs:e2:/);
-    expect(screen.getByRole("button", { name: /e2/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /Run 2/ }).getAttribute("aria-pressed")).toBe("true");
     expect(api.streamExecution).toHaveBeenLastCalledWith(
       "e2",
       expect.any(Function),
@@ -334,11 +338,17 @@ describe("RunsScreen detail", () => {
     const approve = await screen.findByRole("button", {
       name: "Approve fs.write for implement-frontend",
     });
-    expect(approve).toHaveProperty("disabled", true);
+    expect(approve.getAttribute("aria-disabled")).toBe("true");
     await userEvent.type(screen.getByLabelText("Approval pairing code"), "ABCDE-FGH23");
     await userEvent.click(screen.getByRole("button", { name: "Unlock approvals" }));
     expect(api.unlockApprovals).toHaveBeenCalledWith("ABCDE-FGH23");
-    await waitFor(() => expect(approve).toHaveProperty("disabled", false));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Approve fs.write for implement-frontend" })
+          .hasAttribute("aria-disabled"),
+      ).toBe(false),
+    );
     expect(screen.queryByLabelText("Approval pairing code")).toBeNull();
   });
 
@@ -393,9 +403,9 @@ describe("RunsScreen detail", () => {
     const rows = within(table)
       .getAllByRole("row")
       .map((r) => r.textContent);
-    expect(rows[1]).toBe("implement-frontendblocked3ask: not evaluatedno session yet");
-    expect(rows[2]).toBe("docsblocked0block: no harnessnot evaluatedno session yet");
-    expect(rows[3]).toBe("qacompleted0nonepassedses_9");
+    expect(rows[1]).toBe("implement-frontendBlocked3AskNot evaluatedNo session yet");
+    expect(rows[2]).toBe("docsBlocked0Blockno harnessNot evaluatedNo session yet");
+    expect(rows[3]).toMatch(/^qaCompleted0NonePassedses_9/);
     expect(screen.queryByRole("link", { name: /in Mimir/ })).toBeNull();
     expect(screen.getByRole("note", { name: "Tasks need a decision" }).textContent).toMatch(
       /2 tasks are escalated and waiting for your decision: implement-frontend, docs\./,
@@ -424,7 +434,7 @@ describe("RunsScreen detail", () => {
     renderWithStore(ui, api, { executionId: "e1" });
     expect(
       await screen.findByText(
-        "No gated actions are waiting, but escalated tasks need a decision in Reviews.",
+        "No gated actions are waiting, but escalated tasks need a decision in Needs you.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("note", { name: "Tasks need a decision" }).textContent).toMatch(

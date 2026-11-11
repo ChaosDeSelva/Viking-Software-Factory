@@ -19,10 +19,16 @@ export async function ensureSafeDir(base: string, rel: string): Promise<string> 
   let current = base;
   for (const part of rel.split("/").filter((p) => p !== "" && p !== ".")) {
     current = join(current, part);
-    const st = await lstat(current).catch(() => undefined);
+    let st = await lstat(current).catch(() => undefined);
     if (st === undefined) {
-      await mkdir(current);
-      continue;
+      try {
+        await mkdir(current);
+        continue;
+      } catch (error) {
+        // A concurrent caller created it first: check what is there now like any existing entry.
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      }
+      st = await lstat(current);
     }
     if (st.isSymbolicLink())
       throw new BrokkrError(

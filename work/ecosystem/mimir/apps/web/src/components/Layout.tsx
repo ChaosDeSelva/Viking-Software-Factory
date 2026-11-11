@@ -1,165 +1,166 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { matchPath, NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import {
+  AppShell,
+  Button,
+  Callout,
+  IconButton,
+  type ConnectionState,
+  type NavTab,
+} from "@factory/ui";
+import { useCallback, useMemo, useState } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router";
+import { useSession } from "../api/session.js";
 import { deriveAttention } from "../lib/derive.js";
-import type { ThemePref } from "../lib/theme.js";
-import { useThemePref } from "../lib/useTheme.js";
+import { docsHrefFor, routeFor } from "../lib/docs.js";
+import { attentionInScope, useProjectScope, useScoped } from "../lib/scope.js";
 import { useShortcutsEnabled } from "../lib/shortcutsPref.js";
 import { useShortcuts } from "../lib/useShortcuts.js";
 import { useNow } from "../lib/useNow.js";
 import type { Connection } from "../store/reducer.js";
 import { useStore } from "../store/StoreProvider.js";
-import { useSession } from "../api/session.js";
+import { FACTORY_APPS } from "./apps.js";
+import { AskDrawer } from "./AskDrawer.js";
 import { HelpDialog } from "./HelpDialog.js";
 
-const NAV: readonly { to: string; label: string; end?: boolean }[] = [
-  { to: "/", label: "Overview", end: true },
-  { to: "/projects", label: "Projects" },
-  { to: "/missions", label: "Missions" },
-  { to: "/crews", label: "Crews" },
-  { to: "/reviews", label: "Reviews" },
-  { to: "/activity", label: "Activity" },
-  { to: "/settings", label: "Settings" },
-];
+const CONNECTION: Record<Connection, ConnectionState> = {
+  connecting: "connecting",
+  open: "live",
+  reconnecting: "reconnecting",
+  closed: "offline",
+};
 
-const ROUTE_TITLES: readonly { path: string; title: string }[] = [
-  { path: "/", title: "Overview" },
-  { path: "/projects", title: "Projects" },
-  { path: "/missions", title: "Missions" },
-  { path: "/missions/:id", title: "Mission" },
-  { path: "/crews", title: "Crews" },
-  { path: "/crews/:id", title: "Crew" },
-  { path: "/agents/:sessionId", title: "Agent" },
-  { path: "/reviews", title: "Reviews" },
-  { path: "/activity", title: "Activity" },
-  { path: "/settings", title: "Settings" },
-];
-
-export function titleForPath(pathname: string): string {
-  const hit = ROUTE_TITLES.find((r) => matchPath({ path: r.path, end: true }, pathname));
-  return hit ? hit.title : "Not found";
+/** Which top tab a route belongs to (detail pages light their list's tab). */
+function activeTab(pathname: string): string | undefined {
+  if (pathname === "/") return "overview";
+  if (pathname.startsWith("/missions") || pathname.startsWith("/agents")) return "missions";
+  if (pathname.startsWith("/crews")) return "crews";
+  if (pathname.startsWith("/reviews")) return "reviews";
+  if (pathname.startsWith("/activity")) return "activity";
+  return undefined;
 }
 
-const CONNECTION_LABEL: Record<Connection, string> = {
-  connecting: "Connecting…",
-  open: "Live",
-  reconnecting: "Reconnecting…",
-  closed: "Disconnected",
-};
+const GLOBAL_PATHS = ["/projects", "/settings", "/docs"];
 
 export function Layout() {
   const { state, refresh, reconnect } = useStore();
   const { signOut } = useSession();
+  const { projectId, setProjectId } = useProjectScope();
+  const scoped = useScoped();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const mainRef = useRef<HTMLElement>(null);
-  const firstRoute = useRef(true);
   const [shortcutsOn] = useShortcutsEnabled();
   const [helpOpen, setHelpOpen] = useState(false);
-  const [theme, setTheme] = useThemePref();
+  const [askOpen, setAskOpen] = useState(false);
   const now = useNow(30_000);
-  const attention = useMemo(() => deriveAttention(state, now), [state, now]);
-  const pendingReviews = state.approvals.filter((a) => a.status === "pending").length;
+  const route = routeFor(pathname);
+
+  const attention = useMemo(
+    () => deriveAttention({ ...state, ...scoped }, now).filter((i) => attentionInScope(i, scoped)),
+    [state, scoped, now],
+  );
+  const pendingReviews = scoped.approvals.filter((a) => a.status === "pending").length;
 
   const openHelp = useCallback(() => setHelpOpen(true), []);
-  const closeHelp = useCallback(() => setHelpOpen(false), []);
   const go = useCallback((path: string) => void navigate(path), [navigate]);
-  // Suspended while the modal help dialog is open.
-  useShortcuts(go, openHelp, !helpOpen && shortcutsOn);
+  // Suspended while a modal is open.
+  useShortcuts(go, openHelp, !helpOpen && !askOpen && shortcutsOn);
 
-  // Announce route changes: per-route title always, focus to main on navigation (not first load).
-  useEffect(() => {
-    document.title = `${titleForPath(pathname)} - Mimir`;
-    if (firstRoute.current) {
-      firstRoute.current = false;
-      return;
-    }
-    mainRef.current?.focus();
-  }, [pathname]);
+  const tabs: NavTab[] = [
+    { id: "overview", label: "Overview", href: "/" },
+    { id: "missions", label: "Missions", href: "/missions" },
+    { id: "crews", label: "Crews", href: "/crews" },
+    { id: "reviews", label: "Reviews", href: "/reviews", count: pendingReviews },
+    { id: "activity", label: "Activity", href: "/activity" },
+  ];
+  const global = GLOBAL_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <a href="#main" className="skip-link">
-        Skip to content
-      </a>
-      <header className="flex flex-wrap items-center gap-4 border-b border-zinc-300 px-4 py-2 dark:border-zinc-700">
-        <span className="project-brand text-lg font-semibold"><span className="project-initial" aria-hidden="true">M</span>Mimir</span>
-        <nav aria-label="Main">
-          <ul className="flex flex-wrap gap-1">
-            {NAV.map((n) => (
-              <li key={n.to}>
-                <NavLink
-                  to={n.to}
-                  end={n.end ?? false}
-                  className={({ isActive }) =>
-                    `rounded px-2 py-1 ${isActive ? "bg-zinc-200 font-semibold dark:bg-zinc-800" : "hover:underline"}`
-                  }
-                >
-                  {n.label}
-                  {n.to === "/reviews" && pendingReviews > 0 ? ` (${pendingReviews})` : ""}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="ml-auto flex items-center gap-3">
-          <span data-testid="connection" role="status" className="text-sm">
-            <span aria-hidden="true">{state.connection === "open" ? "● " : "○ "}</span>
-            {CONNECTION_LABEL[state.connection]}
-          </span>
-          {state.connection === "closed" && (
-            <button type="button" className="btn" onClick={reconnect}>
-              Reconnect
-            </button>
-          )}
-          <label className="text-sm">
-            <span className="mr-1">Theme</span>
-            <select
-              aria-label="Theme"
-              className="input"
-              value={theme}
-              onChange={(e) => setTheme(e.target.value as ThemePref)}
-            >
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className="btn"
+    <AppShell
+      appName="Mimir"
+      pageTitle={route?.title ?? "Not found"}
+      routeKey={pathname}
+      apps={FACTORY_APPS}
+      currentApp="mimir"
+      projects={state.projects.map((p) => ({ id: p.id, name: p.name, description: p.repoPath }))}
+      projectId={projectId}
+      onProjectChange={setProjectId}
+      allowAllProjects
+      onManageProjects={() => go("/projects")}
+      {...(global ? { projectPickerDisabledReason: "This page covers all projects" } : {})}
+      tabs={tabs}
+      activeTabId={activeTab(pathname)}
+      connection={{
+        state: CONNECTION[state.connection],
+        detail:
+          state.connection === "open"
+            ? "Live: events stream in as they happen"
+            : state.connection === "closed"
+              ? "Disconnected: showing the last snapshot"
+              : undefined,
+        onReconnect: reconnect,
+      }}
+      session={{
+        mode: "operator",
+        content: (
+          <div className="flex flex-col gap-2 text-sm">
+            <p className="font-semibold">Signed in with the Mimir token</p>
+            <p className="text-muted">
+              The token allows every action: starting and cancelling missions, deciding approvals,
+              raising budgets and stopping agents. Sign out in the bottom bar to forget it.
+            </p>
+          </div>
+        ),
+      }}
+      globalLinks={[
+        { id: "projects", label: "Projects", href: "/projects", icon: "folder" },
+        { id: "settings", label: "Settings", href: "/settings", icon: "settings" },
+      ]}
+      docsHref={docsHrefFor(route?.screen)}
+      onAsk={() => setAskOpen(true)}
+      onShortcuts={openHelp}
+      onSignOut={signOut}
+      extra={
+        <span className="max-sm:hidden">
+          <IconButton
+            icon="help"
+            label="Help and keyboard shortcuts"
+            variant="ghost"
+            size="sm"
             onClick={openHelp}
-            aria-label="Keyboard shortcuts help"
-          >
-            ?
-          </button>
-          <button type="button" className="btn" onClick={signOut}>
-            Sign out
-          </button>
-        </div>
-      </header>
-      {state.gap && (
-        <div
-          role="alert"
-          className="flex items-center gap-3 border-b border-amber-700 bg-amber-50 px-4 py-2 text-amber-900 dark:bg-amber-950 dark:text-amber-100"
-        >
-          <span>
-            The live stream may have missed events{state.gap.reason ? ` (${state.gap.reason})` : ""}
-            . Views may be stale; reload the snapshot to catch up.
-          </span>
-          <button type="button" className="btn" onClick={() => void refresh()}>
-            Reload snapshot
-          </button>
-        </div>
-      )}
-      {state.refreshError !== null && (
-        <div
-          role="alert"
-          className="flex items-center gap-3 border-b border-red-700 bg-red-50 px-4 py-2 text-red-900 dark:bg-red-950 dark:text-red-100"
-        >
-          <span>Could not refresh data: {state.refreshError}. Showing the last loaded data.</span>
-          <button type="button" className="btn" onClick={() => void refresh()}>
-            Retry
-          </button>
+          />
+        </span>
+      }
+    >
+      {(state.gap || state.refreshError !== null) && (
+        <div className="mx-auto flex w-full max-w-page flex-col gap-2 px-4 pt-4 sm:px-6">
+          {state.gap && (
+            <div role="alert">
+              <Callout
+                tone="warning"
+                title="The live stream may have missed events"
+                action={
+                  <Button size="sm" onClick={() => void refresh()}>
+                    Reload snapshot
+                  </Button>
+                }
+              >
+                Views may be stale{state.gap.reason ? ` (${state.gap.reason})` : ""}; reload the
+                snapshot to catch up.
+              </Callout>
+            </div>
+          )}
+          {state.refreshError !== null && (
+            <Callout
+              tone="danger"
+              title="Could not refresh data"
+              action={
+                <Button size="sm" onClick={() => void refresh()}>
+                  Retry
+                </Button>
+              }
+            >
+              {state.refreshError}. Showing the last loaded data.
+            </Callout>
+          )}
         </div>
       )}
       <p data-testid="attention-live" aria-live="polite" className="sr-only">
@@ -174,10 +175,9 @@ export function Layout() {
             }`
           : ""}
       </p>
-      <main id="main" ref={mainRef} tabIndex={-1} className="mx-auto max-w-7xl p-4">
-        <Outlet />
-      </main>
-      {helpOpen && <HelpDialog onClose={closeHelp} />}
-    </div>
+      <Outlet />
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} screen={route?.screen} />
+      <AskDrawer open={askOpen} onClose={() => setAskOpen(false)} screen={route?.screen} />
+    </AppShell>
   );
 }

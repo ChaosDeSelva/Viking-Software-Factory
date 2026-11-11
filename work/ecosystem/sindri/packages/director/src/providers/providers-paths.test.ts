@@ -69,6 +69,25 @@ describe("AnthropicProvider failure mapping", () => {
     expect(JSON.stringify(logger.records)).not.toContain(KEY);
   });
 
+  it("reports an unparseable success body as an API error without the key", async () => {
+    const logger = createMemoryLogger("debug");
+    const p = new AnthropicProvider({
+      apiKey,
+      fetch: (async () =>
+        new Response(`{"broken": ${KEY}`, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch,
+      maxRetries: 0,
+      logger,
+    });
+    const err = (await p.complete(base).catch((e: unknown) => e)) as ProviderError;
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.code).toBe("api_error");
+    expect(err.message).not.toContain(KEY);
+    expect(JSON.stringify(logger.records)).not.toContain(KEY);
+  });
+
   it("reports an unreachable API as unavailable and a non-API failure as an API error", async () => {
     const down = new AnthropicProvider({
       apiKey,

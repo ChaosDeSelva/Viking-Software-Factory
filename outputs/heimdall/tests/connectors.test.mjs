@@ -416,3 +416,66 @@ test("a started hub refreshes on its own every few seconds until stopped", async
   await new Promise((r) => setTimeout(r, 3500));
   assert.equal(source.requests.length, seen, "no refresh after the stop");
 });
+
+// Mocked timers stop until() from ticking, so these poll on the event loop instead.
+async function settle(check, what) {
+  for (let i = 0; i < 200000; i++) {
+    if (check()) return;
+    await new Promise((r) => setImmediate(r));
+  }
+  throw Error("Never saw " + what);
+}
+
+test("the hub refreshes every three seconds once started, and a failed refresh does not stop it", async (t) => {
+  const store = temporaryStore(t);
+  const source = await stub(t, (req, res) => send(res, 200, { projects: [] }));
+  const rejections = [];
+  const record = (e) => rejections.push(e);
+  process.on("unhandledRejection", record);
+  t.after(() => process.off("unhandledRejection", record));
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  let broken = false;
+  const hub = new Hub({ sindri: source.connection }, store, () => {
+    if (broken) throw Error("listener failed");
+  });
+  t.after(() => hub.stop());
+  await hub.start();
+  const first = source.requests.length;
+  assert.ok(first > 0, "start refreshes at once");
+  broken = true;
+  t.mock.timers.tick(3000);
+  await settle(() => source.requests.length > first && !hub.busy, "the timed refresh");
+  const second = source.requests.length;
+  broken = false;
+  t.mock.timers.tick(3000);
+  await settle(() => source.requests.length > second, "the refresh after the failed one");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(rejections, []);
+});
+
+test("a source that never answers a stream, or goes quiet in one, is dropped after 45 seconds", async (t) => {
+  const store = temporaryStore(t);
+  const source = await stub(t, (req, res) => {
+    // The first connection never sends headers; the second sends one frame and then nothing.
+    if (source.requests.length === 1) return;
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("id: q1\nevent: heartbeat\n\n");
+  });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const hub = new Hub({ mimir: source.connection }, store, () => {});
+  t.after(() => hub.stop());
+  hub.refresh = async () => {};
+  hub.state.sources.mimir = {};
+  hub.stream("mimir", "/v1/events/stream", "mimir");
+  await settle(() => source.requests.length === 1, "the first connection");
+  t.mock.timers.tick(45000);
+  await settle(() => hub.state.sources.mimir.stream === "reconnecting", "the silent connection dropped");
+  assert.match(hub.state.sources.mimir.streamError, /abort/i);
+  // The reconnect waits two seconds.
+  t.mock.timers.tick(2000);
+  await settle(() => hub.state.sources.mimir.stream === "connected", "the second connection's frame");
+  assert.equal(store.cursor("mimir"), "q1");
+  t.mock.timers.tick(45000);
+  await settle(() => hub.state.sources.mimir.stream === "reconnecting", "the quiet connection dropped");
+  assert.match(hub.state.sources.mimir.streamError, /abort/i);
+});

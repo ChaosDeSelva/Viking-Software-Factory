@@ -1,39 +1,78 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { screenHref, statusInfo } from "@factory/docs";
+import {
+  Badge as FactoryBadge,
+  Button as FactoryButton,
+  Card as FactoryCard,
+  EmptyState,
+  ErrorState,
+  InfoHint,
+  Link,
+  PageHeader,
+  SkeletonCard,
+  StatusPill,
+  type ButtonProps,
+  type Crumb,
+} from "@factory/ui";
+import { useEffect, useRef, type ComponentProps, type ReactNode } from "react";
 import type { Loadable } from "../store/context.js";
+import { useStore } from "../store/context.js";
+import type { View } from "../store/reducer.js";
 
-export function Button({
-  variant = "primary",
-  className = "",
-  ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" }) {
-  const styles = {
-    primary:
-      "bg-indigo-700 text-white hover:bg-indigo-800 dark:bg-indigo-500 dark:text-black dark:hover:bg-indigo-400",
-    secondary:
-      "border border-slate-400 text-slate-900 hover:bg-slate-100 dark:border-slate-500 dark:text-slate-100 dark:hover:bg-slate-800",
-    danger: "bg-red-700 text-white hover:bg-red-800 dark:bg-red-400 dark:text-black",
-  }[variant];
+/**
+ * Sindri's thin layer over `@factory/ui`: Button, Card, Field, Empty, Badge, LoadState and
+ * DetailHeading keep Sindri's props (screens and tests rely on them) but render the shared
+ * components and tokens; ScreenHeader and Status are the screen chrome.
+ */
+
+export { Callout, Id, Timestamp } from "@factory/ui";
+
+/** `@factory/ui` Card whose (non-flush) body stacks its children 16px apart. */
+export function Card({ children, ...props }: ComponentProps<typeof FactoryCard>) {
   return (
-    <button
-      type="button"
-      className={`rounded px-3 py-1.5 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 disabled:cursor-not-allowed disabled:opacity-60 ${styles} ${className}`}
-      {...rest}
-    />
+    <FactoryCard {...props}>
+      {children == null || props.flush ? (
+        children
+      ) : (
+        <div className="flex flex-col gap-4">{children}</div>
+      )}
+    </FactoryCard>
   );
 }
 
-export const inputClass =
-  "block w-full rounded border border-slate-400 bg-white px-2 py-1.5 text-sm text-slate-900 focus:outline focus:outline-2 focus:outline-indigo-600 dark:focus:outline-indigo-300 dark:border-slate-500 dark:bg-slate-900 dark:text-slate-100";
+export function Button({ variant = "primary", type = "button", ...rest }: ButtonProps) {
+  return <FactoryButton variant={variant} type={type} {...rest} />;
+}
 
-export function Field(props: { label: string; id: string; hint?: string; children: ReactNode }) {
+/** Native input/select/textarea look on the shared tokens (native keeps forms testable). */
+export const inputClass =
+  "block h-control-md w-full min-w-0 rounded-md border border-line bg-raised px-3 text-sm text-fg transition-colors placeholder:text-subtle hover:border-line-strong focus:border-focus focus:outline-2 focus:outline-offset-0 focus:outline-focus/25 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-danger-fg";
+/** Multi-line variant: auto height, vertical padding. */
+export const textareaClass = inputClass.replace("h-control-md", "min-h-24 py-2 leading-5");
+
+/** Label + control + hint (`{id}-hint`, for aria-describedby); `term`/`info` add an InfoHint. */
+export function Field(props: {
+  label: string;
+  id: string;
+  hint?: ReactNode;
+  term?: string;
+  info?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div className="space-y-1">
-      <label htmlFor={props.id} className="block text-sm font-medium">
-        {props.label}
-      </label>
+    <div className="flex min-w-0 flex-col gap-label">
+      <div className="flex items-center gap-1.5">
+        <label htmlFor={props.id} className="text-sm font-medium text-fg">
+          {props.label}
+        </label>
+        {props.term || props.info ? (
+          <InfoHint {...(props.term ? { term: props.term } : {})} label={`About ${props.label}`}>
+            {props.info}
+          </InfoHint>
+        ) : null}
+      </div>
       {props.children}
       {props.hint ? (
-        <p id={`${props.id}-hint`} className="text-xs text-slate-600 dark:text-slate-300">
+        <p id={`${props.id}-hint`} className="text-xs text-muted">
           {props.hint}
         </p>
       ) : null}
@@ -41,30 +80,55 @@ export function Field(props: { label: string; id: string; hint?: string; childre
   );
 }
 
-export function Card(props: { title?: string; children: ReactNode; headingLevel?: 2 | 3 }) {
-  const H = props.headingLevel === 3 ? "h3" : "h2";
+/** In-card "nothing here" note: compact EmptyState (never italic), optional next action. */
+export function Empty(props: { children: ReactNode; body?: ReactNode; action?: ReactNode }) {
+  return <EmptyState compact title={props.children} body={props.body} action={props.action} />;
+}
+
+/** Neutral metadata tag. Statuses use `Status`; `tone` maps onto badge tones. */
+export function Badge(props: {
+  children: ReactNode;
+  tone?: "neutral" | "warn" | "ok" | "danger" | "info";
+  tooltip?: ReactNode;
+}) {
+  const tone = (
+    { neutral: "neutral", warn: "warning", ok: "forest", danger: "danger", info: "info" } as const
+  )[props.tone ?? "neutral"];
   return (
-    <section className="space-y-3 rounded-lg border border-slate-300 p-4 dark:border-slate-700">
-      {props.title ? <H className="text-lg font-semibold">{props.title}</H> : null}
+    <FactoryBadge tone={tone} tooltip={props.tooltip}>
       {props.children}
-    </section>
+    </FactoryBadge>
   );
 }
 
-export function Empty(props: { children: ReactNode }) {
-  return <p className="text-sm italic text-slate-600 dark:text-slate-300">{props.children}</p>;
-}
+/** `@factory/docs` status domains that `@factory/ui` names differently (colour by context). */
+const UI_DOMAIN: Readonly<Record<string, string>> = {
+  "steward-decision": "decision",
+  "steward-mode": "stewardMode",
+  "steward-state": "stewardState",
+};
 
-export function Badge(props: { children: ReactNode; tone?: "neutral" | "warn" | "ok" }) {
-  const tone = {
-    neutral: "bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100",
-    warn: "bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50",
-    ok: "bg-emerald-200 text-emerald-950 dark:bg-emerald-800 dark:text-emerald-50",
-  }[props.tone ?? "neutral"];
+/**
+ * Status pill with the plain-words meaning from `@factory/docs` (label, tooltip, "Learn more").
+ * Unknown values render their raw text with the unknown role; nothing throws.
+ */
+export function Status(props: {
+  value: string | null | undefined;
+  domain?: string;
+  size?: "sm" | "md";
+  tooltip?: boolean;
+}) {
+  const raw = props.value ?? "unknown";
+  const info = statusInfo("sindri", raw, props.domain);
   return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${tone}`}>
-      {props.children}
-    </span>
+    <StatusPill
+      app="sindri"
+      value={raw}
+      {...(props.domain ? { domain: UI_DOMAIN[props.domain] ?? props.domain } : {})}
+      {...(info ? { label: info.label, description: info.short } : {})}
+      {...(props.size ? { size: props.size } : {})}
+      {...(props.tooltip === false ? { tooltip: false } : {})}
+    />
   );
 }
 
@@ -77,25 +141,18 @@ export function LoadState<T>(props: {
 }) {
   if (props.state.status === "loading")
     return (
-      <p role="status" className="text-sm text-slate-600 dark:text-slate-300">
-        Loading {props.what}…
-      </p>
+      <div role="status" aria-busy="true" className="flex flex-col gap-2">
+        <span className="sr-only">Loading {props.what}…</span>
+        <SkeletonCard lines={3} />
+      </div>
     );
   if (props.state.status === "error")
     return (
-      <div
-        role="alert"
-        className="space-y-2 rounded border border-red-400 p-3 text-sm dark:border-red-500"
-      >
-        <p>
-          Could not load {props.what}: {props.state.error}
-        </p>
-        {props.onRetry ? (
-          <Button variant="secondary" onClick={props.onRetry}>
-            Retry
-          </Button>
-        ) : null}
-      </div>
+      <ErrorState
+        title={`Could not load ${props.what}: ${props.state.error}`}
+        retryLabel="Retry"
+        {...(props.onRetry ? { onRetry: props.onRetry } : {})}
+      />
     );
   return <>{props.children(props.state.data)}</>;
 }
@@ -114,9 +171,58 @@ export function DetailHeading(props: { id?: string; children: ReactNode; classNa
       ref={ref}
       id={props.id}
       tabIndex={-1}
-      className={`focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:focus-visible:outline-indigo-300 ${props.className ?? "text-xl font-semibold"}`}
+      className={`min-w-0 break-words outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${props.className ?? "text-xl font-semibold"}`}
     >
       {props.children}
     </h2>
+  );
+}
+
+/** Scope chip: the selected project on project tabs, "Global" on app-wide pages. */
+export function useScope(global = false) {
+  const { state } = useStore();
+  if (global) return { global: true } as const;
+  return { project: state.projects.find((p) => p.id === state.projectId)?.name ?? null };
+}
+
+/**
+ * Page header for a screen: H1, one-line description with "Learn more" into the screen's docs
+ * section, scope chip and actions. `screen` is the `@factory/docs` NAV id (= the route view).
+ */
+export function ScreenHeader(props: {
+  screen: View | "run-detail" | "delivery-detail";
+  title: string;
+  description: ReactNode;
+  term?: string;
+  global?: boolean;
+  /** "All projects" pages (aggregate views). */
+  allProjects?: boolean;
+  actions?: ReactNode;
+  meta?: ReactNode;
+  breadcrumbs?: readonly Crumb[];
+}) {
+  const scope = useScope(props.global);
+  const href = screenHref("sindri", props.screen);
+  return (
+    <PageHeader
+      title={props.title}
+      description={props.description}
+      // learnMore keeps the link and the term's InfoHint on one line (no lone wrapped "?").
+      learnMore={
+        href ? (
+          <Link
+            href={href}
+            className="text-accent-fg underline underline-offset-2 hover:decoration-2"
+          >
+            Learn more
+          </Link>
+        ) : undefined
+      }
+      {...(props.term ? { term: props.term } : {})}
+      scope={props.allProjects ? { project: null } : scope}
+      {...(props.actions ? { actions: props.actions } : {})}
+      {...(props.meta ? { meta: props.meta } : {})}
+      {...(props.breadcrumbs ? { breadcrumbs: props.breadcrumbs } : {})}
+    />
   );
 }

@@ -254,3 +254,89 @@ describe("status", () => {
     expect(fg.requests).toHaveLength(2);
   });
 });
+
+describe("edges", () => {
+  it("works with the default clock, fetch and timeout", async () => {
+    const seen: string[] = [];
+    const s = createFeedbackGraphService({
+      config: () => config,
+      secrets: { get: async (k) => secrets.get(k) },
+      project: (id) => projects.get(id),
+      fetch: (url, init) => {
+        seen.push(String(url));
+        return fetch(url, init);
+      },
+    });
+    expect((await s.lessonsFor("p1")).map((l) => l.id)).toEqual(["b", "a"]);
+    expect(seen).toEqual([
+      `${fg.url}/api/agent/project?cwd=%2Frepos%2Fone`,
+      `${fg.url}/api/lessons?project=one&status=approved`,
+    ]);
+  });
+
+  it("an override with no configuration says so instead of asking anyone", async () => {
+    config = undefined;
+    projects.set("p1", { id: "p1", repoPath: "/repos/one", override: "other" });
+    expect(await service().projectView("p1")).toEqual({
+      link: { projectKey: "other", source: "override" },
+      lessons: [],
+      error: "Feedback Graph is not configured",
+    });
+    expect(fg.requests).toHaveLength(0);
+  });
+
+  it("a configuration that throws mid-lookup yields a failed view, not a cached failure", async () => {
+    let calls = 0;
+    const s = service({
+      config: () => {
+        calls += 1;
+        if (calls === 2) throw new Error("settings unreadable");
+        return config;
+      },
+    });
+    expect(await s.projectView("p1")).toEqual({
+      link: { projectKey: null, source: "none" },
+      lessons: [],
+      error: "Feedback Graph lookup failed",
+    });
+    // The rejected lookup is not cached: the next call asks again and succeeds.
+    expect((await s.lessonsFor("p1")).map((l) => l.id)).toEqual(["b", "a"]);
+  });
+
+  it("status reports a failed check when the configuration throws mid-probe", async () => {
+    let calls = 0;
+    const s = service({
+      config: () => {
+        calls += 1;
+        if (calls === 2) throw new Error("settings unreadable");
+        return config;
+      },
+    });
+    expect(await s.status()).toEqual({
+      configured: true,
+      enabled: true,
+      url: fg.url,
+      reachable: false,
+      error: "Feedback Graph status check failed",
+    });
+  });
+
+  it("invalidating one project keeps the other projects' links and all lessons", async () => {
+    projects.set("p2", { id: "p2", repoPath: "/repos/two" });
+    fg.projects.set("/repos/two", "other");
+    const s = service();
+    await s.lessonsFor("p1");
+    await s.lessonsFor("p2");
+    const lookups = () => fg.requests.filter((r) => r.url.startsWith("/api/agent/project"));
+    expect(lookups()).toHaveLength(2);
+    s.invalidate("p1");
+    await s.lessonsFor("p1");
+    await s.lessonsFor("p2");
+    expect(lookups().map((r) => r.url)).toEqual([
+      "/api/agent/project?cwd=%2Frepos%2Fone",
+      "/api/agent/project?cwd=%2Frepos%2Ftwo",
+      "/api/agent/project?cwd=%2Frepos%2Fone",
+    ]);
+    expect(lessonCalls()).toBe(2);
+  });
+});

@@ -442,6 +442,13 @@ export class ServerStewardWorld implements StewardWorld {
     const task = hub.reader.tasks(s.executionId).find((t) => t.planTaskId === s.planTaskId);
     if (!task?.escalation)
       throw new SindriError("invalid_state", "this task has no open escalation");
+    // Each escalation attempt is its own subject: a decision for an earlier one must not
+    // resolve the task's new escalation.
+    if (task.attempts !== s.attempts)
+      throw new SindriError(
+        "invalid_state",
+        `the task escalated again after ${task.attempts} attempt(s); this decision was for attempt ${s.attempts}`,
+      );
     try {
       // Like the escalation route: the resolution resumes the loop, as the execution's consumer.
       await hub.takeover(s.executionId, ({ loop }, signal) =>
@@ -514,15 +521,12 @@ export class ServerStewardWorld implements StewardWorld {
   }
 
   async approvePlan(s: PlanApprovalSubject, ctx: ActionContext): Promise<ApplyResult> {
+    // Before the submit: without the approval factor a draft must stay a draft.
+    const approval = this.#approval(ctx);
     const plan = this.#o.factory.planner.get(s.planId);
     if (plan?.status === "draft")
       await this.#call("POST", `/v1/plans/${encodeURIComponent(s.planId)}/submit`, {});
-    await this.#call(
-      "POST",
-      `/v1/plans/${encodeURIComponent(s.planId)}/approve`,
-      {},
-      this.#approval(ctx),
-    );
+    await this.#call("POST", `/v1/plans/${encodeURIComponent(s.planId)}/approve`, {}, approval);
     return { reversible: false, data: { planId: s.planId } };
   }
 

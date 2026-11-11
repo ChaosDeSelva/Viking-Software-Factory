@@ -89,6 +89,77 @@ describe("events.stream edge cases", () => {
   });
 });
 
+describe("events.stream filtering and positions", () => {
+  it("drops events outside the stream filter even when the server sends them", async () => {
+    const other = server.appendEvent({ type: "mission.created", streamId: "stream-other" });
+    const wanted = server.appendEvent({ type: "mission.created", streamId: "stream-wanted" });
+    const client = scripted([
+      async () => sse(block(other.cursor, other.event) + block(wanted.cursor, wanted.event)),
+    ]);
+    const ac = new AbortController();
+    const s = client.events.stream({
+      cursor: "MA==",
+      streamId: "stream-wanted",
+      signal: ac.signal,
+    });
+    const it = iter(s);
+    expect((await it.next()).value).toEqual(wanted.event);
+    ac.abort();
+    // The skipped event still advanced the position.
+    expect(s.cursor).toBe(wanted.cursor);
+  });
+
+  it("keeps its position for frames without an id or with an empty id", async () => {
+    const a = server.appendEvent({ type: "mission.created" });
+    const b = server.appendEvent({ type: "mission.created" });
+    const invalid: { id?: string; event: string }[] = [];
+    const client = scripted([
+      async () =>
+        sse(
+          `event: x\ndata: {"id":"evt_bogus"}\n\n` +
+            `event: ${a.event.type}\ndata: ${JSON.stringify(a.event)}\n\n` +
+            // An id-only block with an empty id (the SSE "reset") does not move the position.
+            `id:\n\n` +
+            `id:\nevent: ${b.event.type}\ndata: ${JSON.stringify(b.event)}\n\n`,
+        ),
+    ]);
+    const ac = new AbortController();
+    const s = client.events.stream({
+      cursor: "MA==",
+      signal: ac.signal,
+      onInvalidEvent: (info) => invalid.push({ ...info }),
+    });
+    const it = iter(s);
+    expect((await it.next()).value).toEqual(a.event);
+    expect(s.cursor).toBe("MA==");
+    expect((await it.next()).value).toEqual(b.event);
+    expect(s.cursor).toBe("MA==");
+    ac.abort();
+    expect(invalid).toHaveLength(1);
+    expect(invalid[0]).not.toHaveProperty("id");
+    expect(invalid[0]?.event).toBe("x");
+  });
+
+  it("ends without waiting out the backoff when onReconnect aborts the stream", async () => {
+    const ac = new AbortController();
+    const statuses: string[] = [];
+    const client = scripted([() => Promise.reject(new TypeError("connect ECONNREFUSED"))]);
+    const it = iter(
+      client.events.stream({
+        cursor: "MA==",
+        signal: ac.signal,
+        // A backoff longer than the test timeout: only the abort can end the wait.
+        backoff: { initialMs: 600_000, maxMs: 600_000 },
+        random: () => 0.5,
+        onReconnect: () => ac.abort(),
+        onStatus: (st) => statuses.push(st),
+      }),
+    );
+    expect(await it.next()).toEqual({ done: true, value: undefined });
+    expect(statuses).toEqual(["connecting", "reconnecting", "closed"]);
+  });
+});
+
 describe("events.stream reconnect without a position", () => {
   it("anchors on the snapshot before reconnecting after a response without a body", async () => {
     const urls: string[] = [];

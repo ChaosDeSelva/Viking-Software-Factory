@@ -109,6 +109,87 @@ describe("FeedbackGraphClient", () => {
     expect(fg.requests.map((r) => r.url)).not.toContain("/api/health");
   });
 
+  it("refuses a body whose declared length is over the limit without reading it", async () => {
+    fg.override = () => ({ raw: "x".repeat(5000), headers: { "content-length": "5000" } });
+    expect(await client({ maxBytes: 1000 }).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "too_large" },
+    });
+  });
+
+  it("reports an empty body as invalid JSON", async () => {
+    fg.override = () => ({ status: 204, raw: "" });
+    expect(await client().lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "invalid_response", message: "Feedback Graph answered with invalid JSON" },
+    });
+  });
+
+  it("times out a body that stops arriving", async () => {
+    fg.override = () => ({ partial: '[{"id":', then: "hang" });
+    expect(await client({ timeoutMs: 300 }).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "timeout" },
+    });
+  });
+
+  it("reports a connection dropped mid-body as unreachable", async () => {
+    fg.override = () => ({ partial: '[{"id":', then: "destroy" });
+    expect(await client().lessons("x")).toEqual({
+      ok: false,
+      error: { code: "unreachable", message: "Feedback Graph closed the connection" },
+    });
+  });
+
+  // An auth failure is known from the status line: a large or never-ending error page from a
+  // proxy in front of Feedback Graph must not turn it into "too large" or "timeout".
+  it("reports a rejected token even when the error body is oversized or never ends", async () => {
+    fg.override = () => ({ status: 401, raw: "x".repeat(5000) });
+    expect(await client({ maxBytes: 1000 }).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
+    fg.override = () => ({ status: 403, partial: "<html>", then: "hang" });
+    expect(await client({ timeoutMs: 300 }).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "unauthorized" },
+    });
+    fg.override = () => ({ status: 502, partial: "<html>", then: "hang" });
+    expect(await client({ timeoutMs: 300 }).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "http_error", message: "Feedback Graph answered 502" },
+    });
+  });
+
+  it("still answers when dropping an unread body fails", async () => {
+    // A body whose cancel throws, as a misbehaving fetch or proxy stream can.
+    const body = (chunk = "x".repeat(2000)) =>
+      new ReadableStream<Uint8Array>({
+        pull: (c) => c.enqueue(new TextEncoder().encode(chunk)),
+        cancel: () => {
+          throw new Error("cannot cancel");
+        },
+      });
+    const via = (res: () => Response) =>
+      new FeedbackGraphClient({
+        url: fg.url,
+        token: "t",
+        maxBytes: 1000,
+        fetch: async () => res(),
+      });
+    expect(await via(() => new Response(body(), { status: 500 })).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "http_error" },
+    });
+    expect(
+      await via(() => new Response(body(), { headers: { "content-length": "5000" } })).lessons("x"),
+    ).toMatchObject({ ok: false, error: { code: "too_large" } });
+    expect(await via(() => new Response(body())).lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "too_large" },
+    });
+  });
+
   it("refuses an invalid base URL without throwing", async () => {
     expect(await client({ url: "not a url" }).lessons("x")).toMatchObject({ ok: false });
   });

@@ -117,6 +117,47 @@ describe("taskTransition", () => {
     ).toThrow(/task.started needs sessionId/);
   });
 
+  it("a next attempt deferred for capacity is a retry that says why and that it waits", () => {
+    const verifying = task({ status: "verifying", attempt: 0, maxAttempts: 3 });
+    const withReason = taskTransition(
+      verifying,
+      { type: "verification_deferred" },
+      { reason: "verification_failed: exit 1" },
+    );
+    expect(withReason.next).toMatchObject({ status: "ready", attempt: 1, agentId: null });
+    expect(withReason.emit).toMatchObject({
+      type: "task.retried",
+      payload: {
+        from: "verifying",
+        to: "ready",
+        attempt: 1,
+        reason: "verification_failed: exit 1",
+        deferred: "awaiting_capacity",
+      },
+    });
+    valid(withReason.emit);
+    expect(taskTransition(verifying, { type: "verification_deferred" }).emit.payload).toMatchObject(
+      { reason: "verification_deferred", deferred: "awaiting_capacity" },
+    );
+    const retried = taskTransition(task({ status: "failed" }), { type: "retry" }).emit.payload;
+    expect(retried).not.toHaveProperty("deferred");
+    expect(retried).not.toHaveProperty("reason");
+    expect(() =>
+      taskTransition(task({ status: "verifying", attempt: 1, maxAttempts: 2 }), {
+        type: "verification_deferred",
+      }),
+    ).toThrow(/no attempts left/);
+  });
+
+  it("defaults a failure's reason to the event and leaves out an absent cancel reason", () => {
+    const failed = taskTransition(task({ status: "verifying" }), { type: "verification_errored" });
+    expect(failed.emit.payload).toMatchObject({ reason: "verification_errored", to: "failed" });
+    valid(failed.emit);
+    const cancelled = taskTransition(task({ status: "ready" }), { type: "cancel" });
+    expect(cancelled.emit.payload).toEqual({ from: "ready", to: "cancelled" });
+    valid(cancelled.emit);
+  });
+
   it("refuses an illegal edge before anything is emitted", () => {
     expect(() => taskTransition(task(), { type: "verification_passed" })).toThrow(MimirError);
   });

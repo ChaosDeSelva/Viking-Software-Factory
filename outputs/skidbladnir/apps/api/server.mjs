@@ -7,9 +7,9 @@ import { Store } from './store.mjs';
 import { terminal, artifact } from '../../packages/providers/session.mjs';
 import { AwsProvider } from '../../packages/providers/aws.mjs';
 import { Simulator } from '../../packages/providers/simulator.mjs';
-import { workerInput, actions } from '../../packages/contracts/worker.mjs';
+import { workerInput, actions, activeCount, isActive, projectInput, projectSnapshot } from '../../packages/contracts/worker.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export function createApp({ database = ':memory:', provider = new Simulator() } = {}) {
+export function createApp({ database = ':memory:', provider = new Simulator(), siteDir = resolve(root, 'site') } = {}) {
   const store = new Store(database), streams = new Set();
   store.bind(provider.mode==='aws'?{mode:'aws',accountId:provider.config.accountId,region:provider.config.region,fleetId:provider.config.fleetId}:{mode:'simulation'});
   let providerError=null;
@@ -23,7 +23,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
     let changed = false;
     if(provider.mode==='aws') {
       try {
-        for(const worker of store.list().filter(w=>!['terminated','failed'].includes(w.state))) {
+        for(const worker of store.list().filter(isActive)) {
           const updated=await provider.inspect(worker);
           if(JSON.stringify(updated)!==JSON.stringify(worker)){store.save(updated,updated.attention??'AWS state reconciled.');changed=true;}
         }
@@ -59,7 +59,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
         if (!String(req.headers['content-type']).startsWith('application/json')) return reply(415,{error:'JSON required.'});
       }
       try {
-        if (req.method === 'GET' && url.pathname === '/api/snapshot') { await expire(); return reply(200,snapshot()); }
+        if (req.method === 'GET' && url.pathname === '/api/snapshot') { const project=projectInput(url.searchParams.get('project')); await expire(); return reply(200,projectSnapshot(snapshot(),project)); }
         if (req.method === 'GET' && url.pathname === '/api/events') {
           res.writeHead(200,{'Content-Type':'text/event-stream','Connection':'keep-alive'});
           streams.add(res); res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot())}\n\n`); req.on('close',()=>streams.delete(res)); return;
@@ -79,7 +79,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
             const fingerprint=createHash('sha256').update(JSON.stringify(spec)).digest('hex');
             const prior=key&&store.list().find(w=>w.requestKey===key);
             if(prior){if(prior.fingerprint!==fingerprint)throw Error('Launch key reused with different input.');return reply(200,prior);}
-            if(store.list().filter(w=>!['terminated','failed'].includes(w.state)).length>=maxWorkers)return reply(409,{error:'Worker limit reached. Terminate a worker first.'});
+            if(activeCount(store.list())>=maxWorkers)return reply(409,{error:'Worker limit reached. Terminate a worker first.'});
             let worker=provider.prepare?.(spec);
             if(worker){worker={...worker,requestKey:key,fingerprint};store.save(worker,'AWS launch reserved. Reconcile uncertain outcomes before retrying.');broadcast();}
             try {worker=await provider.create(spec,worker);}
@@ -118,11 +118,17 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') return reply(405,{error:'Method not allowed.'});
     let pathname; try { pathname = decodeURIComponent(url.pathname); } catch { return reply(400,{error:'Invalid path.'}); }
-    const base = resolve(root,'dist'); const path = resolve(base, '.' + (pathname === '/' ? '/index.html' : pathname));
+    // `/site/` serves the static project website (setup guide) so the dashboard can link to it.
+    // Bare `/site` redirects so the site's relative links resolve under `/site/`.
+    if (pathname === '/site') { res.writeHead(308,{Location:'/site/'}); return res.end(); }
+    const site = pathname.startsWith('/site/'), base = site ? siteDir : resolve(root, 'dist');
+    const rel = site ? pathname.slice(5) : pathname;
+    // A root resolves to `base` itself, which the containment check would refuse (403): use its index.
+    const path = resolve(base, '.' + (rel === '/' ? '/index.html' : rel));
     if (!path.startsWith(base+'/')) return reply(403,{error:'Invalid path.'});
     try {
       const content = readFileSync(path);
-      res.setHeader('Content-Type',({'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml'})[extname(path)] || 'application/octet-stream');
+      res.setHeader('Content-Type',({'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png'})[extname(path)] || 'application/octet-stream');
       res.end(req.method === 'HEAD' ? undefined : content);
     } catch { reply(404,{error:'File not found. Run npm run build before starting.'}); }
   });

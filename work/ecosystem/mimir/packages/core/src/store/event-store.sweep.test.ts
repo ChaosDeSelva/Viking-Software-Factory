@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openEventStore } from "./event-store.js";
+import { boundPayload, openEventStore } from "./event-store.js";
 import { eventInput } from "./test-helpers.js";
 
 afterEach(() => {
@@ -21,5 +21,15 @@ describe("EventStore defaults", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe("boundPayload", () => {
+  it("keeps only the truncation marker when even a one-character preview does not fit", () => {
+    const payload = { text: "x".repeat(500) };
+    const bounded = boundPayload(payload, 50);
+    const originalBytes = JSON.stringify(payload).length;
+    expect(bounded.value).toEqual({ truncated: true, originalBytes });
+    expect(JSON.parse(bounded.json)).toEqual({ truncated: true, originalBytes });
   });
 });

@@ -29,10 +29,12 @@ describe("Projects", () => {
     vi.mocked(client.projects.create).mockResolvedValue({ project: project({ name: "beta" }) });
     renderWithStore(<Projects />, { client });
     await screen.findByText(/No projects yet/);
-    await user.type(screen.getByLabelText("Name"), "beta");
-    await user.type(screen.getByLabelText("Repository path"), "/repos/beta");
-    await user.type(screen.getByLabelText("Test command"), "pnpm test");
-    await user.type(screen.getByLabelText(/Protected branches/), "main, release");
+    // The form lives in a dialog opened from the header (or the empty state).
+    await user.click(screen.getAllByRole("button", { name: "New project" })[0]!);
+    await user.type(screen.getByLabelText(/^Name/), "beta");
+    await user.type(screen.getByLabelText(/^Repository path/), "/repos/beta");
+    await user.type(screen.getByLabelText(/^Test command/), "pnpm test");
+    await user.type(screen.getByLabelText(/^Protected branches/), "main, release");
     await user.click(screen.getByRole("button", { name: "Create project" }));
     expect(client.projects.create).toHaveBeenCalledWith({
       name: "beta",
@@ -55,8 +57,9 @@ describe("Projects", () => {
     );
     renderWithStore(<Projects />, { client });
     await screen.findByText(/No projects yet/);
-    await user.type(screen.getByLabelText("Name"), "x");
-    await user.type(screen.getByLabelText("Repository path"), "/nope");
+    await user.click(screen.getAllByRole("button", { name: "New project" })[0]!);
+    await user.type(screen.getByLabelText(/^Name/), "x");
+    await user.type(screen.getByLabelText(/^Repository path/), "/nope");
     await user.click(screen.getByRole("button", { name: "Create project" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/validation_failed/);
