@@ -39,4 +39,19 @@ describe("contained file checks", () => {
     expect(checkContainedFile(base, "missing.md")).toMatch(/does not exist/);
     expect(checkContainedFile(base, "dir")).toMatch(/regular file/);
   });
+
+  it("accepts a file whose name merely starts with '..'", async () => {
+    const { base } = setup();
+    writeFileSync(join(base, "..notes.md"), "dots\n");
+    mkdirSync(join(base, "..d"));
+    writeFileSync(join(base, "..d", "x.md"), "x\n");
+    expect(checkContainedFile(base, "..notes.md")).toBeUndefined();
+    expect(checkContainedFile(base, "..d/x.md")).toBeUndefined();
+    expect(await readContainedFile(base, "..notes.md")).toBe("dots\n");
+  });
+
+  it("rejects the base itself", () => {
+    const { base } = setup();
+    expect(checkContainedFile(base, ".")).toMatch(/outside/);
+  });
 });

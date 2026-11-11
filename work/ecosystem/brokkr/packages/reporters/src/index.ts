@@ -19,10 +19,11 @@ export function checkStateLabel(check: CheckResult): string {
 }
 
 export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const m = Math.floor(ms / 60_000);
-  return `${m}m${Math.round((ms % 60_000) / 1000)}s`;
+  // Compare rounded values so rounding never yields `1000ms`, `60.0s` or `1m60s`.
+  if (Math.round(ms) < 1000) return `${Math.round(ms)}ms`;
+  if (Math.round(ms / 100) < 600) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m${s % 60}s`;
 }
 
 function summaryLine(r: VerificationReport): string {
@@ -68,9 +69,12 @@ export function stripControl(value: string): string {
   return value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
 }
 
-/** Defang `http(s)://` so untrusted text never becomes a link or remote image. */
+/**
+ * Defang `http(s)://` and GFM's `www.` autolinks so untrusted text never becomes a
+ * link or remote image.
+ */
 function defangUrls(value: string): string {
-  return value.replace(/(https?):\/\//gi, "$1[:]//");
+  return value.replace(/(https?):\/\//gi, "$1[:]//").replace(/\b(www)\./gi, "$1[.]");
 }
 
 /**

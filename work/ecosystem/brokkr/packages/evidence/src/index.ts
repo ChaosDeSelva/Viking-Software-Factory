@@ -252,15 +252,20 @@ async function git(cwd: string, args: string[]): Promise<string> {
   return stdout;
 }
 
+/** Files hashed concurrently by `workspaceTreeDigest` (bounds open files and memory). */
+const TREE_DIGEST_CONCURRENCY = 16;
+
 /**
  * Content digest of the whole working tree by directory walk (tracked,
- * untracked and ignored files alike, including node_modules). Symlinks are
- * hashed by their target and never followed; `.git` and Brokkr state are
- * excluded.
+ * untracked and ignored files alike, including node_modules: installed
+ * dependencies decide what the checks execute, so they are part of the state
+ * being identified). Symlinks are hashed by their target and never followed;
+ * `.git` and Brokkr state are excluded. File contents are hashed concurrently;
+ * the digest is over the records in walk order, so it does not depend on that.
  */
 export async function workspaceTreeDigest(workspace: string): Promise<string> {
   const root = await realpath(workspace);
-  const hash = createHash("sha256");
+  const records: Array<string | (() => Promise<string>)> = [];
   const walk = async (dir: string, rel: string): Promise<void> => {
     const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) =>
       a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -270,14 +275,27 @@ export async function workspaceTreeDigest(workspace: string): Promise<string> {
       if (DIGEST_EXCLUDES.has(childRel)) continue;
       const abs = join(dir, entry.name);
       const st = await lstat(abs);
-      if (st.isSymbolicLink()) hash.update(`L\0${childRel}\0${await readlink(abs)}\n`);
+      if (st.isSymbolicLink()) records.push(`L\0${childRel}\0${await readlink(abs)}\n`);
       else if (st.isDirectory()) await walk(abs, childRel);
       else if (st.isFile()) {
-        hash.update(`F\0${childRel}\0${st.mode & 0o111 ? "x" : "-"}\0${await fileDigest(abs)}\n`);
-      } else hash.update(`O\0${childRel}\n`);
+        const prefix = `F\0${childRel}\0${st.mode & 0o111 ? "x" : "-"}\0`;
+        records.push(async () => `${prefix}${await fileDigest(abs)}\n`);
+      } else records.push(`O\0${childRel}\n`);
     }
   };
   await walk(root, "");
+  const lines: string[] = new Array<string>(records.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < records.length) {
+      const i = next++;
+      const record = records[i]!;
+      lines[i] = typeof record === "string" ? record : await record();
+    }
+  };
+  await Promise.all(Array.from({ length: TREE_DIGEST_CONCURRENCY }, worker));
+  const hash = createHash("sha256");
+  for (const line of lines) hash.update(line);
   return `sha256:${hash.digest("hex")}`;
 }
 

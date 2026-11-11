@@ -113,7 +113,7 @@ Untrusted sources are refused (`trust_required`). Conflicting harnesses are refu
 
 Writes the provider's instruction bundle (`claude-code`, `codex` or `generic`) under `<workspace ?? cwd>/.brokkr/generated/`. The selection is re resolved and every pinned digest compared first: a modified harness or skill, a skill the harnesses do not ship, or an untrusted source is refused (`integrity` / `trust_required`) before anything is written. `cleanup(sameInput)` removes exactly what was written.
 
-### `verify({ selection, workspace, task?, signal?, onEvent?, correlationId?, workspaceId?, projectId?, env? }) → VerificationReport`
+### `verify({ selection, workspace, task?, signal?, onEvent?, correlationId?, workspaceId?, projectId?, env?, baseCommit? }) → VerificationReport`
 
 Runs the selection's checks against the exact `workspace` (a worktree, for example) and returns Brokkr's report. The pipeline is the CLI's (`brokkr verify`): policy before, preflight, execution through the executor, policy after, verdict, then HMAC signed evidence under `<homeDir>/.brokkr/runs/<sha256(workspace)>/<id>/` (or `runRoot`). Nothing is written inside the workspace, and a run directory or `.brokkr` swapped for a symlink during the run is an `infra` error before any evidence is written (`RunHandle.assertIntact`, checked before each check and before finalizing).
 
@@ -122,6 +122,7 @@ Runs the selection's checks against the exact `workspace` (a worktree, for examp
 * `correlationId` is carried by every event and recorded as the report's `executionId`.
 * `signal`: aborting cancels the running check (process group killed), keeps partial evidence and resolves with `interrupted: true`.
 * `env`: the caller environment the check environment is filtered from (allowlist only; secret looking names are never passed). Default `process.env`.
+* `baseCommit`: full commit id of the state before the work under test, from the caller's own records (never a branch name, which the work under test could move). In `workspace-untrusted` mode a required check whose `when` guard does not hold is excluded only if it did not hold at this commit either; see below. An id that is not a full commit id is `invalid-config`.
 * Resolves normally for every verdict. Rejects only when no report can be produced (invalid input, missing workspace, infrastructure error), after emitting `verification.failed`.
 
 Verdict semantics (ADR-005, plus the B2 fix round rulings):
@@ -133,7 +134,7 @@ Verdict semantics (ADR-005, plus the B2 fix round rulings):
 | `incomplete` | a required check could not produce a result (missing tool or script, error, timeout, cancellation), a policy requirement is unmet, or nothing required ran |
 | `blocked` | policy denial: untrusted source, lock integrity, destructive or non allowlisted command, missing approval, secret exposure |
 
-A required check whose `when` guard does not hold (for example no Playwright config) is reported as `skipped` with reason `not_applicable` and does not by itself make the run `incomplete` (controller ruling, implemented by the B2 fix round; builds before it report `condition_not_met` and `incomplete`). Dependency audits need the network and run only with a project level `allowNetworkFor` exception that is recorded in the report (see `docs/policies-and-exceptions.md`). The published schemas are strict; new `reason` values arrive with a regenerated schema (`docs/compatibility.md`).
+A required check whose `when` guard does not hold (for example no Playwright config) is reported as `skipped` with reason `not_applicable` and does not by itself make the run `incomplete` (controller ruling, implemented by the B2 fix round; builds before it report `condition_not_met` and `incomplete`). In `workspace-untrusted` mode the guard reads files the work under test controls (deleting the `test` script would make `test` not applicable), so a harness-required check is excluded only when its guard did not hold at the caller-supplied base commit either (`baseCommit`, CLI `--base-commit`: a full commit id, read from the object database with every object verified against its id). Without a base commit, when the check did apply at the base, or when the base cannot be read, the check stays in the required set and the run is `incomplete` with the reason reported. Dependency audits need the network and run only with a project level `allowNetworkFor` exception that is recorded in the report (see `docs/policies-and-exceptions.md`). The published schemas are strict; new `reason` values arrive with a regenerated schema (`docs/compatibility.md`).
 
 ### Events (spec §13.3)
 

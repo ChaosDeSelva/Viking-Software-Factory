@@ -42,8 +42,11 @@ cancels the running check, keeps the partial report and exits 130.
 Trust modes (ADR-003): by default the CLI runs in `developer` mode for your own
 repository. To verify work you do not trust (an agent's worktree), use
 `verify --untrusted-workspace --config <file> --lock <file> [--exceptions <file>]
-[--policy <file>] [--approver <id>]`: nothing that defines "verified" is read from
-the workspace, workspace harnesses never run, and a missing lock blocks.
+[--policy <file>] [--approver <id>] [--base-commit <sha>]`: nothing that defines
+"verified" is read from the workspace, workspace harnesses never run, and a missing
+lock blocks. A required check whose `when` guard does not hold counts as not
+applicable only if it did not hold at `--base-commit` either; otherwise the run is
+`incomplete`.
 Approval exceptions: ADR-006. The local executor is not an OS sandbox (ADR-004).
 
 Every command accepts `--json` and `--cwd`. Exit codes: 0 ok, 1 verification

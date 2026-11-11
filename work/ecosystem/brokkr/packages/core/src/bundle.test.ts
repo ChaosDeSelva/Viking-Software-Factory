@@ -299,3 +299,93 @@ describe("ledger hardening (review M1-M3)", () => {
     expect(existsSync(join(cwd, "empty-project-dir"))).toBe(true);
   });
 });
+
+describe("BundleWriter and cleanupBundle edge paths", () => {
+  it("refuses to write below a dangling symlink (its real location cannot be resolved)", async () => {
+    const cwd = tmp();
+    symlinkSync(join(tmp(), "gone"), join(cwd, "dangling"));
+    const writer = new BundleWriter({
+      cwd,
+      rootDir: join(cwd, "out"),
+      adapterId: "t",
+      adapterVersion: "1",
+    });
+    await expect(writer.writeFile(join(cwd, "dangling/x.md"), "x")).rejects.toMatchObject({
+      code: "policy-denied",
+      message: expect.stringMatching(/outside/),
+    });
+  });
+
+  it("commit refuses a bundle directory that resolves outside cwd through a symlink", async () => {
+    const cwd = tmp();
+    const outside = tmp();
+    symlinkSync(outside, join(cwd, "linked"));
+    const writer = new BundleWriter({
+      cwd,
+      rootDir: join(cwd, "linked/bundle"),
+      adapterId: "t",
+      adapterVersion: "1",
+    });
+    await expect(writer.commit(join(cwd, "linked/bundle/x.md"))).rejects.toMatchObject({
+      code: "policy-denied",
+      message: expect.stringMatching(/refusing to create .*outside/),
+    });
+    expect(existsSync(join(outside, "bundle"))).toBe(false);
+  });
+
+  it("with isProjectFile, a project file the adapter does not own is skipped, its own is cleaned", async () => {
+    const cwd = tmp();
+    const root = join(cwd, ".brokkr/generated/x");
+    const writer = new BundleWriter({ cwd, rootDir: root, adapterId: "t", adapterVersion: "1" });
+    await writer.upsertBlock(join(cwd, "CLAUDE.md"), "mine");
+    await writer.upsertBlock(join(cwd, "README.md"), "not mine");
+    await writer.writeFile(join(root, "a.md"), "a");
+    await writer.commit(join(root, "a.md"));
+    const { removed, skipped } = await cleanupBundle(root, cwd, {
+      allowProjectFiles: true,
+      isProjectFile: (rel) => rel === "CLAUDE.md",
+    });
+    expect(removed.sort()).toEqual([".brokkr/generated/x/a.md", "CLAUDE.md"]);
+    expect(skipped).toEqual([
+      { path: "README.md", reason: "not one of this adapter's project files" },
+    ]);
+    expect(existsSync(join(cwd, "CLAUDE.md"))).toBe(false);
+    expect(readFileSync(join(cwd, "README.md"), "utf8")).toContain("not mine");
+  });
+
+  it("replacing an existing block keeps the surrounding text and spacing", async () => {
+    const cwd = tmp();
+    const begin = "<!-- brokkr:begin t -->";
+    const end = "<!-- brokkr:end t -->";
+    writeFileSync(join(cwd, "CLAUDE.md"), `intro\n\n${begin}\nold\n${end}`);
+    writeFileSync(join(cwd, "AGENTS.md"), `${begin}\nold\n${end}\ntail\n`);
+    const writer = new BundleWriter({
+      cwd,
+      rootDir: join(cwd, ".brokkr/generated/x"),
+      adapterId: "t",
+      adapterVersion: "1",
+    });
+    await writer.upsertBlock(join(cwd, "CLAUDE.md"), "new");
+    await writer.upsertBlock(join(cwd, "AGENTS.md"), "new");
+    expect(readFileSync(join(cwd, "CLAUDE.md"), "utf8")).toBe(`intro\n\n${begin}\nnew\n${end}\n`);
+    expect(readFileSync(join(cwd, "AGENTS.md"), "utf8")).toBe(`tail\n\n${begin}\nnew\n${end}\n`);
+  });
+
+  it("with project files allowed, an entry escaping cwd is reported as outside the project", async () => {
+    const cwd = tmp();
+    const root = join(cwd, ".brokkr/generated/x");
+    const writer = new BundleWriter({ cwd, rootDir: root, adapterId: "t", adapterVersion: "1" });
+    await writer.commit(join(root, "x"));
+    const ledgerPath = join(root, LEDGER_FILE);
+    const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
+    ledger.files.push({
+      relativePath: "../victim.md",
+      digest: sha256Digest("x"),
+      bytes: 1,
+      mode: "created",
+    });
+    writeFileSync(ledgerPath, JSON.stringify(ledger));
+    const { skipped } = await cleanupBundle(root, cwd, { allowProjectFiles: true });
+    expect(skipped).toEqual([{ path: "../victim.md", reason: "outside the project directory" }]);
+  });
+});

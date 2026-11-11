@@ -177,6 +177,44 @@ describe("computeVerdict: not_applicable (unmet `when` guard, ruling a)", () => 
     );
   });
 
+  it("a not-applicable skip whose guard is unverified stays in the required set", () => {
+    const unverified = { ...na, guardUnverified: "the check applied at base commit 0123456789ab" };
+    const result = computeVerdict({
+      checks: [{ id: "unit", required: true, state: "passed" }, unverified],
+    });
+    expect(result.verdict).toBe("incomplete");
+    expect(result.reasons).toEqual([
+      "required check 'e2e' skipped as not applicable, but its guard is not verified: the check applied at base commit 0123456789ab",
+    ]);
+    // It counts as a required check that did not pass, never as a vacuous run of its own.
+    expect(computeVerdict({ checks: [unverified] }).reasons).toEqual([
+      result.reasons[0],
+      "no required check actually ran and passed",
+    ]);
+    // A failure still wins, and an optional check's guard never matters.
+    expect(
+      computeVerdict({ checks: [{ id: "unit", required: true, state: "failed" }, unverified] })
+        .verdict,
+    ).toBe("failed");
+    expect(
+      computeVerdict({
+        checks: [
+          { id: "unit", required: true, state: "passed" },
+          { ...unverified, required: false },
+        ],
+      }),
+    ).toEqual({ verdict: "passed", reasons: [] });
+    // A policy-required check keeps its own, stricter wording.
+    expect(
+      computeVerdict({
+        checks: [
+          { id: "unit", required: true, state: "passed" },
+          { ...unverified, requiredBy: "policy" },
+        ],
+      }).reasons,
+    ).toEqual(["required check 'e2e' skipped (not applicable, but required by policy)"]);
+  });
+
   it("other skip reasons on required checks remain incomplete", () => {
     for (const reason of ["missing_tool", "missing_script", "network_denied"] as const) {
       const result = computeVerdict({

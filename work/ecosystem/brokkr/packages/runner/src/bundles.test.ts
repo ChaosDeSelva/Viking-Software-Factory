@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readGeneratedBundles } from "./bundles.js";
@@ -76,5 +76,43 @@ describe("readGeneratedBundles (fix round 2, N2)", () => {
     const r = await readGeneratedBundles(dir);
     expect(r.files).toEqual([]);
     expect(r.warnings.join("\n")).toMatch(/big\.md: larger than 8388608 bytes/);
+  });
+});
+
+describe("readGeneratedBundles: workspaces without readable bundles", () => {
+  it("no .brokkr, or a .brokkr that is a file, reads nothing and warns nothing", async () => {
+    expect(await readGeneratedBundles(tempDir("brokkr-bundles-"))).toEqual({
+      files: [],
+      warnings: [],
+    });
+    const dir = tempDir("brokkr-bundles-");
+    writeFileSync(join(dir, ".brokkr"), "not a directory\n");
+    expect(await readGeneratedBundles(dir)).toEqual({ files: [], warnings: [] });
+  });
+
+  it("a .brokkr symlink is refused, never followed", async () => {
+    const dir = tempDir("brokkr-bundles-");
+    const outside = ws();
+    writeFileSync(join(outside, ".brokkr", "generated", "CLAUDE.md"), "outside\n");
+    symlinkSync(join(outside, ".brokkr"), join(dir, ".brokkr"));
+    expect(await readGeneratedBundles(dir)).toEqual({
+      files: [],
+      warnings: ["refused to scan .brokkr: it is a symlink"],
+    });
+  });
+
+  it("a file that cannot be opened is reported with its error, not read", async () => {
+    const dir = ws();
+    const file = join(dir, ".brokkr", "generated", "CLAUDE.md");
+    writeFileSync(file, "secret\n");
+    chmodSync(file, 0o000);
+    try {
+      expect(await readGeneratedBundles(dir)).toEqual({
+        files: [],
+        warnings: ["refused to scan .brokkr/generated/CLAUDE.md: cannot open (EACCES)"],
+      });
+    } finally {
+      chmodSync(file, 0o644);
+    }
   });
 });

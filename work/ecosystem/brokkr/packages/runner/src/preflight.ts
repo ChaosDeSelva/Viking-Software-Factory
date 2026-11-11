@@ -104,12 +104,14 @@ async function findLocalBin(name: string, from: string, root: string): Promise<s
   }
 }
 
-async function packageScripts(cwdDir: string): Promise<Record<string, unknown> | undefined> {
+/** The package's `scripts` object (`{}` when unusable), or undefined without a package.json. */
+async function packageScripts(cwdDir: string): Promise<object | undefined> {
   const file = join(cwdDir, "package.json");
   if (!existsSync(file)) return undefined;
   try {
-    const pkg = JSON.parse(await readFile(file, "utf8")) as { scripts?: Record<string, unknown> };
-    return pkg.scripts ?? {};
+    const pkg = JSON.parse(await readFile(file, "utf8")) as { scripts?: unknown } | null;
+    // The workspace is written by the work under test: any JSON value can be here.
+    return pkg?.scripts && typeof pkg.scripts === "object" ? pkg.scripts : {};
   } catch {
     return {};
   }
@@ -178,7 +180,7 @@ export async function preflightCheck(
   if (when?.scriptExists) {
     const scripts = await packageScripts(cwdDir);
     for (const name of when.scriptExists) {
-      if (!scripts || !(name in scripts))
+      if (!scripts || !Object.hasOwn(scripts, name))
         return fail("not_applicable", `when.scriptExists: package.json has no '${name}' script`);
     }
   }
@@ -215,7 +217,7 @@ export async function preflightCheck(
         "missing_script",
         `'${command.join(" ")}' needs a '${script}' script but there is no package.json in ${check.cwd ?? "."}`,
       );
-    if (!(script in scripts))
+    if (!Object.hasOwn(scripts, script))
       return fail("missing_script", `package.json has no '${script}' script`);
   }
 
@@ -254,7 +256,9 @@ export async function dependencyInstallNeeded(
     const scripts = (pkg.scripts ?? {}) as Record<string, unknown>;
     const pm = basename(command[0] ?? "").toLowerCase();
     const shorthand =
-      ["pnpm", "yarn", "bun"].includes(pm) && command[1] !== undefined && command[1] in scripts;
+      ["pnpm", "yarn", "bun"].includes(pm) &&
+      command[1] !== undefined &&
+      Object.hasOwn(scripts, command[1]);
     if (scriptFor(command) === undefined && !shorthand) return undefined;
     for (const key of ["dependencies", "devDependencies", "optionalDependencies"]) {
       const deps = pkg[key];

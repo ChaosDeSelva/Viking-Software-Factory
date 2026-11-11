@@ -61,12 +61,12 @@ aiReview:
 
 * `command` is an argv array run without a shell. Pipes, `&&`, globbing and `$VAR` expansion do not exist. Wrap complex logic in a package script or a script shipped in the harness and referenced as `{{harnessDir}}/scripts/x.mjs` (the only template placeholder; it must stay inside the harness directory).
 * `cwd` is relative to the workspace and must stay inside it.
-* `when` guards a check on the repository: `fileExists` (all must exist), `anyFileExists` (at least one), `scriptExists` (package scripts). Detect the project's real scripts instead of assuming a tool. A guard that does not hold marks the check `skipped` (not applicable).
+* `when` guards a check on the repository: `fileExists` (all must exist), `anyFileExists` (at least one), `scriptExists` (package scripts). Detect the project's real scripts instead of assuming a tool. A guard that does not hold marks the check `skipped` (not applicable). In `workspace-untrusted` mode a required check skipped this way keeps the run `incomplete` unless the guard did not hold at the caller's base commit either (`--base-commit`), because the work under test can delete a guard file or script.
 * `required: true` means the verdict cannot be `passed` unless the check ran and passed. Optional checks are recorded but never decide the verdict.
 * `env` lists extra variable names the check may receive; secret looking names are refused.
 * `waivable` (default false) allows an approved exception to waive the check; the waiver stays visible in the report.
 * `parallel: true` lets consecutive parallel checks run concurrently.
-* Do not make a required check depend on the network while `network: deny`; it will be skipped with `network_denied`.
+* Do not make a required check depend on the network while `network: deny`; it will be skipped with `network_denied`. `network: deny` is not an OS level block: it points the proxy variables at an unreachable loopback address and puts npm, pnpm and yarn in offline mode, so a tool that ignores those can still reach the network (`docs/limits.md`).
 
 ### Policies
 

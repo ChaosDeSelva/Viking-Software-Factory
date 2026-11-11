@@ -145,6 +145,10 @@ export async function run(argv: string[], partial: Partial<CliIO> = {}): Promise
       "caller-supplied harness lock (a missing lock blocks with --untrusted-workspace)",
     )
     .option(
+      "--base-commit <sha>",
+      "full commit id of the state before the work under test; with --untrusted-workspace a required check whose `when` guard is not met is excluded only if it did not apply at this commit either",
+    )
+    .option(
       "--approver <id>",
       "approver identity whose exceptions are honoured (repeatable; required for exceptions with --untrusted-workspace)",
       (value: string, previous: string[] = []) => [...previous, value],

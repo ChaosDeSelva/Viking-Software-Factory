@@ -29,8 +29,13 @@ const LOCKFILES: Array<[string, NonNullable<RepoSignals["packageManager"]>]> = [
 ];
 const GRADLE_FILES = ["build.gradle", "build.gradle.kts"];
 
+/** File text, or undefined when absent or unreadable (e.g. a directory named `package.json`). */
 async function readText(file: string): Promise<string | undefined> {
-  return existsSync(file) ? readFile(file, "utf8") : undefined;
+  try {
+    return await readFile(file, "utf8");
+  } catch {
+    return undefined;
+  }
 }
 
 /** Inspect a repository for package manager, frameworks, scripts, tsconfig and test runners. Read-only. */

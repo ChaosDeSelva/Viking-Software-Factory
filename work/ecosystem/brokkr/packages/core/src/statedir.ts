@@ -1,5 +1,5 @@
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { BrokkrError } from "./errors.js";
 import { isSafeRelativePath } from "./schemas.js";
 
@@ -32,7 +32,7 @@ export async function ensureSafeDir(base: string, rel: string): Promise<string> 
       throw new BrokkrError("invalid-config", `${current} exists and is not a directory`);
   }
   const final = relative(realBase, await realpath(current));
-  if (final.startsWith("..") || isAbsolute(final))
+  if (final === ".." || final.startsWith(`..${sep}`) || isAbsolute(final))
     throw new BrokkrError("policy-denied", `${current} resolves outside ${base}`);
   return current;
 }

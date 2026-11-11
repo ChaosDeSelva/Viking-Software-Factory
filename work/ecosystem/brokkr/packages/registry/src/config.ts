@@ -37,6 +37,25 @@ export async function ensureBrokkrDir(cwd: string): Promise<string> {
   return dir;
 }
 
+/**
+ * Write a Brokkr state file (`relFile` is relative to `cwd`, inside `.brokkr`).
+ * Neither `.brokkr` nor the file itself may be a symlink: the content would
+ * otherwise land wherever the link points.
+ */
+export async function writeStateFile(
+  cwd: string,
+  relFile: string,
+  content: string,
+): Promise<string> {
+  const file = join(cwd, relFile);
+  await ensureBrokkrDir(cwd);
+  if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) {
+    throw new BrokkrError("policy-denied", `${file} is a symlink; refusing to write through it`);
+  }
+  await writeFile(file, content);
+  return file;
+}
+
 /** Read `.brokkr/config.yaml`; returns undefined when absent, throws `invalid-config` when malformed. */
 export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | undefined> {
   const file = join(cwd, CONFIG_FILE);
@@ -57,10 +76,7 @@ export async function loadProjectConfig(cwd: string): Promise<ProjectConfig | un
 export async function saveProjectConfig(cwd: string, config: ProjectConfig): Promise<string> {
   const valid = validateWith(ProjectConfigSchema, config);
   if (!valid.ok) throw new BrokkrError("invalid-config", formatIssues(valid.issues));
-  const file = join(cwd, CONFIG_FILE);
-  await ensureBrokkrDir(cwd);
-  await writeFile(file, stringify(config));
-  return file;
+  return writeStateFile(cwd, CONFIG_FILE, stringify(config));
 }
 
 /** Read and schema-validate the lockfile; undefined when absent. */

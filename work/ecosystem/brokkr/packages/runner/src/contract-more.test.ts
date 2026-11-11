@@ -1,9 +1,10 @@
-import { cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, cpSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { describe, expect, it } from "vitest";
 import { createLock, Registry } from "@brokkr/registry";
-import { brokkrHomeSnapshot, loadContract, snapshotChanges } from "./index.js";
+import { brokkrHomeSnapshot, loadContract, lockProblemsFor, snapshotChanges } from "./index.js";
 import { tmp } from "../test/helpers.js";
 
 const FIXTURES = resolve(import.meta.dirname, "../../../tests/fixtures/harnesses");
@@ -192,5 +193,66 @@ describe("brokkrHomeSnapshot", () => {
     ]);
     expect((await brokkrHomeSnapshot(tmp("brokkr-empty-"))).size).toBe(0);
     void readFileSync;
+  });
+});
+
+describe("brokkrHomeSnapshot: entries a check can plant or lock", () => {
+  it("an unreadable file is recorded as a change, never a crash of the run", async () => {
+    const home = tmp("brokkr-home-");
+    mkdirSync(join(home, ".brokkr"));
+    const file = join(home, ".brokkr", "policy.yaml");
+    writeFileSync(file, "a");
+    const before = await brokkrHomeSnapshot(home);
+    // A check rewrites the file, then makes it unreadable so it cannot be compared.
+    writeFileSync(file, "b");
+    chmodSync(file, 0o000);
+    try {
+      const after = await brokkrHomeSnapshot(home);
+      expect(after.get("policy.yaml")).toMatch(/^unreadable: EACCES/);
+      expect(snapshotChanges(before, after)).toEqual(["policy.yaml"]);
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+
+  it("nested directories are walked and keyed by their relative path", async () => {
+    const home = tmp("brokkr-home-");
+    mkdirSync(join(home, ".brokkr", "harnesses", "h"), { recursive: true });
+    writeFileSync(join(home, ".brokkr", "harnesses", "h", "harness.yaml"), "a");
+    const before = await brokkrHomeSnapshot(home);
+    expect([...before.keys()]).toEqual(["harnesses/h/harness.yaml"]);
+    writeFileSync(join(home, ".brokkr", "harnesses", "h", "harness.yaml"), "b");
+    expect(snapshotChanges(before, await brokkrHomeSnapshot(home))).toEqual([
+      "harnesses/h/harness.yaml",
+    ]);
+  });
+
+  it("special files are recorded by kind", async () => {
+    const home = tmp("brokkr-home-");
+    mkdirSync(join(home, ".brokkr"));
+    execFileSync("mkfifo", [join(home, ".brokkr", "pipe")]);
+    expect((await brokkrHomeSnapshot(home)).get("pipe")).toBe("special");
+  });
+});
+
+describe("lockProblemsFor", () => {
+  it("a lock pinning another version of a resolved harness is a problem, as is an unpinned one", async () => {
+    const s = base();
+    const registry = new Registry({ cwd: s.workspace, builtinDir: s.builtinDir, homeDir: s.home });
+    await registry.load();
+    const set = registry.resolve({ harnesses: [{ name: "e2e-react", range: "^1.0.0" }] });
+    const lock = createLock(set, []);
+    const version = set.harnesses[0]!.manifest.metadata.version;
+    const other = {
+      ...lock,
+      harnesses: lock.harnesses.map((h) => ({ ...h, version: "9.9.9" })),
+    };
+    expect(await lockProblemsFor(registry, other, set)).toContain(
+      `harness e2e-react is locked at 9.9.9 but resolved ${version}`,
+    );
+    expect(await lockProblemsFor(registry, { ...lock, harnesses: [] }, set)).toContain(
+      `harness e2e-react@${version} is not pinned by the lockfile`,
+    );
+    expect(await lockProblemsFor(registry, lock, set)).toEqual([]);
   });
 });

@@ -30,6 +30,7 @@ import {
   repositoryState,
   runsRootFor,
   signingKey,
+  workspaceTreeDigest,
 } from "./index.js";
 
 function tmp(): string {
@@ -116,6 +117,20 @@ describe("createRun", () => {
     for (const sub of ["logs", "screenshots", "test-results"])
       expect(existsSync(join(run.dir, sub))).toBe(true);
     expect(run.logPath("typecheck")).toBe(join(run.dir, "logs", "typecheck.log"));
+    expect(run.testResultsDir("unit")).toBe(join(run.dir, "test-results", "unit"));
+    expect(run.screenshotsDir("visual")).toBe(join(run.dir, "screenshots", "visual"));
+  });
+
+  it("refuses to write a report that does not match the schema", async () => {
+    const ws = tmp();
+    const home = tmp();
+    const run = await createRun(ws, { home });
+    const invalid = { ...baseReport(run.id), verdict: "maybe" } as unknown as VerificationReport;
+    await expect(finalizeRun(run.dir, invalid, { home })).rejects.toMatchObject({
+      code: "infra",
+      message: expect.stringMatching(/refusing to write an invalid report/),
+    });
+    expect(existsSync(join(run.dir, "report.json"))).toBe(false);
   });
 
   it("refuses a symlinked runs directory (audit I6)", async () => {
@@ -130,6 +145,17 @@ describe("createRun", () => {
 });
 
 describe("signing key (audit I2)", () => {
+  it("a key that cannot be created is an error, not an unsigned run", async () => {
+    const home = tmp();
+    mkdirSync(join(home, ".brokkr"), { mode: 0o700 });
+    chmodSync(join(home, ".brokkr"), 0o500);
+    try {
+      await expect(signingKey(home)).rejects.toMatchObject({ code: "EACCES" });
+    } finally {
+      chmodSync(join(home, ".brokkr"), 0o700);
+    }
+  });
+
   it("is created once with mode 0600 and reused", async () => {
     const home = tmp();
     const a = await signingKey(home);
@@ -446,6 +472,41 @@ describe(
       );
       const after = await repositoryState(repo);
       expect(after.dirtyTreeDigest).not.toBe(before.dirtyTreeDigest);
+    });
+
+    it("the tree digest is the documented record list in walk order, whatever the hashing order", async () => {
+      const dir = tmp();
+      const sha = (data: string) => `sha256:${createHash("sha256").update(data).digest("hex")}`;
+      // More files than the hashing concurrency, so several batches complete out of order.
+      const expected: string[] = [];
+      for (let i = 0; i < 40; i++) {
+        const name = `f${String(i).padStart(2, "0")}`;
+        writeFileSync(join(dir, name), "x".repeat((40 - i) * 4096));
+        expected.push(`F\0${name}\0-\0${sha("x".repeat((40 - i) * 4096))}\n`);
+      }
+      mkdirSync(join(dir, "g"));
+      writeFileSync(join(dir, "g", "run"), "#!/bin/sh\n");
+      chmodSync(join(dir, "g", "run"), 0o755);
+      expected.push(`F\0g/run\0x\0${sha("#!/bin/sh\n")}\n`);
+      symlinkSync("f00", join(dir, "h"));
+      expected.push("L\0h\0f00\n");
+      mkdirSync(join(dir, ".git"));
+      writeFileSync(join(dir, ".git", "HEAD"), "excluded\n");
+      expect(await workspaceTreeDigest(dir)).toBe(sha(expected.join("")));
+    });
+
+    it("a file that cannot be read is an error, not a silent skip", async () => {
+      const dir = tmp();
+      writeFileSync(join(dir, "a"), "a");
+      mkdirSync(join(dir, "b"));
+      // Unreadable: listed by the walk, but its content cannot be hashed.
+      writeFileSync(join(dir, "b", "secret"), "s");
+      chmodSync(join(dir, "b", "secret"), 0o000);
+      try {
+        await expect(workspaceTreeDigest(dir)).rejects.toMatchObject({ code: "EACCES" });
+      } finally {
+        chmodSync(join(dir, "b", "secret"), 0o644);
+      }
     });
 
     it("covers symlinks by their target without following them", async () => {

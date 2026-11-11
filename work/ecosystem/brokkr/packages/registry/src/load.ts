@@ -51,6 +51,22 @@ export function hasHarnessManifest(dir: string): boolean {
 export async function validateHarnessDir(
   dir: string,
 ): Promise<HarnessValidation & { pkg?: HarnessPackage }> {
+  try {
+    return await inspectHarnessDir(dir);
+  } catch (error) {
+    // A manifest that is a directory, `skills` that is a file, an unreadable entry.
+    return {
+      valid: false,
+      dir,
+      issues: [{ path: "", message: (error as Error).message }],
+      warnings: [],
+    };
+  }
+}
+
+async function inspectHarnessDir(
+  dir: string,
+): Promise<HarnessValidation & { pkg?: HarnessPackage }> {
   const issues: ValidationIssue[] = [];
   const warnings: string[] = [];
   const manifestFile = findManifest(dir, HARNESS_MANIFEST_FILES);
@@ -79,6 +95,7 @@ export async function validateHarnessDir(
   const shippedSet = new Set(shipped);
   const skills: LoadedSkill[] = [];
   const skillManifests = new Map<string, SkillManifest>();
+  const skillFiles = new Map<string, string>();
 
   for (const name of shipped.sort()) {
     const sdir = join(skillsRoot, name);
@@ -114,6 +131,7 @@ export async function validateHarnessDir(
       continue;
     }
     skillManifests.set(name, skill);
+    skillFiles.set(name, rel);
     skills.push({ manifest: skill, dir: sdir, bodyPath, digest: "", providedBy });
   }
 
@@ -136,7 +154,7 @@ export async function validateHarnessDir(
       if (!skillManifests.has(dep)) {
         issues.push({
           path: `dependsOn.${index}`,
-          file: posix.join("skills", name, "skill.yaml"),
+          file: skillFiles.get(name)!,
           message: `skill dependency '${dep}' is not shipped by this harness package`,
         });
       }

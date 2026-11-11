@@ -79,6 +79,31 @@ export const CLASSIFIED_HEADS: readonly string[] = [
   "busybox",
   "script",
   "watch",
+  "pnpx",
+  "tsx",
+  "ts-node",
+  "del-cli",
+  "gtar",
+  "bsdtar",
+  "gmake",
+  "vi",
+  "view",
+  "gvim",
+  "ionice",
+  "chrt",
+  "taskset",
+  "flock",
+  "toybox",
+  "strace",
+  "ltrace",
+  "unshare",
+  "chroot",
+  "runuser",
+  "nsenter",
+  "firejail",
+  "systemd-run",
+  "caffeinate",
+  "parallel",
 ];
 
 /** Label for a wrapper, flag or head Brokkr cannot model: denied (fail closed). */
@@ -98,6 +123,8 @@ interface WrapperSpec {
   positional?: RegExp;
   /** The wrapper may legitimately run without a command (env prints, xargs echoes). */
   emptyOk?: boolean;
+  /** The wrapper downloads the package it runs (`bunx`, `pnpx`). */
+  network?: boolean;
 }
 
 const F: FlagKind = "flag";
@@ -179,7 +206,12 @@ const WRAPPERS: Record<string, WrapperSpec> = {
       call: inline,
     },
   },
-  bunx: { short: { p: V }, long: { package: V, bun: F } },
+  bunx: { short: { p: V }, long: { package: V, bun: F }, network: true },
+  pnpx: {
+    short: { p: V, c: inline },
+    long: { package: V, "shell-mode": inline, silent: F },
+    network: true,
+  },
 };
 
 /** Wrappers that run another command but are not modelled: always denied. */
@@ -225,8 +257,27 @@ const INSTALL = new Set([
   "install-ci-test",
   "cit",
 ]);
+/** npm's documented aliases of `install`, `ci`, `install-ci-test` and `update`. */
+const NPM_INSTALL_ALIASES = new Set([
+  "in",
+  "ins",
+  "inst",
+  "insta",
+  "instal",
+  "isnt",
+  "isnta",
+  "isntal",
+  "isntall",
+  "clean-install",
+  "ic",
+  "install-clean",
+  "isntall-clean",
+  "clean-install-test",
+  "sit",
+  "udpate",
+]);
 const NETWORK = new Set(["audit", "outdated", "view", "info", "search", "dlx", "publish", "x"]);
-const PUBLISH = new Set(["publish", "unpublish", "deprecate", "dist-tag"]);
+const PUBLISH = new Set(["publish", "unpublish", "deprecate", "dist-tag", "dist-tags"]);
 const DELETE_TOOLS = new Set(["rimraf", "del-cli", "trash", "shred"]);
 const SCRIPT_FILE = /(\/|\.(m|c)?(j|t)s$|\.py$|\.pl$|\.rb$|\.php$)/;
 
@@ -422,6 +473,8 @@ function gitSubcommand(args: readonly string[]): { sub: string; rest: string[] }
 function implausibleHead(raw: string): boolean {
   return (
     raw === "" ||
+    // an option where a command is expected (`env - cmd`, where `-` means `-i`)
+    raw.startsWith("-") ||
     raw.includes("=") ||
     /^[\d.]+[smhd]?$/.test(raw) ||
     /^[{}[\]%]/.test(raw) ||
@@ -429,6 +482,32 @@ function implausibleHead(raw: string): boolean {
     /^(SIG)?(KILL|TERM|INT|HUP|QUIT|USR1|USR2|STOP|CONT|ALRM)$/i.test(raw)
   );
 }
+
+/**
+ * True when `token` is `--<p>` or `--<p>=...` with `p` a prefix of the long option `name`
+ * at least `min` characters long: GNU getopt_long and bsdtar accept any unambiguous prefix
+ * (`--expr=` is `--expression=`). `min` keeps exact names of other options out.
+ */
+function longPrefix(token: string, name: string, min = 2): boolean {
+  const m = /^--([^=]+)/.exec(token);
+  return m !== null && m[1]!.length >= min && name.startsWith(m[1]!);
+}
+
+/**
+ * True when a short option cluster (`-xvI`) reaches one of `code` before any option that
+ * takes the rest of the token (or the next argument) as its value.
+ */
+function shortClusterHas(token: string, code: string, takesValue: string): boolean {
+  if (!token.startsWith("-") || token.startsWith("--")) return false;
+  for (const c of token.slice(1)) {
+    if (code.includes(c)) return true;
+    if (takesValue.includes(c)) return false;
+  }
+  return false;
+}
+
+/** perl `-M`/`-m` text is compiled as `use <text>;`: anything beyond a module name is code. */
+const PERL_MODULE_CODE = /^-[A-Za-z]*?[mM](?!-?[\w:]+(=[\w:,.-]*)?$)/;
 
 /** Inline code for interpreters: arguments before the script file decide. */
 function inlineCode(head: string, args: readonly string[]): boolean {
@@ -439,7 +518,7 @@ function inlineCode(head: string, args: readonly string[]): boolean {
     }
     return false;
   };
-  if (head === "node" || head === "nodejs" || head === "bun") {
+  if (["node", "nodejs", "bun", "tsx", "ts-node"].includes(head)) {
     // Preloaded modules given as data: or remote URLs are inline code too.
     const MODULE_FLAGS = /^(--import|--require|-r|--loader|--experimental-loader)$/;
     const INLINE_MODULE = /^(data:|https?:)/i;
@@ -465,7 +544,7 @@ function inlineCode(head: string, args: readonly string[]): boolean {
     }
     return false;
   }
-  if (head === "perl") return beforeScript(/^-[A-Za-z]*[eE]/);
+  if (head === "perl") return beforeScript(/^-[A-Za-z]*[eE]/) || beforeScript(PERL_MODULE_CODE);
   if (head === "ruby") return beforeScript(/^-[A-Za-z]*e/);
   // -r code, -B/-R/-E begin/per-line/end code, -F per-line file
   if (head === "php") return beforeScript(/^-[A-Za-z]*[rBREF]$/);
@@ -474,16 +553,27 @@ function inlineCode(head: string, args: readonly string[]): boolean {
     let sawExpression = false;
     for (let i = 0; i < args.length; i++) {
       const a = args[i]!;
-      if (a === "-e" || a === "--expression") {
-        scripts.push(args[i + 1] ?? "");
-        sawExpression = true;
-        i++;
-      } else if (a.startsWith("--expression=")) {
-        scripts.push(a.slice("--expression=".length));
-        sawExpression = true;
-      } else if (a === "-f" || a === "--file")
-        return false; // script file: like any script
-      else if (!a.startsWith("-") && !sawExpression) {
+      // --expression, --file (script file: like any script) and --line-length take a value
+      const long = ["expression", "file", "line-length"].find((o) =>
+        longPrefix(a, o, o === "file" ? 2 : 1),
+      );
+      if (long) {
+        const eq = a.indexOf("=");
+        const value = eq < 0 ? (args[++i] ?? "") : a.slice(eq + 1);
+        if (long === "expression") scripts.push(value);
+        if (long !== "line-length") sawExpression = true;
+      } else if (a.startsWith("-") && !a.startsWith("--")) {
+        // short cluster: `-e`/`-f`/`-l` take the rest of the token, or the next argument
+        for (let c = 1; c < a.length; c++) {
+          const flag = a[c]!;
+          if (flag === "i") break; // -i[SUFFIX]
+          if (flag !== "e" && flag !== "f" && flag !== "l") continue;
+          const value = a.slice(c + 1) || (args[++i] ?? "");
+          if (flag === "e") scripts.push(value);
+          if (flag !== "l") sawExpression = true;
+          break;
+        }
+      } else if (!a.startsWith("-") && !sawExpression) {
         scripts.push(a);
         sawExpression = true;
       }
@@ -494,22 +584,36 @@ function inlineCode(head: string, args: readonly string[]): boolean {
         /(^|[;{}\s0-9$,/])e(\s|;|$)/.test(sc) || /^s(.).*\1.*\1[a-zA-Z0-9]*e[a-zA-Z0-9]*$/.test(sc),
     );
   }
-  if (head === "tar" || head === "gtar" || head === "bsdtar")
+  if (head === "tar" || head === "gtar" || head === "bsdtar") {
+    // -I (compress program) and -F (info script) run commands; old-style letters in argv[1]
+    if (/^[A-Za-z]+$/.test(args[0] ?? "") && /[IF]/.test(args[0]!)) return true;
     return args.some(
       (a) =>
-        /^--(to-command|checkpoint-action|use-compress-program|rsh-command|info-script|new-volume-script)\b/.test(
-          a,
-        ) ||
-        a === "-I" ||
-        a === "-F",
+        [
+          "to-command",
+          "use-compress-program",
+          "rsh-command",
+          "info-script",
+          "new-volume-script",
+        ].some((o) => longPrefix(a, o)) ||
+        // `--checkpoint` itself is a different option
+        longPrefix(a, "checkpoint-action", "checkpoint-".length) ||
+        shortClusterHas(a, "IF", "bCfgHKLNTVX"),
     );
-  if (head === "make" || head === "gmake") return args.some((a) => /^--eval\b/.test(a));
+  }
+  if (head === "make" || head === "gmake")
+    return args.some((a) => longPrefix(a, "eval") || shortClusterHas(a, "E", "CfIjloWO"));
   if (["vim", "nvim", "vi", "ex", "view", "gvim"].includes(head))
     return args.some((a) => a === "-c" || a.startsWith("-c") || a === "--cmd" || a.startsWith("+"));
   if (head === "pwsh" || head === "powershell")
     return args.some((a) => /^-(c|command|e|ec|encodedcommand)$/i.test(a));
   if (head === "osascript") return args.some((a) => a === "-e");
-  if (["awk", "gawk", "mawk", "nawk"].includes(head)) return !args.includes("-f");
+  if (["awk", "gawk", "mawk", "nawk"].includes(head))
+    return (
+      !args.includes("-f") ||
+      // gawk program text given next to a program file
+      args.some((a) => longPrefix(a, "source") || shortClusterHas(a, "e", "fFvEilLdDopW"))
+    );
   return false;
 }
 
@@ -517,7 +621,12 @@ function destructiveOf(head: string, args: readonly string[]): string | undefine
   if (PRIVILEGE.has(head)) return head;
   // Any option cluster containing c/C (case-insensitive, e.g. -c, -Ec, -lc, -Cc) makes
   // the shell read a command string: uninspectable, so denied.
-  if (SHELLS.has(head) && args.some((a) => /^-[A-Za-z]*[cC][A-Za-z]*$/.test(a))) return "shell -c";
+  // fish spells it `--command=...` / `--init-command=...`.
+  if (
+    SHELLS.has(head) &&
+    args.some((a) => /^-[A-Za-z]*[cC][A-Za-z]*$/.test(a) || /^--(init-)?command(=|$)/.test(a))
+  )
+    return "shell -c";
   if (inlineCode(head, args)) return INLINE_CODE;
   if (head === "rm") {
     const { short, long } = flagsOf(args);
@@ -545,7 +654,11 @@ function destructiveOf(head: string, args: readonly string[]): string | undefine
       if (short.has("d") || long.has("--delete") || rest.some((a) => a.startsWith(":")))
         return "git push --delete";
     }
-    if (sub === "branch" && (short.has("D") || (long.has("--delete") && long.has("--force"))))
+    if (
+      sub === "branch" &&
+      (short.has("D") ||
+        ((short.has("d") || long.has("--delete")) && (short.has("f") || long.has("--force"))))
+    )
       return "git branch -D";
     if (sub === "update-ref" && (short.has("d") || long.has("--delete")))
       return "git update-ref -d";
@@ -576,7 +689,8 @@ function analyze(argv: readonly string[], depth: number): CommandAnalysis {
     const parsed = parseOptions(args, wrapper);
     if (!parsed.ok) return deny(parsed.deny);
     if (parsed.rest.length === 0) return wrapper.emptyOk ? EMPTY([...argv]) : deny(UNANALYZABLE);
-    return analyze(parsed.rest, depth + 1);
+    const inner = analyze(parsed.rest, depth + 1);
+    return wrapper.network ? { ...inner, needsNetwork: true } : inner;
   }
   if (OPAQUE_WRAPPERS.has(head)) return deny(UNANALYZABLE);
 
@@ -613,8 +727,10 @@ function analyzePackageManager(
     return { ...EMPTY([...argv]), dependencyInstall: install, needsNetwork: install };
   }
   if (PUBLISH.has(sub)) return { ...deny("publish"), needsNetwork: true };
-  if (sub === "exec" || sub === "dlx" || (head === "bun" && sub === "x")) {
-    const spec = sub === "exec" ? PM_EXEC[head]! : PM_DLX;
+  // `npm x` is an alias of `npm exec`; `bun x` is bunx.
+  const npmExecAlias = head === "npm" && sub === "x";
+  if (sub === "exec" || sub === "dlx" || (head === "bun" && sub === "x") || npmExecAlias) {
+    const spec = sub === "exec" || npmExecAlias ? PM_EXEC[head]! : PM_DLX;
     const parsed = parseOptions(rest, spec);
     if (!parsed.ok) return deny(parsed.deny);
     if (parsed.rest.length === 0) return deny(UNANALYZABLE);
@@ -622,7 +738,16 @@ function analyzePackageManager(
     return { ...inner, needsNetwork: inner.needsNetwork || sub !== "exec" };
   }
   const yarnNpm = head === "yarn" && sub === "npm" ? rest[0] : undefined;
-  const install = INSTALL.has(sub);
+  // yarn's `tag` (classic) and `npm tag` (berry) are npm's `dist-tag`
+  if (
+    (yarnNpm !== undefined && (PUBLISH.has(yarnNpm) || yarnNpm === "tag")) ||
+    (head === "yarn" && sub === "tag")
+  )
+    return { ...deny("publish"), needsNetwork: true };
+  const install =
+    INSTALL.has(sub) ||
+    (head === "npm" && NPM_INSTALL_ALIASES.has(sub)) ||
+    (head === "yarn" && sub === "global" && INSTALL.has(rest[0] ?? ""));
   const network = install || NETWORK.has(sub) || yarnNpm === "audit" || yarnNpm === "info";
   return { ...EMPTY([...argv]), dependencyInstall: install, needsNetwork: network };
 }

@@ -379,4 +379,86 @@ describe("pnpm <script> shorthand (fix round 2, minor 7)", () => {
     );
     expect(await dependencyInstallNeeded(["pnpm", "tsc"], ws, ws)).toBeUndefined();
   });
+
+  it("looks for node_modules from the check cwd up to the workspace root, not above it", async () => {
+    const { dependencyInstallNeeded } = await import("./index.js");
+    const outer = tmp();
+    // node_modules above the workspace does not count: the workspace is the boundary.
+    mkdirSync(join(outer, "node_modules"));
+    const ws = join(outer, "ws");
+    const pkg = join(ws, "packages", "api");
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(
+      join(pkg, "package.json"),
+      JSON.stringify({ scripts: { test: "x" }, devDependencies: { a: "1" } }),
+    );
+    expect(await dependencyInstallNeeded(["pnpm", "test"], pkg, ws)).toMatch(
+      /package\.json declares 1 but node_modules is missing/,
+    );
+    mkdirSync(join(ws, "node_modules"));
+    expect(await dependencyInstallNeeded(["pnpm", "test"], pkg, ws)).toBeUndefined();
+  });
+
+  it("no package.json, or an unparsable one, installs nothing", async () => {
+    const { dependencyInstallNeeded } = await import("./index.js");
+    const ws = tmp();
+    expect(await dependencyInstallNeeded(["pnpm", "test"], ws, ws)).toBeUndefined();
+    writeFileSync(join(ws, "package.json"), "{ not json");
+    expect(await dependencyInstallNeeded(["pnpm", "test"], ws, ws)).toBeUndefined();
+  });
+});
+
+describe("package.json written by the work under test", () => {
+  const check = (command: string[], when?: object) => ({
+    id: "c",
+    command,
+    ...(when ? { when } : {}),
+  });
+
+  it("a non-object `scripts` value means no scripts, never a crash", async () => {
+    for (const text of [
+      JSON.stringify({ scripts: "test" }),
+      JSON.stringify({ scripts: 7 }),
+      "null",
+      "[]",
+      "{ not json",
+    ]) {
+      const ws = tmp();
+      writeFileSync(join(ws, "package.json"), text);
+      const path = pathWith(ws);
+      expect(
+        await preflightCheck(check(["pnpm", "run", "test"], { scriptExists: ["test"] }), {
+          workspace: ws,
+          path,
+        }),
+        text,
+      ).toMatchObject({ ok: false, reason: "not_applicable" });
+      expect(
+        await preflightCheck(check(["pnpm", "run", "test"]), { workspace: ws, path }),
+        text,
+      ).toMatchObject({ ok: false, reason: "missing_script" });
+      expect(
+        await preflightCheck(check(["pnpm", "test"]), { workspace: ws, path }),
+        text,
+      ).toMatchObject({ ok: false, reason: "missing_script" });
+    }
+  });
+
+  it("inherited object properties are not scripts", async () => {
+    const ws = workspace({ build: "x" });
+    const path = pathWith(ws);
+    for (const name of ["toString", "constructor", "__proto__"]) {
+      expect(
+        await preflightCheck(check(["pnpm", "run", name], { scriptExists: [name] }), {
+          workspace: ws,
+          path,
+        }),
+        name,
+      ).toMatchObject({ ok: false, reason: "not_applicable" });
+      expect(
+        await preflightCheck(check(["pnpm", "run", name]), { workspace: ws, path }),
+        name,
+      ).toMatchObject({ ok: false, reason: "missing_script" });
+    }
+  });
 });

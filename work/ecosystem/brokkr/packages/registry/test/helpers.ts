@@ -102,3 +102,17 @@ export function writeHarness(parent: string, h: FixtureHarness, dirName?: string
   }
   return dir;
 }
+
+export interface Layout {
+  cwd: string;
+  builtin: string;
+  home: string;
+}
+
+/** A fresh repo, built-in library and home directory under one temp root. */
+export function layout(): Layout {
+  const root = tmp();
+  const l = { cwd: join(root, "repo"), builtin: join(root, "builtin"), home: join(root, "home") };
+  for (const d of Object.values(l)) mkdirSync(d, { recursive: true });
+  return l;
+}

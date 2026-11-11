@@ -6,7 +6,8 @@ function pushUnique(list: string[], value: string): void {
 
 /**
  * Merge a resolved set into one execution contract:
- * - checks: deduplicated by id (first definition wins); required anywhere stays required;
+ * - checks: deduplicated by id (first definition wins); required anywhere stays required,
+ *   and a check stays waivable only when every definition allows it;
  * - policies: strictest wins (deny beats allow); approval requirements are unioned;
  * - skills: required union; optional union minus required;
  * - workflow stages and AI review criteria: ordered union; evidence flags: OR.
@@ -34,10 +35,11 @@ export function composeHarnessSet(set: ResolvedHarnessSet): ComposedHarness {
         continue;
       }
       existing.required = existing.required || check.required;
+      if (existing.waivable === true && check.waivable !== true) existing.waivable = false;
       existing.from.push(ref);
-      const fields = (["command", "timeoutSeconds", "cwd", "when"] as const).filter(
-        (f) => JSON.stringify(existing[f]) !== JSON.stringify(check[f]),
-      );
+      const fields = (
+        ["command", "timeoutSeconds", "cwd", "when", "env", "parallel"] as const
+      ).filter((f) => JSON.stringify(existing[f]) !== JSON.stringify(check[f]));
       if (fields.length > 0) {
         warnings.push(
           `check '${check.id}' is defined differently by ${existing.from[0]} and ${ref} (${fields.join(", ")}); using the definition from ${existing.from[0]}`,

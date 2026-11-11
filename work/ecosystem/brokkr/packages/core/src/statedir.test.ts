@@ -43,6 +43,13 @@ describe("ensureSafeDir (audit I6)", () => {
     });
     await expect(ensureSafeDir(tmp(), "../x")).rejects.toMatchObject({ code: "policy-denied" });
   });
+
+  it("accepts a directory whose name merely starts with '..'", async () => {
+    const base = tmp();
+    const dir = await ensureSafeDir(base, "..cache/runs");
+    expect(dir).toBe(join(base, "..cache", "runs"));
+    expect(existsSync(dir)).toBe(true);
+  });
 });
 
 describe("ensureSafeDir with a base that does not exist yet", () => {

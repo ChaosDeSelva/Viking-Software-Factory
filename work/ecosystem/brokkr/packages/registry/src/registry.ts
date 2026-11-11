@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { existsSync, lstatSync } from "node:fs";
+import { rename, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import semver from "semver";
@@ -18,7 +18,7 @@ import {
   type SourceKind,
 } from "@brokkr/core";
 import { composeHarnessSet } from "./compose.js";
-import { LOCK_FILE, ensureBrokkrDir, loadProjectConfig } from "./config.js";
+import { LOCK_FILE, ensureBrokkrDir, loadProjectConfig, writeStateFile } from "./config.js";
 import { discoverHarnessDirs, validateHarnessDir, type HarnessValidation } from "./load.js";
 import { createLock, verifyLockAgainst, type AdapterRef, type LockVerification } from "./lock.js";
 import { resolveHarnessSet, type ResolveRequest } from "./resolve.js";
@@ -250,7 +250,18 @@ export class Registry {
       });
       return;
     }
-    const actual = await fileDigest(file);
+    let actual: string;
+    try {
+      actual = await fileDigest(file);
+    } catch (error) {
+      // e.g. the path is a directory (EISDIR) or unreadable
+      this.diagnostics.push({
+        code: "source-error",
+        source: ref,
+        message: (error as Error).message,
+      });
+      return;
+    }
     if (actual !== source.digest) {
       this.diagnostics.push({
         code: "integrity",
@@ -290,7 +301,8 @@ export class Registry {
       return;
     }
     let tampered = false;
-    if (existsSync(dest)) {
+    // lstat, not existsSync: a dangling symlink planted at `dest` must be found and replaced.
+    if (lstatSync(dest, { throwIfNoEntry: false })) {
       let cached: string;
       try {
         cached = await treeDigest(dest);
@@ -372,9 +384,7 @@ export class Registry {
     adapters: readonly AdapterRef[],
   ): Promise<{ lock: HarnessLock; path: string }> {
     const lock = createLock(set, adapters);
-    const path = join(this.cwd, LOCK_FILE);
-    await ensureBrokkrDir(this.cwd);
-    await writeFile(path, `${JSON.stringify(lock, null, 2)}\n`);
+    const path = await writeStateFile(this.cwd, LOCK_FILE, `${JSON.stringify(lock, null, 2)}\n`);
     return { lock, path };
   }
 

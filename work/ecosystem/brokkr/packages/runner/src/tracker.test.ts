@@ -62,3 +62,30 @@ describe("Linux tracking by token and session (fix round 2, minor 12)", () => {
     },
   );
 });
+
+describe("ProcessTracker when the process listing fails", () => {
+  it("a failed periodic sample neither stops sampling nor poisons later samples", async () => {
+    let calls = 0;
+    const world = [proc(100, 1, "root"), proc(250, 100, "escapee")];
+    const tracker = new ProcessTracker(100, "t", 1_000_000, async () => {
+      calls++;
+      if (calls === 1) throw new Error("ps failed");
+      return world;
+    });
+    tracker.start(); // the first (periodic) sample fails
+    await expect(tracker.sample()).resolves.toEqual(world);
+    tracker.stop();
+    expect(await tracker.survivors()).toEqual([250]);
+  });
+
+  it("an explicit sample that fails rejects, and the next one still runs", async () => {
+    let fail = true;
+    const tracker = new ProcessTracker(100, "t", 1_000_000, async () => {
+      if (fail) throw new Error("ps failed");
+      return [proc(100, 1, "root")];
+    });
+    await expect(tracker.sample()).rejects.toThrow("ps failed");
+    fail = false;
+    await expect(tracker.sample()).resolves.toHaveLength(1);
+  });
+});

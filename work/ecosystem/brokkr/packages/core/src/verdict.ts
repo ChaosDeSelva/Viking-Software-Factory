@@ -13,6 +13,13 @@ export interface VerdictCheck {
   reason?: CheckReason;
   /** `policy` when a `requiredCheckIds` policy demands the check (it must then run). */
   requiredBy?: "harness" | "policy";
+  /**
+   * Why a `not_applicable` skip cannot be trusted: the `when` guard was evaluated
+   * against a workspace the work under test controls and was not confirmed against a
+   * trusted baseline (or the baseline shows the check did apply). The check then
+   * stays in the required set.
+   */
+  guardUnverified?: string;
 }
 
 export interface VerdictInput {
@@ -38,10 +45,12 @@ const INCOMPLETE_STATES: ReadonlySet<CheckState> = new Set([
 /**
  * Aggregate verdict (spec §8.2, ADR-005). Precedence: blocked > failed >
  * incomplete > passed. A harness-required check skipped as `not_applicable`
- * (its `when` guard was not met) is excluded from the required set; one
- * demanded by a `requiredCheckIds` policy stays incomplete. `passed` requires at least one required check and every
- * required check `passed` (or waived by an approved exception when it did not
- * run). An exception never turns a `failed` check into a pass.
+ * (its `when` guard was not met) is excluded from the required set, unless the
+ * guard result is unverified (`guardUnverified`: the work under test could have
+ * produced it); one demanded by a `requiredCheckIds` policy stays incomplete.
+ * `passed` requires at least one required check and every required check
+ * `passed` (or waived by an approved exception when it did not run). An
+ * exception never turns a `failed` check into a pass.
  */
 export function computeVerdict(input: VerdictInput): VerdictResult {
   const reasons: string[] = [];
@@ -57,6 +66,12 @@ export function computeVerdict(input: VerdictInput): VerdictResult {
         required++;
         reasons.push(
           `required check '${check.id}' skipped (not applicable, but required by policy)`,
+        );
+      } else if (check.guardUnverified !== undefined) {
+        incomplete = true;
+        required++;
+        reasons.push(
+          `required check '${check.id}' skipped as not applicable, but its guard is not verified: ${check.guardUnverified}`,
         );
       } else {
         reasons.push(`required check '${check.id}' not applicable (excluded from required gates)`);

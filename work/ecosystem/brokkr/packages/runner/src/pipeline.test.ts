@@ -10,6 +10,7 @@ import type {
   HarnessManifest,
   ResolvedHarnessSet,
 } from "@brokkr/core";
+import { treeDigest } from "@brokkr/core";
 import { readReport } from "@brokkr/evidence";
 import { LocalProcessExecutor } from "./executor.js";
 import {
@@ -712,5 +713,234 @@ console.log("HOME=" + process.env.HOME + " XDG=" + process.env.XDG_CONFIG_HOME);
         executor: new FakeExecutor(),
       }),
     ).rejects.toMatchObject({ code: "invalid-config" });
+  });
+});
+
+describe("required checks made not applicable by the work under test (workspace-untrusted)", () => {
+  const untrusted = { trustMode: "workspace-untrusted" as const, lockProblems: [] };
+  const gitEnv = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@example.invalid",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@example.invalid",
+  };
+  function commit(ws: string, message: string): string {
+    execFileSync("git", ["add", "-A"], { cwd: ws, env: gitEnv });
+    execFileSync("git", ["-c", "commit.gpgsign=false", "commit", "-q", "-m", message], {
+      cwd: ws,
+      env: gitEnv,
+    });
+    return execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: ws,
+      env: gitEnv,
+      encoding: "utf8",
+    }).trim();
+  }
+  /** A Node repository whose base commit has `lint` and `test` scripts. */
+  function nodeRepo(): { ws: string; base: string } {
+    const ws = tmp("brokkr-ws-");
+    execFileSync("git", ["init", "-q"], { cwd: ws, env: gitEnv });
+    writeFileSync(join(ws, "package.json"), JSON.stringify({ scripts: { lint: "x", test: "y" } }));
+    return { ws, base: commit(ws, "base") };
+  }
+  const nodeHarness = () =>
+    harness([
+      check("lint", ["node", "lint.mjs"], { when: { scriptExists: ["lint"] } }),
+      check("test", ["node", "test.mjs"], { when: { scriptExists: ["test"] } }),
+      check("e2e", ["node", "e2e.mjs"], { when: { anyFileExists: ["playwright.config.ts"] } }),
+    ]);
+
+  it("deleting the test script does not pass: the check applied at the base commit", async () => {
+    const { ws, base } = nodeRepo();
+    // The agent removes the `test` script and commits its work.
+    writeFileSync(join(ws, "package.json"), JSON.stringify({ scripts: { lint: "x" } }));
+    commit(ws, "agent work");
+    const executor = new FakeExecutor();
+    const { report, exitCode } = await verify(nodeHarness(), executor, {
+      ...untrusted,
+      workspace: ws,
+      baseCommit: base,
+    });
+
+    expect(executor.requests.map((r) => r.checkId)).toEqual(["lint"]);
+    expect(report.checks[1]).toMatchObject({
+      id: "test",
+      required: true,
+      state: "skipped",
+      reason: "not_applicable",
+    });
+    expect(report.checks[1]!.message).toMatch(
+      /package\.json has no 'test' script; the check applied at base commit [0-9a-f]{12}/,
+    );
+    expect(report.verdict).toBe("incomplete");
+    expect(exitCode).toBe(1);
+    expect(report.reasons.join("\n")).toMatch(
+      /required check 'test' skipped as not applicable, but its guard is not verified: the check applied at base commit/,
+    );
+    // The check that never applied (no Playwright config at the base either) is still excluded.
+    expect(report.checks[2]!.message).toMatch(/none of playwright\.config\.ts existed at base/);
+    expect(report.reasons).toContain(
+      "required check 'e2e' not applicable (excluded from required gates)",
+    );
+  });
+
+  it("a check that did not apply at the base commit either stays excluded and the run can pass", async () => {
+    const { ws, base } = nodeRepo();
+    writeFileSync(join(ws, "feature.txt"), "work\n");
+    commit(ws, "agent work");
+    const executor = new FakeExecutor();
+    const { report } = await verify(nodeHarness(), executor, {
+      ...untrusted,
+      workspace: ws,
+      baseCommit: base,
+    });
+    expect(executor.requests.map((r) => r.checkId)).toEqual(["lint", "test"]);
+    expect(report.verdict).toBe("passed");
+    expect(report.reasons).toEqual([
+      "required check 'e2e' not applicable (excluded from required gates)",
+    ]);
+  });
+
+  it("without a base commit a required not-applicable check makes the run incomplete", async () => {
+    const { ws } = nodeRepo();
+    const { report } = await verify(nodeHarness(), new FakeExecutor(), {
+      ...untrusted,
+      workspace: ws,
+    });
+    expect(report.checks[2]).toMatchObject({ state: "skipped", reason: "not_applicable" });
+    expect(report.checks[2]!.message).toMatch(/not verified against a base commit/);
+    expect(report.verdict).toBe("incomplete");
+    expect(report.reasons).toEqual([
+      "required check 'e2e' skipped as not applicable, but its guard is not verified: the guard was evaluated only against the workspace under test and no base commit was supplied to compare it with",
+    ]);
+  });
+
+  it("a base commit that cannot be read leaves the guard unverified", async () => {
+    const { ws } = nodeRepo();
+    const { report } = await verify(nodeHarness(), new FakeExecutor(), {
+      ...untrusted,
+      workspace: ws,
+      baseCommit: "0123456789abcdef0123456789abcdef01234567",
+    });
+    expect(report.verdict).toBe("incomplete");
+    expect(report.reasons.join("\n")).toMatch(
+      /required check 'e2e' .* could not be compared with the base commit: commit 0123456789abcdef0123456789abcdef01234567 is missing from the workspace repository/,
+    );
+  });
+
+  it("optional and policy-required checks keep their rules; developer mode is unchanged", async () => {
+    const { ws } = nodeRepo();
+    const h = harness([
+      check("lint", ["node", "lint.mjs"]),
+      check("docs", ["node", "docs.mjs"], { required: false, when: { fileExists: ["docs"] } }),
+      check("e2e", ["node", "e2e.mjs"], { when: { fileExists: ["playwright.config.ts"] } }),
+    ]);
+    // An optional not-applicable check never decides the verdict; e2e alone is unverified.
+    const optional = await verify(h, new FakeExecutor(), { ...untrusted, workspace: ws });
+    expect(optional.report.checks[1]!.message).toBe("when.fileExists: 'docs' not found");
+    expect(optional.report.reasons).toHaveLength(1);
+
+    const byPolicy = await verify(h, new FakeExecutor(), {
+      ...untrusted,
+      workspace: ws,
+      layers: [{ layer: "project", policy: { requiredCheckIds: ["e2e"] } }],
+    });
+    expect(byPolicy.report.verdict).toBe("incomplete");
+    expect(byPolicy.report.reasons).toEqual([
+      "required check 'e2e' skipped (not applicable, but required by policy)",
+    ]);
+
+    const developer = await verify(h, new FakeExecutor(), { workspace: ws });
+    expect(developer.report.verdict).toBe("passed");
+    expect(developer.report.checks[2]!.message).toBe(
+      "when.fileExists: 'playwright.config.ts' not found",
+    );
+  });
+
+  it("refuses a base that is not a full commit id", async () => {
+    const { ws } = nodeRepo();
+    await expect(
+      verify(nodeHarness(), new FakeExecutor(), {
+        ...untrusted,
+        workspace: ws,
+        baseCommit: "main",
+      }),
+    ).rejects.toMatchObject({ code: "invalid-config", message: /must be a full commit id/ });
+  });
+});
+
+describe("a harness that changes while its checks run", () => {
+  /** Two real checks: the first is the work under test, the second a gate script shipped by the harness. */
+  async function gated(firstScript: string) {
+    const ws = workspace();
+    writeFileSync(join(ws, "first.mjs"), firstScript);
+    const h = harness([
+      check("unit", ["node", "first.mjs"]),
+      check("gate", ["node", "{{harnessDir}}/scripts/gate.mjs"]),
+    ]);
+    mkdirSync(join(h.dir, "scripts"));
+    writeFileSync(join(h.dir, "scripts", "gate.mjs"), "process.exit(1);\n");
+    h.set.harnesses[0]!.digest = await treeDigest(h.dir);
+    return { ws, h };
+  }
+
+  it("blocks the run when a check rewrote a script a later check executes", async () => {
+    const { ws, h } = await gated("");
+    // The work under test neutralises the harness's gate script before it runs.
+    writeFileSync(
+      join(ws, "first.mjs"),
+      `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(join(h.dir, "scripts", "gate.mjs"))}, "process.exit(0);\\n");
+`,
+    );
+    const { report, exitCode } = await verify(h, new LocalProcessExecutor(), {
+      workspace: ws,
+      trustMode: "workspace-untrusted",
+      lockProblems: [],
+    });
+    expect(report.checks.map((c) => [c.id, c.state])).toEqual([
+      ["unit", "passed"],
+      ["gate", "passed"],
+    ]);
+    expect(report.verdict).toBe("blocked");
+    expect(exitCode).toBe(4);
+    expect(report.reasons[0]).toMatch(
+      /^blocked: harness_tampered: harness h@1\.0\.0 changed during the run \(sha256:/,
+    );
+    expect(report.policyDecisions).toContainEqual(
+      expect.objectContaining({ policy: "lock-integrity", stage: "after", outcome: "deny" }),
+    );
+  });
+
+  it("blocks when the harness directory can no longer be digested", async () => {
+    const { ws, h } = await gated(
+      `import { symlinkSync } from "node:fs";
+symlinkSync("/etc/hosts", process.env.PLANT);
+`,
+    );
+    const { report } = await verify(h, new LocalProcessExecutor(), {
+      workspace: ws,
+      env: { PATH, PLANT: join(h.dir, "scripts", "planted") },
+      composed: {
+        ...h.composed,
+        checks: [{ ...h.composed.checks[0]!, env: ["PLANT"] }],
+      },
+    });
+    expect(report.verdict).toBe("blocked");
+    expect(report.reasons.join("\n")).toMatch(/harness_tampered: .*refusing to hash symlink/);
+  });
+
+  it("an untouched harness is not reported", async () => {
+    const { ws, h } = await gated("");
+    const { report } = await verify(h, new LocalProcessExecutor(), { workspace: ws });
+    expect(report.checks.map((c) => [c.id, c.state])).toEqual([
+      ["unit", "passed"],
+      ["gate", "failed"],
+    ]);
+    expect(report.verdict).toBe("failed");
+    expect(report.reasons.join()).not.toMatch(/harness_tampered/);
   });
 });

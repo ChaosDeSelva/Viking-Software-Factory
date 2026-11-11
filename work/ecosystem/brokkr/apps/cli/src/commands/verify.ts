@@ -27,6 +27,8 @@ export interface VerifyCommandOptions {
   lock?: string;
   /** Approver identities whose exceptions are honoured (repeatable). */
   approver?: string[];
+  /** Full commit id of the state before the work under test (guards are compared with it). */
+  baseCommit?: string;
 }
 
 const ICON: Record<CheckResult["state"], string> = {
@@ -141,6 +143,7 @@ export async function verifyCommand(
     exceptions,
     policySources,
     trustMode: trust,
+    ...(options.baseCommit !== undefined ? { baseCommit: options.baseCommit } : {}),
     ...(contract.approvers ? { approvers: contract.approvers } : {}),
     env: ctx.io.env,
     ...(ctx.io.signal ? { signal: ctx.io.signal } : {}),

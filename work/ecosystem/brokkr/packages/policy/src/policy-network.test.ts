@@ -37,12 +37,13 @@ describe("network-dependent commands", () => {
       ["npm", "audit"],
       ["yarn", "npm", "audit"],
       ["pnpm", "install"],
+      // yarn berry's publish: denied as publish, and needs the network like `npm publish`
+      ["yarn", "npm", "publish"],
     ])
       expect(analyzeCommand(argv).needsNetwork, argv.join(" ")).toBe(true);
     for (const argv of [
       ["pnpm", "test"],
       ["node", "audit.js"],
-      ["yarn", "npm", "publish"],
     ])
       expect(analyzeCommand(argv).needsNetwork, argv.join(" ")).toBe(false);
   });

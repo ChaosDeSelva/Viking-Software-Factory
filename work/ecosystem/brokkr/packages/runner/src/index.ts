@@ -6,3 +6,4 @@ export * from "./bundles.js";
 export * from "./tracker.js";
 export * from "./contract.js";
 export * from "./homeguard.js";
+export * from "./guard-baseline.js";

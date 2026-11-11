@@ -164,6 +164,15 @@ export interface VerifyInput {
   projectId?: string;
   /** Environment the check environment is filtered from (allowlist only). Defaults to `process.env`. */
   env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Full commit id of the state before the work under test (the task's base
+   * commit), from the caller's own records. In `workspace-untrusted` mode a
+   * required check whose `when` guard is not met counts as not applicable only
+   * when it did not apply at this commit either; without it such a check makes
+   * the verdict `incomplete`, because the work under test controls the files
+   * the guard reads (it could delete the `test` script).
+   */
+  baseCommit?: string;
 }
 
 export interface PrepareInput {
@@ -484,6 +493,7 @@ export class Brokkr {
         ...(projectId !== undefined ? { projectId } : {}),
         executionId: correlationId,
         ...(input.workspaceId !== undefined ? { workspaceId: input.workspaceId } : {}),
+        ...(input.baseCommit !== undefined ? { baseCommit: input.baseCommit } : {}),
         layers,
         exceptions,
         ...(this.executor ? { executor: this.executor } : {}),
@@ -515,6 +525,8 @@ export class Brokkr {
    * Read a stored run (`<homeDir>/.brokkr/runs/<sha256(workspace)>/<id>`) and verify
    * its signature and every artifact digest. `integrity.status` is
    * `integrity_failed` when evidence changed or the run is unsigned or forged.
+   * Checks run as the same user and can read the signing key, so `ok` does not
+   * prove the checks did not rewrite the run: gate on the report `verify` returns.
    */
   readReport(runDir: string): Promise<StoredReport> {
     return readStoredReport(resolvePath(runDir), {

@@ -91,16 +91,17 @@ export class MockExecutor implements CheckExecutor {
     else result = outcome;
 
     if (result.delayMs !== undefined && result.delayMs > 0) {
+      if (signal?.aborted) return cancelled();
       const aborted = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), result.delayMs);
-        signal?.addEventListener(
-          "abort",
-          () => {
-            clearTimeout(timer);
-            resolve(true);
-          },
-          { once: true },
-        );
+        const onAbort = (): void => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+        const timer = setTimeout(() => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve(false);
+        }, result.delayMs);
+        signal?.addEventListener("abort", onAbort, { once: true });
       });
       if (aborted) return cancelled();
     }

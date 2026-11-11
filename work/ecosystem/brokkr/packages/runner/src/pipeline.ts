@@ -9,6 +9,7 @@ import {
   computeVerdict,
   exitCodeForVerdict,
   summarizeChecks,
+  treeDigest,
   type AppliedException,
   type ApprovedException,
   type CheckResult,
@@ -49,6 +50,7 @@ import { renderMarkdown } from "@brokkr/reporters";
 import { buildCheckEnv, secretEnvValues } from "./env.js";
 import { LocalProcessExecutor, type CheckExecutionResult, type CheckExecutor } from "./executor.js";
 import type { TrustMode } from "./contract.js";
+import { BASE_COMMIT, whenHeldAtBase } from "./guard-baseline.js";
 import { dependencyInstallNeeded, preflightCheck } from "./preflight.js";
 
 export type VerifyEvent =
@@ -112,6 +114,15 @@ export interface VerifyOptions {
   trustMode?: TrustMode;
   /** Approver identities the caller trusts (workspace-untrusted mode). */
   approvers?: string[];
+  /**
+   * Full commit id of the state before the work under test (for example the
+   * task's base commit), as known to the caller. In workspace-untrusted mode a
+   * harness-required check whose `when` guard is not met is excluded from the
+   * required gates only when the guard was not met at this commit either;
+   * without it, or when the check did apply at the base, the verdict is
+   * `incomplete` (the work under test controls the files the guard reads).
+   */
+  baseCommit?: string;
 }
 
 export interface VerifyOutcome {
@@ -176,6 +187,20 @@ async function scrubArtifacts(dir: string): Promise<Array<{ file: string; findin
   return found;
 }
 
+/**
+ * Tree digest of every harness directory in the set, keyed by `name@version`.
+ * Checks run as the same user as Brokkr, so one check can rewrite a script a
+ * later check executes; comparing this before and after the checks detects it.
+ */
+async function harnessDigests(set: ResolvedHarnessSet): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const h of set.harnesses) {
+    const ref = `${h.manifest.metadata.name}@${h.manifest.metadata.version}`;
+    out.set(ref, await treeDigest(h.dir).catch((error: Error) => `unreadable: ${error.message}`));
+  }
+  return out;
+}
+
 function toResult(
   check: PlannedCheck,
   extra: Partial<CheckResult> & Pick<CheckResult, "state">,
@@ -200,6 +225,11 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
   const now = options.now ?? (() => new Date());
   if (!existsSync(options.workspace))
     throw new BrokkrError("invalid-config", `workspace ${options.workspace} does not exist`);
+  if (options.baseCommit !== undefined && !BASE_COMMIT.test(options.baseCommit))
+    throw new BrokkrError(
+      "invalid-config",
+      `baseCommit '${options.baseCommit}' must be a full commit id (a branch or tag can be moved by the work under test)`,
+    );
   const executor = options.executor ?? new LocalProcessExecutor();
   const callerEnv = options.env ?? process.env;
   const startedAt = now();
@@ -321,9 +351,38 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
     });
   }
 
+  const harnessesBefore = await harnessDigests(options.set);
   options.onEvent?.({ type: "run-start", runId: run.id, runDir: run.dir, checks: planned.length });
   const results = new Map<string, CheckResult>();
+  /** Check id → why its not-applicable skip is not trusted (workspace-untrusted mode). */
+  const guardUnverified = new Map<string, string>();
   const knownSecrets = secretEnvValues(callerEnv);
+
+  // The `when` guard reads the workspace, which in workspace-untrusted mode is written by
+  // the work under test: deleting a guard file or script must not drop a required check.
+  const guardNote = async (check: (typeof planned)[number]): Promise<string> => {
+    if (!untrustedMode || !check.required || check.requiredBy === "policy") return "";
+    if (options.baseCommit === undefined) {
+      guardUnverified.set(
+        check.id,
+        "the guard was evaluated only against the workspace under test and no base commit was supplied to compare it with",
+      );
+      return "; not verified against a base commit (workspace-untrusted mode)";
+    }
+    // not_applicable comes only from an unmet `when` guard, so the check has one.
+    const base = await whenHeldAtBase(check.def.when!, {
+      workspace: options.workspace,
+      cwd: check.cwd,
+      baseCommit: options.baseCommit,
+    });
+    if (base.status === "not_held") return `; ${base.detail}`;
+    const why =
+      base.status === "held"
+        ? `the check applied at base commit ${options.baseCommit.slice(0, 12)}, so the work under test changed what its guard reads`
+        : `the guard could not be compared with the base commit: ${base.detail}`;
+    guardUnverified.set(check.id, why);
+    return `; ${why}`;
+  };
 
   const runOne = async (check: (typeof planned)[number]): Promise<CheckResult> => {
     if (blocked.length > 0) {
@@ -397,7 +456,8 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
         command: pre.command,
         state: SKIP_REASONS.has(pre.reason) ? "skipped" : "errored",
         reason: pre.reason,
-        message: pre.message,
+        message:
+          pre.reason === "not_applicable" ? pre.message + (await guardNote(check)) : pre.message,
       });
     }
     const install = await dependencyInstallNeeded(pre.command, pre.cwdDir, options.workspace);
@@ -505,6 +565,20 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
     }
   }
 
+  for (const [ref, after] of await harnessDigests(options.set)) {
+    const before = harnessesBefore.get(ref)!;
+    if (after === before) continue;
+    const message = `harness ${ref} changed during the run (${before} before the checks, ${after} after): later checks may not have run what the lock pins`;
+    blocked.push(`harness_tampered: ${message}`);
+    decisions.push({
+      policy: "lock-integrity",
+      stage: "after",
+      outcome: "deny",
+      layer: "system",
+      message,
+    });
+  }
+
   // Refuse swapped paths before artifact scanning can read or redact outside files.
   await run.assertIntact();
   const artifactFindings = [
@@ -541,6 +615,7 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
       ...(c.exceptionId ? { exceptionId: c.exceptionId } : {}),
       ...(c.reason ? { reason: c.reason } : {}),
       ...(c.requiredBy ? { requiredBy: c.requiredBy } : {}),
+      ...(guardUnverified.has(c.id) ? { guardUnverified: guardUnverified.get(c.id)! } : {}),
     })),
     blocked,
     unmet: after.unmet,

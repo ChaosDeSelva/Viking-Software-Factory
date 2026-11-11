@@ -24,9 +24,11 @@ export async function brokkrHomeSnapshot(home: string): Promise<Map<string, stri
       else if (st.isFile())
         out.set(
           childRel,
-          createHash("sha256")
-            .update(await readFile(abs))
-            .digest("hex"),
+          // A check can chmod a file it changed: record that instead of failing the run.
+          await readFile(abs).then(
+            (data) => createHash("sha256").update(data).digest("hex"),
+            (error: NodeJS.ErrnoException) => `unreadable: ${error.code}`,
+          ),
         );
       else out.set(childRel, "special");
     }

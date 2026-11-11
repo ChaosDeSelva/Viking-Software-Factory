@@ -26,7 +26,7 @@ export function checkContainedFile(base: string, rel: string): string | undefine
     return `'${rel}' cannot be resolved`;
   }
   const realRel = relative(realpathSync(base), real);
-  if (realRel === "" || realRel.startsWith("..") || isAbsolute(realRel)) {
+  if (realRel === "" || realRel === ".." || realRel.startsWith(`..${sep}`) || isAbsolute(realRel)) {
     return `'${rel}' resolves outside ${base} through a symlinked directory`;
   }
   if (!stat.isFile()) return `'${rel}' is not a regular file`;

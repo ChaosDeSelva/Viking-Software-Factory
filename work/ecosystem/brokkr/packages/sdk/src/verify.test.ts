@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VerificationReportSchema } from "@brokkr/core";
@@ -5,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { runsRootFor } from "@brokkr/evidence";
 import { Brokkr, VERIFICATION_EVENT_TYPES, type VerificationEvent } from "./index.js";
 import { MockExecutor } from "./testing.js";
-import { BUILTIN, reactRepo, tempDir, writeConfig } from "../test/fixtures.js";
+import { BUILTIN, TASK, reactRepo, tempDir, writeConfig } from "../test/fixtures.js";
 
 const QA_TASK = {
   id: "QA-7",
@@ -328,5 +329,93 @@ writeFileSync(".brokkr/generated/a.md", "key ${AWS}\\n");
 `,
     );
     expect((await verifyReal(ws)).verdict).toBe("blocked");
+  });
+});
+
+describe("workspace-untrusted: required checks the work under test makes not applicable", () => {
+  const gitEnv = {
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@example.invalid",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@example.invalid",
+  };
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {
+      cwd,
+      env: gitEnv,
+      encoding: "utf8",
+    }).trim();
+  const commitAll = (cwd: string, message: string) => {
+    git(cwd, "add", "-A");
+    git(cwd, "commit", "-q", "-m", message);
+    return git(cwd, "rev-parse", "HEAD");
+  };
+
+  /** A React repository (no Playwright) committed as the task's base. */
+  async function frontend() {
+    const workspace = reactRepo();
+    const bin = join(workspace, "node_modules", ".bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "tsc"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    writeFileSync(join(workspace, ".gitignore"), "node_modules\n");
+    git(workspace, "init", "-q");
+    const base = commitAll(workspace, "base");
+    const executor = new MockExecutor({ typecheck: "passed", unit: "passed", lint: "passed" });
+    const brokkr = new Brokkr({
+      cwd: workspace,
+      builtinDir: BUILTIN,
+      homeDir: tempDir("brokkr-home-"),
+      executor,
+    });
+    const selection = await brokkr.resolve({
+      task: TASK,
+      harnesses: [{ name: "frontend-react", version: "^1.0.0" }],
+    });
+    return { workspace, base, brokkr, executor, selection };
+  }
+
+  it("deleting the test script cannot turn a run without tests into a pass", async () => {
+    const { workspace, base, brokkr, executor, selection } = await frontend();
+    const pkg = JSON.parse(readFileSync(join(workspace, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    delete pkg.scripts.test;
+    writeFileSync(join(workspace, "package.json"), JSON.stringify(pkg));
+    commitAll(workspace, "agent work");
+
+    const report = await brokkr.verify({ selection, workspace, baseCommit: base });
+    expect(executor.calls.map((c) => c.checkId)).toEqual(["typecheck", "lint"]);
+    expect(report.verdict).toBe("incomplete");
+    expect(report.reasons).toContain(
+      `required check 'unit' skipped as not applicable, but its guard is not verified: the check applied at base commit ${base.slice(0, 12)}, so the work under test changed what its guard reads`,
+    );
+    // The browser checks never applied (no Playwright config at the base either).
+    expect(report.reasons).toContain(
+      "required check 'axe' not applicable (excluded from required gates)",
+    );
+  });
+
+  it("with the base commit, checks that never applied stay excluded and the run passes", async () => {
+    const { workspace, base, brokkr, selection } = await frontend();
+    const report = await brokkr.verify({ selection, workspace, baseCommit: base });
+    expect(report.verdict).toBe("passed");
+    expect(report.reasons).toHaveLength(3);
+  });
+
+  it("without a base commit a required not-applicable check makes the run incomplete", async () => {
+    const { workspace, brokkr, selection } = await frontend();
+    const report = await brokkr.verify({ selection, workspace });
+    expect(report.verdict).toBe("incomplete");
+    expect(report.reasons.filter((r) => /guard is not verified/.test(r))).toHaveLength(3);
+  });
+
+  it("a base that is not a full commit id is refused", async () => {
+    const { workspace, brokkr, selection } = await frontend();
+    await expect(
+      brokkr.verify({ selection, workspace, baseCommit: "HEAD~1" }),
+    ).rejects.toMatchObject({ code: "invalid-config" });
   });
 });

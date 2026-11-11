@@ -1,3 +1,4 @@
+import { getEventListeners } from "node:events";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +31,7 @@ describe("MockExecutor (@brokkr/sdk/testing)", () => {
     expect(strict.error).toMatch(/no scripted result for check 'x'/);
     const lax = await new MockExecutor({}, { fallback: "passed" }).execute(req("x"));
     expect(lax.state).toBe("passed");
+    expect((await new MockExecutor().execute(req("y"))).state).toBe("errored");
   });
 
   it("writes scripted output to the log file and the tail", async () => {
@@ -56,5 +58,27 @@ describe("MockExecutor (@brokkr/sdk/testing)", () => {
     const pre = new AbortController();
     pre.abort();
     expect((await mock.execute(req("lint"), pre.signal)).state).toBe("cancelled");
+  });
+
+  it("a completed delay resolves normally and leaves no abort listener behind", async () => {
+    const mock = new MockExecutor({ quick: { state: "passed", delayMs: 5 } });
+    const ac = new AbortController();
+    for (let i = 0; i < 3; i++)
+      expect((await mock.execute(req("quick"), ac.signal)).state).toBe("passed");
+    expect(getEventListeners(ac.signal, "abort")).toHaveLength(0);
+  });
+
+  it("an abort while a scripted function is pending cancels instead of waiting out the delay", async () => {
+    const ac = new AbortController();
+    const mock = new MockExecutor({
+      slow: () => {
+        ac.abort();
+        return { state: "passed", delayMs: 60_000 };
+      },
+    });
+    expect(await mock.execute(req("slow"), ac.signal)).toMatchObject({
+      state: "cancelled",
+      reason: "cancelled",
+    });
   });
 });

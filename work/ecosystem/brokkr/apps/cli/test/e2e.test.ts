@@ -17,7 +17,7 @@ import { stringify } from "yaml";
 import { runsRootFor } from "@brokkr/evidence";
 import { Registry, createLock } from "@brokkr/registry";
 import { cli, homeFor, tmp } from "./helpers.js";
-import { e2eRepo, toolPath } from "./e2e-helpers.js";
+import { e2eRepo, git, toolPath } from "./e2e-helpers.js";
 
 const PATH = toolPath();
 const env = { PATH };
@@ -632,6 +632,34 @@ describe("workspace-untrusted mode (audit C1/C2 repros)", { timeout: 90_000 }, (
     expect(report.verdict).toBe("passed");
     expect(code).toBe(0);
     expect(report.warnings.join()).toMatch(/workspace \.brokkr\/exceptions\.yaml ignored/);
+  });
+
+  it("--base-commit: deleting the test script makes the run incomplete, not passed", async () => {
+    const repo = repoA();
+    git(repo, "add", "-A");
+    git(repo, "commit", "-q", "-m", "base");
+    const base = git(repo, "rev-parse", "HEAD");
+    const pkgFile = join(repo, "package.json");
+    const pkg = JSON.parse(readFileSync(pkgFile, "utf8")) as { scripts: Record<string, string> };
+    delete pkg.scripts.test;
+    writeFileSync(pkgFile, JSON.stringify(pkg));
+    const caller = await callerInputs(repo);
+    const args = ["--untrusted-workspace", "--config", caller.config, "--lock", caller.lock];
+
+    const { report, code } = await verify(repo, [...args, "--base-commit", base]);
+    expect(report.checks.map((c) => [c.id, c.state])).toEqual([
+      ["typecheck", "passed"],
+      ["unit", "skipped"],
+    ]);
+    expect(report.verdict).toBe("incomplete");
+    expect(code).toBe(1);
+    expect(report.reasons.join("\n")).toMatch(
+      /required check 'unit' skipped as not applicable, but its guard is not verified: the check applied at base commit/,
+    );
+
+    const moved = await cli(["verify", "--cwd", repo, ...args, "--base-commit", "main"], { env });
+    expect(moved.code).toBe(2);
+    expect(moved.stderr).toMatch(/must be a full commit id/);
   });
 
   it("repoB: self-asserted waivers for every required check never PASS (developer mode)", async () => {

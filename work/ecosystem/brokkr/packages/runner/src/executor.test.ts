@@ -452,3 +452,44 @@ describe("pipe fd access used for lsof attribution (fix round 2, minor 8)", () =
     },
   );
 });
+
+describe("LocalProcessExecutor: requests that cannot start", () => {
+  it("a workspace that does not exist is cwd_rejected", async () => {
+    const result = await executor.execute(request(join(tmp(), "gone"), [NODE, "-v"]));
+    expect(result).toMatchObject({ state: "errored", reason: "cwd_rejected" });
+    expect(result.error).toMatch(/does not exist/);
+  });
+
+  it("a cwd that does not exist is cwd_rejected", async () => {
+    const result = await executor.execute(request(tmp(), [NODE, "-v"], { cwd: "missing" }));
+    expect(result).toMatchObject({
+      state: "errored",
+      reason: "cwd_rejected",
+      error: "cwd 'missing' does not exist",
+    });
+  });
+
+  it("an empty command is invalid_command", async () => {
+    const result = await executor.execute(request(tmp(), []));
+    expect(result).toMatchObject({
+      state: "errored",
+      reason: "invalid_command",
+      error: "empty command",
+    });
+  });
+
+  it("an argument spawn refuses synchronously is a spawn_error, and the log is closed", async () => {
+    const ws = tmp();
+    const result = await executor.execute(request(ws, [NODE, "-e", "0", "a\0b"]));
+    expect(result).toMatchObject({ state: "errored", reason: "spawn_error" });
+    expect(result.error).toMatch(/null bytes/);
+  });
+
+  it("a check killed by a signal is errored with the signal named", async () => {
+    const result = await executor.execute(
+      request(tmp(), [NODE, "-e", "process.kill(process.pid, 'SIGKILL')"]),
+    );
+    expect(result).toMatchObject({ state: "errored", exitCode: null, signal: "SIGKILL" });
+    expect(result.error).toBe("terminated by signal SIGKILL");
+  });
+});
