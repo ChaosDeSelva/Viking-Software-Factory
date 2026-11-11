@@ -3,13 +3,25 @@ import { useSyncExternalStore } from "react";
 /** WCAG 2.1.4: single-key shortcuts can be turned off. On by default (spec-mandated keys). */
 const KEY = "mimir.shortcuts";
 const listeners = new Set<() => void>();
+/** The choice for this page when the browser blocks storage (access throws). */
+let unstored: boolean | null = null;
 
 export function getShortcutsEnabled(): boolean {
-  return localStorage.getItem(KEY) !== "off";
+  if (unstored !== null) return unstored;
+  try {
+    return localStorage.getItem(KEY) !== "off";
+  } catch {
+    return true;
+  }
 }
 
 export function setShortcutsEnabled(enabled: boolean): void {
-  localStorage.setItem(KEY, enabled ? "on" : "off");
+  try {
+    localStorage.setItem(KEY, enabled ? "on" : "off");
+    unstored = null;
+  } catch {
+    unstored = enabled;
+  }
   for (const l of listeners) l();
 }
 

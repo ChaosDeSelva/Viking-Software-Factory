@@ -1,6 +1,7 @@
 import { newId } from "@mimir/protocol";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { createClient } from "../api/client.js";
 import { event, snapshot, task } from "../test/fixtures.js";
 import { mockClient } from "../test/mockClient.js";
 import { StoreProvider, useStore } from "./StoreProvider.js";
@@ -201,6 +202,56 @@ describe("StoreProvider", () => {
     act(() => client.streamController.fail(err));
     await waitFor(() => expect(screen.getByTestId("connection").textContent).toBe("closed"));
     expect(onUnauthorized).toHaveBeenCalled();
+  });
+
+  it("keeps streaming past an event type this build does not know (real SDK), and reloads the snapshot for it", async () => {
+    const t = task({ title: "A", status: "ready" });
+    const enc = new TextEncoder();
+    let push: ((s: string) => void) | null = null;
+    let snapshots = 0;
+    const fetch = vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/v1/snapshot") {
+        snapshots += 1;
+        return Response.json(snapshot({ tasks: [t], cursor: "c1" }));
+      }
+      if (path === "/v1/attention") return Response.json({ items: [] });
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          push = (s) => c.enqueue(enc.encode(s));
+        },
+      });
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    });
+    const client = createClient({ baseUrl: "http://127.0.0.1:1", token: "t", fetch });
+    render(
+      <StoreProvider client={client} refreshDelayMs={0}>
+        <Probe />
+      </StoreProvider>,
+    );
+    await waitFor(() => expect(push).not.toBeNull());
+    const future = {
+      ...event("task.ready", { from: "pending", to: "ready" }),
+      type: "crew.archived",
+    };
+    const leased = event(
+      "task.leased",
+      {
+        from: "ready",
+        to: "leased",
+        agentId: newId("agt"),
+        attempt: 1,
+        leaseExpiresAt: "2026-10-14T11:00:00.000Z",
+      },
+      { taskId: t.id },
+    );
+    act(() => {
+      push?.(`id: c2\nevent: crew.archived\ndata: ${JSON.stringify(future)}\n\n`);
+      push?.(`id: c3\nevent: task.leased\ndata: ${JSON.stringify(leased)}\n\n`);
+    });
+    await waitFor(() => expect(screen.getByTestId("tasks").textContent).toBe("A:leased"));
+    expect(screen.getByTestId("connection").textContent).toBe("open");
+    await waitFor(() => expect(snapshots).toBe(2));
   });
 
   it("aborts the stream on unmount", async () => {

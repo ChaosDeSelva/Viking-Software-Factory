@@ -28,12 +28,30 @@ export interface ExceededFact {
   at: string;
 }
 
-/** Newest `budget.exceeded` of the events (crew from the envelope; no crew means mission scope). */
+/**
+ * Newest `budget.exceeded` of the events (crew from the envelope; no crew means mission scope)
+ * whose budget has not been changed since: the server reports a changed budget again if its new
+ * limits are reached, so an older report names a budget that may no longer hold anything.
+ */
 export function latestExceeded(events: readonly EventEnvelope[]): ExceededFact | null {
+  // The newest update of each budget after the report; walked newest first, so the first seen wins.
+  const updatedSince = new Map<string, EventPayloadMap["budget.updated"]["budget"]>();
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i]!;
+    if (e.type === "budget.updated") {
+      const b = (e.payload as EventPayloadMap["budget.updated"]).budget;
+      if (!updatedSince.has(b.id)) updatedSince.set(b.id, b);
+      continue;
+    }
     if (e.type !== "budget.exceeded") continue;
     const p = e.payload as EventPayloadMap["budget.exceeded"];
+    // Skip it only if a later update lifted the exhausted limit above what was used; an update
+    // that changed something else (e.g. onUnknown) leaves the budget exhausted.
+    const later = updatedSince.get(p.budgetId);
+    if (later) {
+      const limit = p.unit === "cost" ? later.limitCost : later.limitTokens;
+      if (limit === null || limit > p.used) continue;
+    }
     const crewId = e.crewId ?? null;
     return {
       budgetId: p.budgetId,
@@ -76,13 +94,15 @@ export function currentPolicy(
 /**
  * Crews that could run the task (its own crew, else every crew of its mission), plus the mission
  * budget when it ran out or exists, and the target to preselect: the budget the newest exceeded
- * event names, else the first one `hasBudget` (an unknown-usage block names none), else the first.
+ * event names, else the first one `holds` (an unknown-usage block names none: the budget that
+ * blocks unknown usage), else the first one `hasBudget`, else the first.
  */
 export function budgetTargets(
   task: Pick<Task, "crewId"> | undefined,
   missionCrews: readonly Crew[],
   exceeded: ExceededFact | null,
   hasBudget: (t: BudgetTarget) => boolean = () => false,
+  holds: (t: BudgetTarget) => boolean = () => false,
 ): { targets: BudgetTarget[]; preferred: BudgetTarget | null } {
   const crews =
     task?.crewId != null ? missionCrews.filter((c) => c.id === task.crewId) : [...missionCrews];
@@ -95,7 +115,7 @@ export function budgetTargets(
       ? { kind: "crew", crewId: exceeded.crewId }
       : missionScoped
         ? { kind: "mission" }
-        : (targets.find(hasBudget) ?? targets[0] ?? null);
+        : (targets.find(holds) ?? targets.find(hasBudget) ?? targets[0] ?? null);
   return { targets, preferred };
 }
 

@@ -69,6 +69,67 @@ describe("budget logic", () => {
     expect(latestExceeded([])).toBeNull();
   });
 
+  it("skips an exceeded budget that was changed since, so the one still exhausted is named", () => {
+    const events = [
+      event("budget.exceeded", {
+        budgetId: "bgt_m" as never,
+        unit: "tokens",
+        used: 90,
+        limit: 80,
+        scope: "mission",
+      }),
+      event(
+        "budget.exceeded",
+        { budgetId: "bgt_c" as never, unit: "tokens", used: 50, limit: 40 },
+        { crewId: c.id },
+      ),
+      // The operator raised the crew budget; the task is still held by the mission budget.
+      event(
+        "budget.updated",
+        {
+          budget: policy({ id: "bgt_c" as never, crewId: c.id, limitTokens: 100, version: 1 }),
+          previous: null,
+        },
+        { crewId: c.id },
+      ),
+    ];
+    expect(latestExceeded(events)).toMatchObject({ budgetId: "bgt_m", scope: "mission" });
+    const { preferred } = budgetTargets(task({ crewId: c.id }), [c], latestExceeded(events));
+    expect(preferred).toEqual({ kind: "mission" });
+  });
+
+  it("keeps an exceeded budget whose update left it exhausted (only onUnknown changed)", () => {
+    const events = [
+      event("budget.exceeded", {
+        budgetId: "bgt_m" as never,
+        unit: "tokens",
+        used: 90,
+        limit: 80,
+        scope: "mission",
+      }),
+      event(
+        "budget.exceeded",
+        { budgetId: "bgt_c" as never, unit: "tokens", used: 50, limit: 40 },
+        { crewId: c.id },
+      ),
+      event(
+        "budget.updated",
+        {
+          budget: policy({
+            id: "bgt_c" as never,
+            crewId: c.id,
+            limitTokens: 40,
+            onUnknown: "allow",
+            version: 1,
+          }),
+          previous: null,
+        },
+        { crewId: c.id },
+      ),
+    ];
+    expect(latestExceeded(events)).toMatchObject({ budgetId: "bgt_c", scope: "crew" });
+  });
+
   it("prefers the crew the exceeded event names, else the task's crew", () => {
     const exceeded = {
       budgetId: "b",

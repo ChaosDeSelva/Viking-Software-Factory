@@ -150,6 +150,28 @@ describe("Layout", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
+  it("reopens the stream from the gap banner when the gap ended it (expired cursor)", async () => {
+    const client = mockClient();
+    renderLayout(client);
+    await waitFor(() => expect(client.streamController.calls).toHaveLength(1));
+    act(() => client.streamController.last?.onGap?.({ reason: "cursor_expired" }));
+    act(() =>
+      client.streamController.fail(
+        Object.assign(new Error("cursor expired"), { name: "MimirError", code: "cursor_expired" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("status")
+          .some((el) => /^Connection:.*offline/i.test(el.textContent ?? "")),
+      ).toBe(true),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /reload snapshot/i }));
+    await waitFor(() => expect(client.streamController.calls).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("announces attention count in an aria-live region", async () => {
     const client = mockClient({
       snapshot: vi.fn(async () => snapshot({ approvals: [approval()] })),

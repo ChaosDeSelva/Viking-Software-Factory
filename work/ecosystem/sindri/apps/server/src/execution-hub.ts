@@ -219,6 +219,9 @@ export class ExecutionHub {
     first: (conn: MimirConnection, signal: AbortSignal) => Promise<unknown>,
   ): Promise<void> {
     const conn = await this.connection();
+    // close() may have run meanwhile; a run started now would outlive it.
+    if (this.#closed)
+      throw new ApiError(503, "delivery_unavailable", "the server is shutting down; retry later");
     // Reserve the slot at once (the new run waits for the old one), so a concurrent
     // ensureRunning joins this run instead of starting a second consumer (review m1).
     const active = this.#runs.get(executionId);

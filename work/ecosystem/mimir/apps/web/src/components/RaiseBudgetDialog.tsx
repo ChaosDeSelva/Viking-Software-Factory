@@ -126,11 +126,21 @@ function RaiseBudgetForm({
   }, [client, missionId, reportError, tick]);
 
   const exceeded = useMemo(() => (history ? latestExceeded(history) : null), [history]);
-  const { targets, preferred } = useMemo(
-    () =>
-      budgetTargets(task, crews, exceeded, (t) => !!history && currentPolicy(history, t) !== null),
-    [task, crews, exceeded, history],
-  );
+  const uncertainBlock = task?.blockedReason === "budget_uncertain";
+  const { targets, preferred } = useMemo(() => {
+    const policyOf = (t: BudgetTarget) => (history ? currentPolicy(history, t) : null);
+    return budgetTargets(
+      task,
+      crews,
+      exceeded,
+      (t) => policyOf(t) !== null,
+      // Only a budget that blocks unknown usage can hold an unknown-usage block.
+      (t) => {
+        const p = policyOf(t);
+        return uncertainBlock && p !== null && effectiveOnUnknown(p) === "block";
+      },
+    );
+  }, [task, crews, exceeded, history, uncertainBlock]);
   const chosen = target ?? preferred;
   const policy = useMemo(
     () => (history && chosen ? currentPolicy(history, chosen) : null),
@@ -172,7 +182,6 @@ function RaiseBudgetForm({
     policy?.limitTokens ?? (exceededHere?.unit === "tokens" ? exceededHere.limit : null);
   const usedTokens = usage?.totals.tokens ?? null;
 
-  const uncertainBlock = task?.blockedReason === "budget_uncertain";
   const creating = history !== null && policy === null;
   // Prefill once the numbers are in (and again after switching budgets). An unknown-usage block
   // with a limit set needs no new limit, so it starts blank (keep).

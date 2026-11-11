@@ -232,6 +232,62 @@ describe("Raise budget", () => {
     expect(await screen.findByText("Budget saved")).toBeTruthy();
   });
 
+  it("preselects the budget whose unknown-usage rule blocks, for an unknown-usage block", async () => {
+    const user = userEvent.setup();
+    const m = mission({ objective: "Ship it" });
+    const c = crew({ missionId: m.id, template: "implementer" });
+    const t = task({
+      missionId: m.id,
+      crewId: c.id,
+      title: "build: Compile the thing",
+      status: "blocked",
+      blockedReason: "budget_uncertain",
+    });
+    const history = [
+      event(
+        "mission.created",
+        {
+          projectId: m.projectId,
+          objective: m.objective,
+          budget: policy({ id: "bgt_m" as never, missionId: m.id, onUnknown: "block", version: 0 }),
+        },
+        { missionId: m.id },
+      ),
+      event(
+        "crew.created",
+        {
+          crew: c,
+          members: [],
+          budget: policy({ crewId: c.id, missionId: m.id, onUnknown: "allow", version: 0 }),
+        },
+        { missionId: m.id, crewId: c.id },
+      ),
+    ];
+    const client = mockClient({
+      snapshot: vi.fn(async () => snapshot({ missions: [m], crews: [c], tasks: [t] })),
+    });
+    vi.mocked(client.events.list).mockResolvedValue(page(history, null));
+    vi.mocked(client.usage.get).mockResolvedValue(usage(120_000));
+    vi.mocked(client.missions.updateBudget).mockResolvedValue({
+      budget: policy({ missionId: m.id, onUnknown: "allow", version: 1 }),
+      changed: true,
+    });
+    renderWithStore(<MissionDetail />, {
+      client,
+      route: `/missions/${m.id}`,
+      path: "/missions/:id",
+    });
+    const dialog = await openDialog(user);
+    await within(dialog).findByText("Mission budget", { selector: "dd" });
+    await within(dialog).findByText("120,000");
+    await user.click(within(dialog).getByRole("button", { name: "Save budget" }));
+    expect(client.missions.updateBudget).toHaveBeenCalledWith(m.id, {
+      onUnknown: "allow",
+      expectedVersion: 0,
+    });
+    expect(client.crews.updateBudget).not.toHaveBeenCalled();
+  });
+
   it("refuses a save that changes nothing", async () => {
     const user = userEvent.setup();
     const { client } = setup({ reason: "budget_uncertain" });

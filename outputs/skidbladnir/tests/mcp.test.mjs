@@ -26,18 +26,18 @@ test('configuration defaults to the local API and accepts only a bare loopback o
 test('tool listing marks the inspection tool read-only and hides controls until enabled',()=>{
  const inspect=toolList({});assert.deepEqual(inspect.map(t=>t.name),['skidbladnir_workers']);
  assert.deepEqual(inspect[0].annotations,{readOnlyHint:true,destructiveHint:false,openWorldHint:false});
- const all=toolList(env);assert.deepEqual(all.map(t=>t.name),['skidbladnir_workers','skidbladnir_launch','skidbladnir_control','skidbladnir_execute','skidbladnir_collect_artifact','skidbladnir_command']);
+ const all=toolList(env);const keyPattern=name=>all.find(t=>t.name===name).inputSchema.properties.requestKey.pattern;assert.equal(keyPattern('skidbladnir_execute'),'^[A-Za-z0-9-]{8,100}$');assert.equal(keyPattern('skidbladnir_launch'),'^[A-Za-z0-9-]{1,100}$');assert.deepEqual(all.map(t=>t.name),['skidbladnir_workers','skidbladnir_launch','skidbladnir_control','skidbladnir_execute','skidbladnir_collect_artifact','skidbladnir_command']);
  for(const tool of all.slice(1)){assert.deepEqual(tool.annotations,{readOnlyHint:false,destructiveHint:true,openWorldHint:true});assert.equal(tool.inputSchema.additionalProperties,false);assert.ok(tool.inputSchema.required.length>=2);}
 });
 
 test('each tool maps to one authenticated local request',async()=>{
  const cases=[
-  ['skidbladnir_launch',{name:'w',template:'node',minutes:5,requestKey:'key-1'},'/api/workers',{name:'w',template:'node',minutes:5},'key-1'],
+  ['skidbladnir_launch',{name:'w',template:'node',minutes:5,requestKey:'launch-key-1'},'/api/workers',{name:'w',template:'node',minutes:5},'launch-key-1'],
   ['skidbladnir_control',{workerId:'sim-1',action:'stop'},'/api/workers/sim-1/stop',{},undefined],
-  ['skidbladnir_execute',{workerId:'aws-1',command:'printf hi',requestKey:'key-2'},'/api/workers/aws-1/commands',{command:'printf hi'},'key-2'],
+  ['skidbladnir_execute',{workerId:'aws-1',command:'printf hi',requestKey:'command-key-2'},'/api/workers/aws-1/commands',{command:'printf hi'},'command-key-2'],
   ['skidbladnir_collect_artifact',{workerId:'aws-1',path:'out/result.json'},'/api/workers/aws-1/artifacts',{path:'out/result.json'},undefined],
   ['skidbladnir_command',{commandId:'key-2',action:'cancel'},'/api/commands/key-2/cancel',{},undefined],
- ['skidbladnir_launch',{name:'w',template:'node',minutes:5,project:'demo-app',requestKey:'key-3'},'/api/workers',{name:'w',template:'node',minutes:5,project:'demo-app'},'key-3'],
+ ['skidbladnir_launch',{name:'w',template:'node',minutes:5,project:'demo-app',requestKey:'launch-key-3'},'/api/workers',{name:'w',template:'node',minutes:5,project:'demo-app'},'launch-key-3'],
  ];
  for(const [name,args,path,body,key] of cases){
   const {calls,request}=recorder({echo:name});const result=await callTool(name,args,env,request);
@@ -59,6 +59,8 @@ test('arguments are validated before any request is made',async()=>{
   ['skidbladnir_launch',{name:'w',template:'node',minutes:5},/Missing requestKey/],
   ['skidbladnir_launch',{name:'w',template:'node',minutes:5,requestKey:'key-1',extra:1},/Unexpected argument extra/],
   ['skidbladnir_launch',{name:'w',template:'node',minutes:5,requestKey:'key 1'},/Invalid identity/],
+  // The API refuses command keys shorter than eight characters; launch keys are checked by the API.
+  ['skidbladnir_execute',{workerId:'aws-1',command:'true',requestKey:'key-1'},/Invalid identity/],
   ['skidbladnir_control',{workerId:'a/b',action:'stop'},/Invalid identity/],
   ['skidbladnir_control',{workerId:'sim-1',action:'explode'},/Invalid action/],
   ['skidbladnir_command',{commandId:'../x',action:'refresh'},/Invalid identity/],

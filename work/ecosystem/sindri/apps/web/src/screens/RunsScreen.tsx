@@ -40,7 +40,7 @@ import {
   Status,
   Timestamp,
 } from "../components/ui.js";
-import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
+import { useApi, useLive, useLoad, useReportError, useStore } from "../store/context.js";
 
 const DELIVERED = new Set(["verified_pending_review", "delivered_pending_merge"]);
 /** Statuses after which a run produces no more events, so a closed stream is not reopened. */
@@ -207,7 +207,7 @@ function RunDetail({
   const api = useApi();
   const { dispatch } = useStore();
   const report = useReportError();
-  const loaded = useLoad(() => api.getExecution(executionId), [executionId]);
+  const loaded = useLoad(() => api.getExecution(executionId), [executionId], { live: false });
   const [live, setLive] = useState<ExecutionDetail | null>(null);
   const [events, setEvents] = useState<ExecutionEvent[]>([]);
   const [busy, setBusy] = useState(false);
@@ -234,6 +234,13 @@ function RunDetail({
       () => undefined,
     );
   }, [api, executionId, show]);
+  // Sindri's change stream refreshes through refresh(), so each request is numbered when it is
+  // sent and an older answer can never replace a newer one.
+  const { version } = useLive();
+  const firstVersion = useRef(version);
+  useEffect(() => {
+    if (version !== firstVersion.current) refresh();
+  }, [version, refresh]);
 
   // The stream ends when the server restarts or the connection drops. While the run can still
   // change, say so and reopen it with a capped backoff; unmounting stops everything.

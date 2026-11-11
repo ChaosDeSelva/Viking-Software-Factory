@@ -255,6 +255,56 @@ describe("the loop's timers", () => {
         .sort(),
     ).toEqual(["", "retry"]);
   });
+
+  it("does not auto-apply a recommendation that arrives after the operator paused", async () => {
+    const ref: { steward?: Steward } = {};
+    const provider: LlmProvider = {
+      name: "pausing",
+      complete() {
+        ref.steward!.pause("op");
+        return Promise.resolve({
+          text: "",
+          parsed: { value: "retry", detail: "", reasoning: "r", confidence: 0.9 } as never,
+          usage: null,
+          model: "m",
+          stopReason: "end",
+        });
+      },
+    };
+    const world = new FakeWorld();
+    const steward = (ref.steward = new Steward({ db: testDb(), world, provider: () => provider }));
+    steward.setMode("escalation.resolve", "auto", "op");
+    world.e = [escalation()];
+    await steward.tick();
+    expect(world.calls).toEqual([]);
+    expect(steward.list()[0]).toMatchObject({
+      status: "pending",
+      recommendation: { value: "retry" },
+    });
+  });
+
+  it("does not auto-apply a recommendation that arrives after close", async () => {
+    const ref: { steward?: Steward } = {};
+    const provider: LlmProvider = {
+      name: "closing",
+      complete() {
+        void ref.steward!.close(0);
+        return Promise.resolve({
+          text: "",
+          parsed: { value: "retry", detail: "", reasoning: "r", confidence: 0.9 } as never,
+          usage: null,
+          model: "m",
+          stopReason: "end",
+        });
+      },
+    };
+    const world = new FakeWorld();
+    const steward = (ref.steward = new Steward({ db: testDb(), world, provider: () => provider }));
+    steward.setMode("escalation.resolve", "auto", "op");
+    world.e = [escalation()];
+    await steward.tick();
+    expect(world.calls).toEqual([]);
+  });
 });
 
 describe("recommendation failures", () => {

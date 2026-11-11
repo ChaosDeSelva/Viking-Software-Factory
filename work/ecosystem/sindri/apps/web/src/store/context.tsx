@@ -112,6 +112,8 @@ function useChangeStream(
         .then(
           () => undefined,
           (err: unknown) => {
+            // A stream opened with an earlier token must not sign out the current one.
+            if (ctrl.signal.aborted) return "stop";
             if (err instanceof ApiError && err.status === 401) {
               onRejected();
               return "stop";

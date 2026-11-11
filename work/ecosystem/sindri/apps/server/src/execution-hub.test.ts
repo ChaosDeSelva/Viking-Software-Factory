@@ -111,6 +111,19 @@ describe("ExecutionHub.ensureRunning", () => {
     expect(s.hub.isRunning("exe_1")).toBe(false);
   });
 
+  it("takeover does not start a consumer when the hub closes while the connection is being made", async () => {
+    let release!: (v: string) => void;
+    const s = setup({}, () => new Promise((r) => (release = r)));
+    s.addExecution("exe_1");
+    const first = vi.fn(() => Promise.resolve());
+    const pending = s.hub.takeover("exe_1", first);
+    await s.hub.close();
+    release("tok");
+    await expect(pending).rejects.toMatchObject({ status: 503 });
+    expect(first).not.toHaveBeenCalled();
+    expect(s.hub.isRunning("exe_1")).toBe(false);
+  });
+
   it("reports a failed background run to onRunError", async () => {
     const s = setup();
     s.addExecution("exe_1");

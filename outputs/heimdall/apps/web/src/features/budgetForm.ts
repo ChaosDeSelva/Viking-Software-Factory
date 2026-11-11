@@ -65,7 +65,9 @@ export function budgetBlock(
     return "Enter a new token or cost limit, or choose how to treat unknown usage.";
   if (t !== null && (!Number.isInteger(t) || t <= 0))
     return "The token limit must be a whole number above 0.";
-  if (c !== null && !(c > 0)) return "The cost limit must be above 0.";
+  // Infinity would reach the server as JSON null and the new limit would be silently dropped.
+  if (c !== null && !(Number.isFinite(c) && c > 0))
+    return "The cost limit must be a number above 0.";
   const limitTokens = num(entry?.limitTokens),
     limitCost = num(entry?.limitCost);
   if (t !== null && limitTokens !== null && t <= limitTokens)

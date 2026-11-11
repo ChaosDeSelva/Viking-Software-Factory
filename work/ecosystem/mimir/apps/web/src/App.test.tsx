@@ -22,6 +22,28 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
   });
 
+  it("signs in for this page when the browser blocks sessionStorage", async () => {
+    const blocked = () => {
+      throw new DOMException("The operation is insecure.", "SecurityError");
+    };
+    const spies = [
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(blocked),
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(blocked),
+      vi.spyOn(Storage.prototype, "removeItem").mockImplementation(blocked),
+    ];
+    try {
+      const user = userEvent.setup();
+      const factory = vi.fn(() => mockClient());
+      render(<App clientFactory={factory} baseUrl="http://x" />);
+      await user.type(screen.getByLabelText(/auth token/i), "s3cret");
+      await user.click(screen.getByRole("button", { name: /connect/i }));
+      expect(factory).toHaveBeenCalledWith({ baseUrl: "http://x", token: "s3cret" });
+      expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
+  });
+
   it("uses a token already in sessionStorage", async () => {
     sessionStorage.setItem(TOKEN_KEY, "tok");
     const factory = vi.fn(() => mockClient());

@@ -511,6 +511,18 @@ describe("renderPrDescription: sparse reports", () => {
     }
   });
 
+  it("keeps agent text with a bare carriage return on its own table row", () => {
+    // Markdown treats a lone CR as a line ending, so it would end the row and start a new block.
+    const md = renderPrDescription({
+      ...empty,
+      changedFiles: [{ planTaskId: "a", path: "a.ts\r---\r", status: "added", artifactId: "x" }],
+      limitations: ["one\r# Injected heading"],
+    });
+    expect(md).not.toContain("\r");
+    expect(md).toContain("| a.ts ---  | added | a |");
+    expect(md).toContain("- one \\# Injected heading");
+  });
+
   it("renders tasks without verification, failed gates, unattributed runs and located findings", () => {
     const harness = { id: "h", version: "1", lockDigest: "d" };
     const md = renderPrDescription({

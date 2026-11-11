@@ -160,6 +160,19 @@ describe("LocalProcessExecutor", () => {
     expect(result.pid).toBeUndefined();
   });
 
+  it("is cancelled when the signal aborts while the working directory is resolved", async () => {
+    const controller = new AbortController();
+    // The abort lands before the child is spawned and its abort listener is attached.
+    const pending = executor.execute(
+      request(tmp(), [NODE, "-e", "setTimeout(() => {}, 15000)"]),
+      controller.signal,
+    );
+    controller.abort();
+    const result = await pending;
+    expect(result.state).toBe("cancelled");
+    expect(result.pid).toBeUndefined();
+  });
+
   it("cleans up processes left behind by a check that exited", { timeout: 20_000 }, async () => {
     const ws = tmp();
     const script = TREE_SCRIPT.replace("setInterval(() => {}, 1000);", "process.exit(0);");

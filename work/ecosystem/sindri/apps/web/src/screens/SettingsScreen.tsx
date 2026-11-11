@@ -1,5 +1,5 @@
 import { Callout, InfoHint, Page, Stack, StickyActionBar } from "@factory/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Settings } from "../api/types.js";
 import { Button, Field, LoadState, ScreenHeader, inputClass, Card } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
@@ -12,9 +12,16 @@ export function SettingsScreen() {
   const loaded = useLoad(() => api.getSettings(), []);
   const [form, setForm] = useState<Settings | null>(null);
   const [busy, setBusy] = useState(false);
+  // The settings the form was last filled from: a live refresh replaces the form only while it
+  // still equals them, so unsaved edits survive.
+  const seeded = useRef<Settings | null>(null);
 
   useEffect(() => {
-    if (loaded.state.status === "ready") setForm(loaded.state.data.settings);
+    if (loaded.state.status !== "ready") return;
+    const next = loaded.state.data.settings;
+    const prev = seeded.current;
+    seeded.current = next;
+    setForm((f) => (f === null || f === prev ? next : f));
   }, [loaded.state]);
 
   const run = async (fn: () => Promise<void>) => {
@@ -55,7 +62,9 @@ export function SettingsScreen() {
                     const fg = clean.feedbackGraph;
                     if (fg && !fg.url.trim() && !fg.tokenSecret.trim() && !fg.enabled)
                       delete clean.feedbackGraph;
-                    setForm(await api.putSettings(clean));
+                    const saved = await api.putSettings(clean);
+                    seeded.current = saved;
+                    setForm(saved);
                     notify("Settings saved");
                   });
                 }}

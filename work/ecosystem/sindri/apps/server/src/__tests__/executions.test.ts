@@ -125,6 +125,11 @@ describe("executions with a fake Mimir", () => {
     });
     const restIds = [...rest.body.matchAll(/^id: (\S+)$/gm)].map((m) => m[1]);
     expect(restIds).toEqual(ids.slice(3));
+    // A repeated parameter arrives as an array: refused, not a 500 or a stream that never ends.
+    for (const query of ["follow=0&after=a&after=b", "follow=0&follow=0"]) {
+      const bad = await flow.h.call({ url: `/v1/executions/${execution.id}/events?${query}` });
+      expect(bad.statusCode).toBe(422);
+    }
   });
 
   it("relays live events to an open stream", async () => {

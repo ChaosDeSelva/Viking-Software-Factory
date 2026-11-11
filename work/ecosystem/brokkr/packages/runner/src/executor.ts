@@ -235,6 +235,11 @@ export class LocalProcessExecutor implements CheckExecutor {
       truncated = true;
     };
 
+    // An abort during the awaits above already fired; the listener added after spawn would miss it.
+    if (signal?.aborted) {
+      await new Promise<void>((res) => (log ? log.end(() => res()) : res()));
+      return finish({ state: "cancelled", reason: "cancelled" });
+    }
     const token = randomUUID();
     let child: ChildProcess;
     try {

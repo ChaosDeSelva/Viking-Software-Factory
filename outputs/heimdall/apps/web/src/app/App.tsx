@@ -353,7 +353,8 @@ export function App() {
       ? navigate(href("connections", {}, "services"))
       : open(kind, row);
   useDesktopAlerts(
-    state?.notifications ?? [],
+    // Undefined until the first snapshot, so its backlog primes the alerts instead of firing them.
+    state?.notifications,
     !!state?.preferences?.desktopNotifications,
     inspectNotification,
   );

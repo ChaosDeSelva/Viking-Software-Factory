@@ -139,10 +139,13 @@ export class AwsProvider {
     return {ready:result.InstanceInformationList?.[0]?.PingStatus==='Online',state:current.state};
   }
   async execute(worker,command) {
+    let current;
+    try {
     if(typeof command!=='string'||!command.trim()||Buffer.byteLength(command)>16000)throw Error('Command must contain at most 16000 bytes.');
-    const current=await this.inspect(worker);if(current.state!=='running')throw Error('Worker must be running.');
+    current=await this.inspect(worker);if(current.state!=='running')throw Error('Worker must be running.');
     const info=await this.request('ssm','describe-instance-information',{Filters:[{Key:'InstanceIds',Values:[current.instanceId]}]});
     if(info.InstanceInformationList?.[0]?.PingStatus!=='Online')throw Error('SSM is not online. Check the instance profile and private network endpoints.');
+    } catch(error){error.notSubmitted=true;throw error;}
     const result=await this.request('ssm','send-command',{InstanceIds:[current.instanceId],DocumentName:'AWS-RunShellScript',TimeoutSeconds:60,Parameters:{commands:[command],executionTimeout:['300']}});
     if(!result.Command?.CommandId)throw Error('Command outcome is unknown. Do not resend automatically.');
     return {commandId:result.Command.CommandId,instanceId:current.instanceId,status:'Pending'};

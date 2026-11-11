@@ -849,6 +849,22 @@ describe("DeliveryLoop: bug sweep and edge cases", () => {
     );
   });
 
+  it("a mission that completes closes a mission-level budget alert nobody can act on any more", async () => {
+    const h = await boot(approvalScript);
+    const exec = await execute(h, approvalPlan());
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    h.fake.inject(
+      "budget.exceeded",
+      { budgetId: "bgt_01J0000000000000000000000B", unit: "tokens", used: 9, limit: 5 },
+      { missionId: exec.mimirMissionId as never },
+    );
+    expect((await h.loop.resume(exec.id)).status).toBe("awaiting_human");
+    const approvalId = h.loop.approvals(exec.id)[0]!.mimirApprovalId;
+    await h.loop.decideApproval(exec.id, approvalId, "approved");
+    expect((await h.loop.resume(exec.id)).status).toBe("verified_pending_review");
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+  });
+
   it("a human retry spends its own attempt number, so a later automatic retry is not refused as a replay", async () => {
     const h = await boot({
       impl: [
@@ -1454,8 +1470,13 @@ describe("DeliveryLoop: a task parked on its crew budget escalates to a human", 
       )
       .run(exec.id, at);
     inject.released();
-    await h.loop.decideApproval(exec.id, h.loop.approvals(exec.id)[0]!.mimirApprovalId, "approved");
-    await h.loop.resume(exec.id);
+    // Stopped once the release is handled: the run's end would close every open item.
+    const ac = new AbortController();
+    const off = h.loop.on((n) => {
+      if (n.type === "event" && n.eventType === "task.ready") ac.abort();
+    });
+    await h.loop.resume(exec.id, { signal: ac.signal });
+    off();
     expect(h.loop.inbox(exec.id).map((i) => [i.kind, i.status])).toEqual([
       ["budget_exceeded", "resolved"],
       ["escalation", "open"],

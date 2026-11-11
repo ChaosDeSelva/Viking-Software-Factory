@@ -1,4 +1,4 @@
-import { blockedTooLong, budgetGuard, stuckDetector } from "@mimir/core";
+import { MISSION_TERMINAL_STATUSES, blockedTooLong, budgetGuard, stuckDetector } from "@mimir/core";
 import type { FastifyInstance } from "fastify";
 import { toBudgetPolicy } from "../orchestrator/orchestrator.js";
 
@@ -98,6 +98,9 @@ export function attentionRoutes(
       crews: [...rm.crews.values()],
     };
     for (const b of rm.budgets.values()) {
+      // A finished mission's budget cannot be raised (409) and gates no more work.
+      const mission = b.missionId === null ? undefined : rm.missions.get(b.missionId);
+      if (mission && MISSION_TERMINAL_STATUSES.has(mission.status)) continue;
       const r = budgetGuard.evaluate(toBudgetPolicy(b), usage, attribution);
       if (!r.warn && !r.exhausted) continue;
       items.push({

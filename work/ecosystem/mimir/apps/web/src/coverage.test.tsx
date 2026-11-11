@@ -657,10 +657,11 @@ describe("remaining branches", () => {
     expect(typeof client.snapshot).toBe("function");
   });
 
-  it("help dialog shows the screen's docs section, or only shortcuts on the docs page", () => {
+  it("help dialog shows the screen's docs section, or only shortcuts on the docs page", async () => {
     const { unmount } = render(<HelpDialog open onClose={vi.fn()} screen="reviews" />);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "On this screen" })).toBeTruthy();
+    // The docs text loads on first use.
+    expect(await within(dialog).findByRole("heading", { name: "On this screen" })).toBeTruthy();
     expect(
       within(dialog)
         .getByRole("link", { name: /full guide/ })

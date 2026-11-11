@@ -1272,10 +1272,7 @@ export class DeliveryLoop {
       .get(executionId);
     if (completed) {
       await this.collectArtifacts(executionId);
-      this.db
-        .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
-        .run(this.now().toISOString(), executionId);
-      this.setStatus(executionId, "verified_pending_review");
+      this.end(executionId, "verified_pending_review");
       return "verified_pending_review";
     }
     const tasks = this.tasks(executionId);
@@ -1296,9 +1293,7 @@ export class DeliveryLoop {
         tasks.every((t) => t.status === "completed" || t.resolution);
       if (skipped) await this.collectArtifacts(executionId);
       const status: ExecutionStatus = skipped ? "verified_pending_review" : "failed";
-      const notices: DeliveryNotice[] = [];
-      this.db.transaction(() => this.finish(executionId, status, notices))();
-      for (const n of notices) this.notify(n);
+      this.end(executionId, status);
       return status;
     }
     const byPlanId = new Map(tasks.map((t) => [t.planTaskId, t]));
@@ -1333,16 +1328,21 @@ export class DeliveryLoop {
         "remaining tasks skipped by a human in Sindri",
       );
       await this.collectArtifacts(executionId);
-      this.db
-        .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
-        .run(this.now().toISOString(), executionId);
-      this.setStatus(executionId, "verified_pending_review");
+      this.end(executionId, "verified_pending_review");
       return "verified_pending_review";
     }
     if (!open.every((t) => isStuck(t.planTaskId))) return null;
     const status = this.waitingStatus(executionId, tasks);
     this.setStatus(executionId, status);
     return status;
+  }
+
+  /** Ends the execution in one transaction, then sends its notices. Every ending goes through here
+   * so each one closes what nobody can act on any more. */
+  private end(executionId: string, status: ExecutionStatus): void {
+    const notices: DeliveryNotice[] = [];
+    this.db.transaction(() => this.finish(executionId, status, notices))();
+    for (const n of notices) this.notify(n);
   }
 
   /** The status of an execution in which nothing can progress without a human. */

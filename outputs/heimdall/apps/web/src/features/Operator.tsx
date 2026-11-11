@@ -33,6 +33,7 @@ import { download, post, type R } from "../lib/api";
 import { navigate } from "../lib/router";
 import { DEFAULT_STAGES } from "../pages/Pipeline";
 import { FeedbackGraphStatus } from "./Autonomy";
+import { newAlerts } from "./alerts";
 import { scopeOf, scopedNotifications } from "./scope";
 
 const LOCKED = "Unlock operator controls under Connections first.";
@@ -237,26 +238,17 @@ export function NotificationsPage() {
 
 /** Desktop alerts for new active, unread notifications (only after the first snapshot). */
 export function useDesktopAlerts(
-  items: R[],
+  items: R[] | undefined,
   enabled: boolean,
   onInspect: (k: string, r: R) => void,
 ) {
-  const seen = useRef(new Set<string>()),
-    initialized = useRef(false);
+  const seen = useRef<Set<string> | null>(null);
   useEffect(() => {
-    if (!initialized.current) {
-      items.forEach((n) => seen.current.add(n.id + ":" + n.revision));
-      initialized.current = true;
-      return;
-    }
-    for (const n of items) {
-      const key = n.id + ":" + n.revision;
-      if (seen.current.has(key)) continue;
-      seen.current.add(key);
+    const [next, fresh] = newAlerts(seen.current, items);
+    seen.current = next;
+    for (const n of fresh) {
       if (
         enabled &&
-        !n.seen &&
-        n.active &&
         "Notification" in window &&
         Notification.permission === "granted"
       ) {

@@ -1,6 +1,36 @@
 import { attentionRecords } from "./preferences.mjs";
 import { createHash } from "node:crypto";
 import { request as httpRequest } from "node:http";
+
+/** The lists Heimdall reads from Mimir's snapshot (Mimir's SnapshotResponseSchema). */
+const MIMIR_LISTS = [
+  "projects",
+  "missions",
+  "crews",
+  "tasks",
+  "taskDependencies",
+  "agents",
+  "approvals",
+  "worktrees",
+];
+
+/**
+ * Mimir's snapshot as Heimdall reads it: a missing list is empty (an older Mimir), anything else
+ * that is not an object with list fields throws, so the source shows as disconnected and the last
+ * good snapshot stays instead of breaking every later refresh and route.
+ */
+export function readMimirSnapshot(snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot))
+    throw Error("Mimir sent an unreadable snapshot");
+  const out = { ...snapshot };
+  for (const key of MIMIR_LISTS) {
+    if (out[key] === undefined) out[key] = [];
+    else if (!Array.isArray(out[key]))
+      throw Error(`Mimir sent an unreadable snapshot (${key} is not a list)`);
+  }
+  return out;
+}
+
 export function localUrl(value) {
   const u = new URL(value);
   if (
@@ -271,9 +301,11 @@ export class Hub {
             return;
           }
           try {
-            if (source === "mimir")
-              this.state.mimir = await request(c, "/v1/snapshot");
-            else {
+            if (source === "mimir") {
+              this.state.mimir = readMimirSnapshot(
+                await request(c, "/v1/snapshot"),
+              );
+            } else {
               const { projects } = await request(c, "/v1/projects");
               const next = {
                 projects,

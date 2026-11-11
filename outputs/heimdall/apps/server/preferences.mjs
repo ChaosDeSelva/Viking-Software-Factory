@@ -171,7 +171,8 @@ export function attentionRecords(state) {
           "Verification failed: " + g.planTaskId,
           "error",
           "gate",
-          { ...g, id: g.planTaskId },
+          // A gate names no project or mission; its run ties it to the selected project.
+          { ...g, id: g.planTaskId, executionId: e.execution.id },
           g.evaluatedAt,
         );
     for (const t of e.tasks ?? [])

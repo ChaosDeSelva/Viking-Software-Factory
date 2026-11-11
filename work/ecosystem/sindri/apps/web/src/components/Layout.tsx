@@ -271,18 +271,25 @@ export function Layout(props: { children: ReactNode }) {
   // The project picker needs the list on every screen, not only on Projects (which loads and
   // refreshes it itself). Reloaded when Sindri reports a change, so new projects appear.
   const { version } = useLive();
-  const firstProjects = useRef(true);
+  // Failures are reported until a list has loaded once; later refreshes fail quietly.
+  const projectsLoaded = useRef(false);
   useEffect(() => {
     if (state.view === "projects") return;
-    // Only the first load reports a failure; a refresh after a change fails quietly.
-    const quiet = !firstProjects.current;
-    firstProjects.current = false;
-    api
-      .listProjects()
-      .then(
-        (projects) => dispatch({ type: "projects/loaded", projects }),
-        quiet ? () => undefined : report,
-      );
+    // A slow answer to an older refresh, success or failure, must not act after a newer one.
+    let current = true;
+    api.listProjects().then(
+      (projects) => {
+        if (!current) return;
+        projectsLoaded.current = true;
+        dispatch({ type: "projects/loaded", projects });
+      },
+      (err: unknown) => {
+        if (current && !projectsLoaded.current) report(err);
+      },
+    );
+    return () => {
+      current = false;
+    };
   }, [api, version]);
 
   // A Guide link (or any navigation) closes the Ask drawer so the screen is visible.

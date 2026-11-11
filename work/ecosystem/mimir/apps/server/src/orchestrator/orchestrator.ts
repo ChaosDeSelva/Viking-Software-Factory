@@ -2223,8 +2223,11 @@ export class Orchestrator {
         { unit: "tokens" as const, limit: budget.limitTokens, used: r.spentTokens },
         { unit: "cost" as const, limit: budget.limitCost, used: r.spentCost },
       ].filter((d): d is typeof d & { limit: number } => d.limit !== null);
+      // A zero limit (allowed at creation) is already reached; 0/0 would be NaN and never win.
+      const ratio = (d: { used: number; limit: number }) =>
+        d.limit === 0 ? (d.used > 0 ? Infinity : 1) : d.used / d.limit;
       const top = dims.reduce<(typeof dims)[number] | undefined>(
-        (best, d) => (best === undefined || d.used / d.limit > best.used / best.limit ? d : best),
+        (best, d) => (best === undefined || ratio(d) > ratio(best) ? d : best),
         undefined,
       );
       if (top === undefined) continue;

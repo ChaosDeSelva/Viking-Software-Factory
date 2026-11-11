@@ -415,6 +415,37 @@ describe("learning", () => {
     expect(g[0]!.rule).toMatch(/consistently add "confirm", "finance"/);
   });
 
+  it("names the values of a changed-value rule exactly when they contain an arrow", async () => {
+    const { world, steward } = setup(() => rec("Map status -> state"));
+    for (const n of [1, 2, 3]) {
+      world.q = [question({ lineageId: `lin-${n}` }, { text: `Question ${n} about exports?` })];
+      await steward.tick();
+      const d = steward.list({ status: "pending" })[0]!;
+      await steward.accept(d.id, { value: "Keep status" }, { actor: "op" });
+    }
+    const rules = steward.guidance(PROJECT).map((x) => x.rule);
+    expect(rules.filter((r) => r.includes("changed recommendations of"))).toEqual([
+      expect.stringMatching(
+        /changed recommendations of "Map status -> state" to "Keep status" 3 times/,
+      ),
+    ]);
+  });
+
+  it("corrections whose values only look alike around an arrow are not grouped", async () => {
+    const recs = ["a->b", "a", "a"];
+    const finals = ["c", "b->c", "b->c"];
+    let i = 0;
+    const { world, steward } = setup(() => rec(recs[i]!));
+    for (; i < 3; i++) {
+      world.q = [question({ lineageId: `lin-${i}` }, { text: `Question ${i} about exports?` })];
+      await steward.tick();
+      const d = steward.list({ status: "pending" })[0]!;
+      await steward.accept(d.id, { value: finals[i]! }, { actor: "op" });
+    }
+    const rules = steward.guidance(PROJECT).map((x) => x.rule);
+    expect(rules.filter((r) => r.includes("changed recommendations of"))).toEqual([]);
+  });
+
   it("rejections of one value propose guidance; rejecting a proposal records it", async () => {
     const { world, steward } = setup(() => rec("abort"));
     for (const n of [1, 2, 3]) {

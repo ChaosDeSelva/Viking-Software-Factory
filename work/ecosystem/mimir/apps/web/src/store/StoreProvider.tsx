@@ -117,6 +117,9 @@ export function StoreProvider({
             }),
           // The SDK reports connecting/open/reconnecting/closed; a received event also proves open.
           onStatus: (status) => dispatch({ type: "connection/changed", connection: status }),
+          // Without this the SDK ends the stream on an event type from a newer server; the
+          // snapshot picks up whatever that event changed.
+          onInvalidEvent: scheduleRefresh,
         });
         for await (const event of stream) {
           if (controller.signal.aborted) break;

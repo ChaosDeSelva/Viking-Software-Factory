@@ -23,6 +23,11 @@ const Resolve = z.strictObject({
 });
 
 type IdParams = { Params: { id: string } };
+// Strings only: a repeated parameter arrives as an array.
+const EventsQuery = z.object({
+  follow: z.string().optional(),
+  after: z.string().max(200).optional(),
+});
 
 const HEARTBEAT_MS = 15_000;
 
@@ -138,9 +143,10 @@ export function executionRoutes(
     async (req, reply) => {
       const id = req.params.id;
       const execution = requireExecution(id);
-      const follow = req.query.follow !== "0" && req.query.follow !== "false";
+      const query = parseBody(EventsQuery, req.query);
+      const follow = query.follow !== "0" && query.follow !== "false";
       const headerId = req.headers["last-event-id"];
-      const lastId = (Array.isArray(headerId) ? headerId[0] : headerId) ?? req.query.after;
+      const lastId = (Array.isArray(headerId) ? headerId[0] : headerId) ?? query.after;
       let seq = lastId ? eventSeq(s.db, id, lastId) : 0;
 
       reply.hijack();

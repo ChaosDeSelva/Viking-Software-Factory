@@ -232,3 +232,61 @@ test("the app switcher links to the other apps' landing pages without Heimdall's
     mimir: "http://127.0.0.1:7700/",
   });
 });
+
+test("a failed verification gate notification shows under its run's project", async () => {
+  const { attentionRecords } = await import("../apps/server/preferences.mjs");
+  const run = {
+    execution: {
+      id: "ex_a",
+      projectId: "sp_a",
+      mimirMissionId: "m_a",
+      status: "running",
+    },
+    tasks: [],
+    gates: [
+      { planTaskId: "T1", passed: false, evaluatedAt: "2026-01-01T00:00:00Z" },
+    ],
+  };
+  const withRun = { ...state, sindri: { ...state.sindri, executions: [run] } };
+  const gate = attentionRecords(withRun).find((n) => n.kind === "gate");
+  assert.ok(gate, "a failed gate is a notification");
+  assert.deepEqual(
+    scopedNotifications([gate], scopeOf(withRun, "/r/a")).map((n) => n.id),
+    [gate.id],
+  );
+  assert.deepEqual(scopedNotifications([gate], scopeOf(withRun, "/r/b")), []);
+});
+
+test("desktop alerts: the backlog in the first snapshot never alerts, later news does once", async () => {
+  const { newAlerts } = await import("../apps/web/src/features/alerts.ts");
+  const backlog = [
+    { id: "task:t_b", revision: "1", active: true, seen: false },
+    { id: "task:t_x", revision: "1", active: true, seen: false },
+  ];
+  // The app renders before the first snapshot arrives: no notifications list yet.
+  let seen = null,
+    alerts;
+  [seen, alerts] = newAlerts(seen, undefined);
+  assert.deepEqual(alerts, []);
+  [seen, alerts] = newAlerts(seen, backlog);
+  assert.deepEqual(alerts, [], "what was already waiting at load is not news");
+  const later = [
+    ...backlog,
+    { id: "task:t_y", revision: "1", active: true, seen: false },
+    { id: "task:t_z", revision: "1", active: false, seen: false },
+    { id: "task:t_r", revision: "1", active: true, seen: true },
+  ];
+  [seen, alerts] = newAlerts(seen, later);
+  assert.deepEqual(
+    alerts.map((n) => n.id),
+    ["task:t_y"],
+  );
+  [seen, alerts] = newAlerts(seen, later);
+  assert.deepEqual(alerts, [], "each revision alerts once");
+  [seen, alerts] = newAlerts(seen, [{ ...backlog[0], revision: "2" }]);
+  assert.deepEqual(
+    alerts.map((n) => n.id),
+    ["task:t_b"],
+    "a new revision is news",
+  );
+});

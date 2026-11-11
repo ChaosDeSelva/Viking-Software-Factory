@@ -6,7 +6,7 @@ import {
   type ConnectionState,
   type NavTab,
 } from "@factory/ui";
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { useSession } from "../api/session.js";
 import { deriveAttention } from "../lib/derive.js";
@@ -15,14 +15,11 @@ import { attentionInScope, useProjectScope, useScoped } from "../lib/scope.js";
 import { useShortcutsEnabled } from "../lib/shortcutsPref.js";
 import { useShortcuts } from "../lib/useShortcuts.js";
 import { useNow } from "../lib/useNow.js";
-import { lazyScreen } from "../lib/lazyScreen.js";
+import { HelpDialog } from "./HelpDialog.js";
 import type { Connection } from "../store/reducer.js";
 import { useStore } from "../store/StoreProvider.js";
 import { FACTORY_APPS } from "./apps.js";
 import { AskDrawer } from "./AskDrawer.js";
-
-// The help dialog shows docs page text, so it loads the first time it is opened.
-const HelpDialog = lazyScreen(() => import("./HelpDialog.js").then((m) => m.HelpDialog));
 
 const CONNECTION: Record<Connection, ConnectionState> = {
   connecting: "connecting",
@@ -141,7 +138,11 @@ export function Layout() {
                 tone="warning"
                 title="The live stream may have missed events"
                 action={
-                  <Button size="sm" onClick={() => void refresh()}>
+                  // A gap that ended the stream (expired cursor) needs the stream reopened too.
+                  <Button
+                    size="sm"
+                    onClick={() => (state.connection === "closed" ? reconnect() : void refresh())}
+                  >
                     Reload snapshot
                   </Button>
                 }
@@ -179,11 +180,7 @@ export function Layout() {
           : ""}
       </p>
       <Outlet />
-      {helpOpen && (
-        <Suspense fallback={null}>
-          <HelpDialog open onClose={() => setHelpOpen(false)} screen={route?.screen} />
-        </Suspense>
-      )}
+      {helpOpen && <HelpDialog open onClose={() => setHelpOpen(false)} screen={route?.screen} />}
       <AskDrawer open={askOpen} onClose={() => setAskOpen(false)} screen={route?.screen} />
     </AppShell>
   );

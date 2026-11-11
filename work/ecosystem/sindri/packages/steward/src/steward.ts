@@ -389,6 +389,8 @@ export class Steward {
   // ------------------------------------------------------------------ applying
 
   async #autoApply(stale: StoredDecision, c: Candidate): Promise<void> {
+    // Pause and close can arrive while the tick awaited the provider for this recommendation.
+    if (this.#closed || this.store.paused()) return;
     // The cycle's snapshot may be stale: the operator can decide while a tick awaits a provider.
     const d = this.store.get(stale.id);
     if (!d || d.status !== "pending" || this.#busy.has(d.id)) return;
@@ -709,7 +711,8 @@ export class Steward {
       const rec = norm(type, d.recommendation.value);
       if (d.status === "changed") {
         const fin = norm(type, d.appliedValue ?? "");
-        if (rec !== fin) add(`changed:${rec}->${fin}`, d);
+        // JSON keeps the pair unambiguous: either value may itself contain "->".
+        if (rec !== fin) add(`changed:${JSON.stringify([rec, fin])}`, d);
       } else add(`rejected:${textual && type === "spec.answer" ? "*" : rec}`, d);
     }
     // Free-text corrections agree when the operator keeps adding the same terms.
@@ -741,6 +744,11 @@ export class Steward {
     }
     for (const [sig, ds] of groups) {
       if (ds.length < threshold || this.store.hasGuidance(projectId, type, sig)) continue;
+      // Rules proposed before signatures were JSON used `changed:<rec>-><final>`.
+      if (sig.startsWith("changed:")) {
+        const [rec, fin] = JSON.parse(sig.slice("changed:".length)) as [string, string];
+        if (this.store.hasGuidance(projectId, type, `changed:${rec}->${fin}`)) continue;
+      }
       this.store.proposeGuidance({
         projectId,
         type,
@@ -829,7 +837,9 @@ function guidanceRule(
   const why = reasons.length ? ` Operator reasons: ${reasons.join(" | ")}.` : "";
   const [kind, rest = ""] = [sig.slice(0, sig.indexOf(":")), sig.slice(sig.indexOf(":") + 1)];
   if (kind === "changed") {
-    const [from, to] = rest.split("->");
+    // From the decisions, not the signature: either value may itself contain "->".
+    const from = norm(type, ds[0]!.recommendation.value);
+    const to = norm(type, ds[0]!.appliedValue ?? "");
     return `Steward guidance (${type}): in this project the operator changed recommendations of "${from}" to "${to}" ${ds.length} times (e.g. ${examples}). Recommend "${to}" in such cases.${why}`;
   }
   if (kind === "rejected")

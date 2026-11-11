@@ -479,3 +479,38 @@ test("a source that never answers a stream, or goes quiet in one, is dropped aft
   await settle(() => hub.state.sources.mimir.stream === "reconnecting", "the quiet connection dropped");
   assert.match(hub.state.sources.mimir.streamError, /abort/i);
 });
+
+test("a Mimir snapshot that is not an object marks Mimir disconnected and the rest still updates", async (t) => {
+  const store = temporaryStore(t);
+  let answer = "null";
+  const source = await stub(t, (req, res) => send(res, 200, answer));
+  let notified = 0;
+  const hub = new Hub({ mimir: source.connection }, store, () => notified++);
+  t.after(() => hub.stop());
+  await hub.refresh();
+  assert.equal(hub.state.sources.mimir.status, "disconnected");
+  assert.match(hub.state.sources.mimir.error, /snapshot/);
+  assert.ok(hub.state.generatedAt, "the refresh completed");
+  assert.equal(notified, 1, "the browsers hear about it");
+  assert.deepEqual(hub.state.mimir, {});
+  answer = JSON.stringify({ missions: [], agents: [] });
+  await hub.refresh();
+  assert.equal(hub.state.sources.mimir.status, "connected");
+});
+
+test("a Mimir snapshot with a list field that is not a list keeps the last good snapshot", async (t) => {
+  const store = temporaryStore(t);
+  let answer = JSON.stringify({ missions: [{ id: "m1" }], tasks: [] });
+  const source = await stub(t, (req, res) => send(res, 200, answer));
+  const hub = new Hub({ mimir: source.connection }, store, () => {});
+  t.after(() => hub.stop());
+  await hub.refresh();
+  assert.equal(hub.state.sources.mimir.status, "connected");
+  assert.deepEqual(hub.state.mimir.agents, [], "a list an older Mimir omits reads as empty");
+  answer = JSON.stringify({ missions: null, tasks: {} });
+  await hub.refresh();
+  assert.equal(hub.state.sources.mimir.status, "disconnected");
+  assert.match(hub.state.sources.mimir.error, /missions is not a list/);
+  assert.deepEqual(hub.state.mimir.missions, [{ id: "m1" }], "the last good snapshot stays");
+  assert.ok(hub.state.generatedAt);
+});

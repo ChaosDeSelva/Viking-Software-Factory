@@ -130,7 +130,7 @@ export function App({
         onSubmit={(t) => {
           saveToken(t);
           setRejected(false);
-          setToken(loadToken());
+          setToken(t.trim());
         }}
       />
     );

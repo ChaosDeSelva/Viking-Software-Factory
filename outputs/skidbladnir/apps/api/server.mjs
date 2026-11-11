@@ -69,18 +69,23 @@ export function createApp({ database = ':memory:', provider = new Simulator(), s
         const download=url.pathname.match(/^\/api\/artifacts\/([^/]+)$/);
         if(req.method==='GET' && download){const saved=store.artifact(download[1]);if(!saved)return reply(404,{error:'Artifact not found.'});res.setHeader('Content-Type','application/octet-stream');res.setHeader('Content-Disposition','attachment; filename="artifact.bin"');res.end(Buffer.from(saved.data,'base64'));return;}
         if (req.method !== 'POST') return reply(404,{error:'Route not found.'});
-        let body = ''; for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body)>8192) return reply(413,{error:'Request too large.'}); }
-        const input = JSON.parse(body);
+        // Decode once at the end: a chunk boundary can split a multi-byte character.
+        const parts = []; let size = 0; for await (const chunk of req) { size += chunk.length; if (size>8192) return reply(413,{error:'Request too large.'}); parts.push(chunk); }
+        const input = JSON.parse(Buffer.concat(parts).toString());
         await serial(async () => {
           if (url.pathname === '/api/workers') {
             const spec=workerInput(input);
             const key=String(req.headers['idempotency-key']??'');
             if(provider.mode==='aws'&&!/^[a-zA-Z0-9-]{8,100}$/.test(key))throw Error('A stable idempotency key is required for AWS launch.');
             const fingerprint=createHash('sha256').update(JSON.stringify(spec)).digest('hex');
-            const prior=key&&store.list().find(w=>w.requestKey===key);
+            // A launch refused before submission (`failed`) created nothing, so its key may launch again.
+            const prior=key&&store.list().find(w=>w.requestKey===key&&w.state!=='failed');
             if(prior){if(prior.fingerprint!==fingerprint)throw Error('Launch key reused with different input.');return reply(200,prior);}
             if(activeCount(store.list())>=maxWorkers)return reply(409,{error:'Worker limit reached. Terminate a worker first.'});
             let worker=provider.prepare?.(spec);
+            // Retrying a launch refused before submission reuses its record, so retries do not pile up failed rows.
+            const refused=key&&store.list().find(w=>w.requestKey===key&&w.state==='failed'&&w.fingerprint===fingerprint);
+            if(worker&&refused)worker={...worker,id:refused.id,requestId:refused.requestId};
             if(worker){worker={...worker,requestKey:key,fingerprint};store.save(worker,'AWS launch reserved. Reconcile uncertain outcomes before retrying.');broadcast();}
             try {worker=await provider.create(spec,worker);}
             catch(error){if(worker){store.save({...worker,state:error.notSubmitted?'failed':'unknown'},error.notSubmitted?'AWS preflight failed before launch.':'AWS launch outcome unknown. Reconcile before launching again.');broadcast();}throw error;}
@@ -100,7 +105,7 @@ export function createApp({ database = ':memory:', provider = new Simulator(), s
             if(prior){if(prior.fingerprint!==fingerprint)throw Error('Command request key reused.');return reply(200,prior);}
             let record={id:key,workerId:worker.id,fingerprint,status:'Unknown',createdAt:new Date().toISOString()};store.saveCommand(record);
             try {record={...record,...await provider.execute(worker,input.command)};store.saveCommand(record);store.save(worker,'SSM command submitted.');broadcast();return reply(202,record);}
-            catch(error){store.save(worker,'SSM command outcome unknown. It will not be automatically resent.');broadcast();throw error;}
+            catch(error){if(error.notSubmitted){store.deleteCommand(key);store.save(worker,'SSM command was not submitted.');}else store.save(worker,'SSM command outcome unknown. It will not be automatically resent.');broadcast();throw error;}
           }
           const commandAction=url.pathname.match(/^\/api\/commands\/([^/]+)\/(refresh|cancel)$/);
           if(commandAction){

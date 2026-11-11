@@ -753,7 +753,8 @@ const cell = (s: string | number | boolean | null) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/[\\`*[\]()!#|]/g, (c) => `\\${c}`)
-    .replace(/\r?\n/g, " ");
+    // A lone CR is a Markdown line ending too.
+    .replace(/\r\n?|\n/g, " ");
 
 /** Markdown PR description. Contains only the report's validated content. */
 export function renderPrDescription(report: DeliveryReport): string {

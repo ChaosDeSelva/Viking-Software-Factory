@@ -244,6 +244,45 @@ describe("budget events of a budget with both limits", () => {
       expect.objectContaining({ unit: "cost", used: 9, limit: 10, overBy: -1 }),
     ]);
   });
+
+  it("leave attention once the mission is over, since the budget can no longer be raised", async () => {
+    const { h, missionId, crewId, a } = await world(100);
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    spend(h, a, 500);
+    await h.tick();
+    const exceeded = { kind: "budget_exceeded", crewId };
+    expect((await h.get("/v1/attention")).json.items).toContainEqual(
+      expect.objectContaining(exceeded),
+    );
+    await h.post(`/v1/missions/${missionId}/cancel`);
+    expect((await patch(h, `/v1/crews/${crewId}/budget`, { limitTokens: 2000 })).status).toBe(409);
+    expect((await h.get("/v1/attention")).json.items).not.toContainEqual(
+      expect.objectContaining(exceeded),
+    );
+  });
+
+  it("report a zero limit as the exhausted dimension", async () => {
+    const h = await harness();
+    harnesses.push(h);
+    const p = await h.post("/v1/projects", { name: "p", repoPath: h.repo });
+    const m = await h.post("/v1/missions", { projectId: p.json.project.id, objective: "o" });
+    const missionId = m.json.mission.id as string;
+    await h.post("/v1/crews", {
+      missionId,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "shell" }],
+      budget: { limitTokens: 1000, limitCost: 0, onUnknown: "allow" },
+    });
+    const a = await createTask(h, missionId, "A", "echo a");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    expect(h.task(a)).toMatchObject({ status: "blocked", blockedReason: "budget_exceeded" });
+    expect(h.events(["budget.exceeded"]).map((e) => e.payload)).toEqual([
+      expect.objectContaining({ unit: "cost", used: 0, limit: 0, overBy: 0 }),
+    ]);
+  });
 });
 
 describe("PATCH /v1/missions/:id/budget", () => {

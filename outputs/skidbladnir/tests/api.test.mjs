@@ -348,3 +348,44 @@ test('the website root serves site/index.html, bare /site redirects to it, and a
  writeFileSync(join(empty,'index.html'),'<!doctype html><title>site</title>');
  assert.equal(await (await fetch(url+'/site/')).text(),'<!doctype html><title>site</title>');
 });
+
+test('a request body split inside a multi-byte character reaches the provider intact',async t=>{
+ const {state,provider}=cloud();const app=await start(t,{provider});
+ const worker=await(await app.post('/api/workers',spec,{'Idempotency-Key':'launch-key-0001'})).json();state.instances[0].State.Name='running';
+ const command="printf 'é'",body=Buffer.from(JSON.stringify({command})),cut=body.indexOf(0xc3)+1;
+ const status=await new Promise((done,reject)=>{
+  const req=request(app.base+`/api/workers/${worker.id}/commands`,{method:'POST',headers:{'Content-Type':'application/json','Content-Length':body.length,'X-Skidbladnir-Token':app.token,'Idempotency-Key':'command-key-1'}},res=>{res.resume();res.on('end',()=>done(res.statusCode));});
+  req.on('error',reject);req.flushHeaders();req.write(body.subarray(0,cut));
+  // A pause makes the server read the two halves as separate chunks.
+  setTimeout(()=>req.end(body.subarray(cut)),50);
+ });
+ assert.equal(status,202);
+ assert.deepEqual(state.calls.find(c=>c.key==='ssm/send-command').input.Parameters.commands,[command]);
+});
+
+test('a command refused before submission can be retried with the same request key',async t=>{
+ const {state,provider}=cloud();const app=await start(t,{provider});
+ const worker=await(await app.post('/api/workers',spec,{'Idempotency-Key':'launch-key-0001'})).json();state.instances[0].State.Name='running';
+ state.ping='ConnectionLost';
+ const refused=await app.post(`/api/workers/${worker.id}/commands`,{command:'printf hi'},{'Idempotency-Key':'command-key-1'});
+ assert.equal(refused.status,400);assert.match((await refused.json()).error,/SSM is not online/);
+ assert.deepEqual(app.snapshot().commands,[]);assert.match(app.snapshot().events[0].message,/not submitted/);
+ state.ping='Online';
+ const retry=await app.post(`/api/workers/${worker.id}/commands`,{command:'printf hi'},{'Idempotency-Key':'command-key-1'});
+ assert.equal(retry.status,202);assert.equal((await retry.json()).commandId,'command-123');
+ assert.equal(state.calls.filter(c=>c.key==='ssm/send-command').length,1);
+});
+
+test('an AWS launch refused before submission can be retried with the same request key',async t=>{
+ const {state,provider}=cloud();const app=await start(t,{provider});
+ state.fail['events/describe-rule']=Error('rule lookup failed');
+ assert.equal((await app.post('/api/workers',spec,{'Idempotency-Key':'launch-key-0001'})).status,400);
+ delete state.fail['events/describe-rule'];
+ const retry=await app.post('/api/workers',spec,{'Idempotency-Key':'launch-key-0001'});
+ assert.equal(retry.status,201);assert.equal((await retry.json()).state,'starting');
+ assert.equal(state.calls.filter(c=>c.key==='ec2/run-instances').length,1);
+ const again=await app.post('/api/workers',spec,{'Idempotency-Key':'launch-key-0001'});assert.equal(again.status,200);
+ assert.equal(state.calls.filter(c=>c.key==='ec2/run-instances').length,1);
+ const rows=(await (await app.get('/api/snapshot')).json()).workers.filter(w=>w.requestKey==='launch-key-0001');
+ assert.equal(rows.length,1,'the refused attempt and its retry are one worker record');
+});

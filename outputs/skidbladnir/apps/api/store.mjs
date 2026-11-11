@@ -18,6 +18,7 @@ export class Store {
   artifacts() {return this.db.prepare('SELECT body FROM artifacts ORDER BY rowid DESC LIMIT 100').all().map(r=>JSON.parse(r.body));}
   saveArtifact(record) {this.db.prepare('INSERT INTO artifacts VALUES (?,?)').run(record.id,JSON.stringify(record));}
   command(id) { const r=this.db.prepare('SELECT body FROM commands WHERE id=?').get(id);return r&&JSON.parse(r.body); }
+  deleteCommand(id) {this.db.prepare('DELETE FROM commands WHERE id=?').run(id);}
   commands() {return this.db.prepare('SELECT body FROM commands ORDER BY rowid DESC LIMIT 100').all().map(r=>JSON.parse(r.body));}
   saveCommand(command) {this.db.prepare('INSERT INTO commands VALUES (?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(command.id,JSON.stringify(command));}
   list() { return this.db.prepare('SELECT body FROM workers ORDER BY rowid DESC').all().map(x=>JSON.parse(x.body)); }

@@ -1,5 +1,5 @@
 import { Dialog, Link, Markdown, Switch } from "@factory/ui";
-import { screenSection } from "../lib/docsSection.js";
+import { useEffect, useState } from "react";
 import { useShortcutsEnabled } from "../lib/shortcutsPref.js";
 import { SHORTCUTS } from "../lib/useShortcuts.js";
 import type { ScreenId } from "./Screen.js";
@@ -18,17 +18,25 @@ export function HelpDialog({
   screen: ScreenId | undefined;
 }) {
   const [shortcutsOn, setShortcutsOn] = useShortcutsEnabled();
-  const section = screen && screen !== "docs" ? screenSection(screen) : null;
+  const section = useScreenSection(screen);
   return (
     <Dialog
       open={open}
       onOpenChange={(o) => !o && onClose()}
       title="Help and keyboard shortcuts"
-      description={section ? `About ${section.title}` : "Keyboard shortcuts"}
+      description={
+        section && section !== "failed" ? `About ${section.title}` : "Keyboard shortcuts"
+      }
       size="md"
     >
       <div className="flex flex-col gap-6">
-        {section && (
+        {section === "failed" && (
+          <p className="text-sm text-muted">
+            The guide for this screen did not load. Mimir may have been updated since this page
+            opened; reload to get the current version.
+          </p>
+        )}
+        {section && section !== "failed" && (
           <section aria-labelledby="help-screen" className="flex flex-col gap-2">
             <h3 id="help-screen" className="text-md font-semibold">
               On this screen
@@ -69,4 +77,26 @@ export function HelpDialog({
       </div>
     </Dialog>
   );
+}
+
+type Section = { title: string; markdown: string; href: string };
+
+/**
+ * The docs section for a screen. The docs text loads on first use (it is most of the docs bundle);
+ * if it cannot load, the dialog still opens with the shortcuts and their switch.
+ */
+function useScreenSection(screen: ScreenId | undefined): Section | "failed" | null {
+  const [section, setSection] = useState<Section | "failed" | null>(null);
+  useEffect(() => {
+    if (!screen || screen === "docs") return setSection(null);
+    let live = true;
+    import("../lib/docsSection.js").then(
+      (m) => live && setSection(m.screenSection(screen)),
+      () => live && setSection("failed"),
+    );
+    return () => {
+      live = false;
+    };
+  }, [screen]);
+  return section;
 }

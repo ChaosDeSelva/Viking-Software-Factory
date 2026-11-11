@@ -277,3 +277,13 @@ test("page paths serve the app, while missing assets and API paths stay 404", as
   );
   assert.equal((await fetch(app.url + "/api/nope")).status, 401);
 });
+
+test("a cost limit too large to be a number is refused, not sent as null and dropped", () => {
+  // JSON turns Infinity into null, which the server reads as "no new cost limit".
+  for (const cost of ["Infinity", "1e400"])
+    assert.match(
+      budgetBlock(true, "crw_a", "", cost, undefined),
+      /cost limit/,
+      cost,
+    );
+});

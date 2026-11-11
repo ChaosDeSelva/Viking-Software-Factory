@@ -132,15 +132,17 @@ export function reducer(state: State, action: Action): State {
         directorSeed: null,
         ...NO_SELECTION,
       };
-    case "projects/loaded":
+    case "projects/loaded": {
+      if (state.projectId && action.projects.some((p) => p.id === state.projectId))
+        return { ...state, projects: action.projects };
+      // The project is gone (or none was chosen): its selections must not open in the next one.
       return {
         ...state,
         projects: action.projects,
-        projectId:
-          state.projectId && action.projects.some((p) => p.id === state.projectId)
-            ? state.projectId
-            : (action.projects[0]?.id ?? null),
+        projectId: action.projects[0]?.id ?? null,
+        ...(state.projectId ? { specId: null, directorSeed: null, ...NO_SELECTION } : {}),
       };
+    }
     case "projects/upsert": {
       const exists = state.projects.some((p) => p.id === action.project.id);
       return {
