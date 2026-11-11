@@ -18,4 +18,4 @@ overrides:
   "@brokkr/runner": "file:vendor/brokkr/brokkr-runner-0.1.0.tgz"
   "@brokkr/sdk": "file:vendor/brokkr/brokkr-sdk-0.1.0.tgz"
   "@factory/docs": "file:vendor/factory/factory-docs-0.1.5.tgz"
-  "@factory/ui": "file:vendor/factory/factory-ui-0.1.4.tgz"
+  "@factory/ui": "file:vendor/factory/factory-ui-0.1.5.tgz"

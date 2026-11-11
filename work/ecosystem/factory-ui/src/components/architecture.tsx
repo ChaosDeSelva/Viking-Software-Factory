@@ -107,7 +107,7 @@ export function ArchitectureDiagram(): ReactNode {
   const id = useId().replace(/:/g, "");
   const marker = `arch-arrow-${id}`;
   return (
-    <figure className="my-4 flex flex-col gap-2">
+    <figure className="my-4 flex max-w-[1100px] flex-col gap-2">
       <div className="overflow-x-auto rounded-lg border border-line bg-canvas p-2">
         <svg
           viewBox="0 0 760 540"

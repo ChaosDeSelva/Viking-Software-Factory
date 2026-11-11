@@ -1,6 +1,6 @@
 {
   "name": "@factory/ui",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Shared React components, tokens and status map for the factory web apps.",
   "license": "Apache-2.0",
   "type": "module",

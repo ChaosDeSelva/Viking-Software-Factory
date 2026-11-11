@@ -246,7 +246,7 @@ export function DocsView({
         </details>
         <div className="hidden md:block">{toc}</div>
       </aside>
-      <article className="min-w-0 max-w-[72ch]">
+      <article className="min-w-0">
         {markdown != null ? <Markdown source={markdown} /> : children}
       </article>
     </div>
