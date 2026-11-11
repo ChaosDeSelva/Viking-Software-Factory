@@ -193,7 +193,8 @@ describe("PlansScreen", () => {
     expect(api.approvePlan).toHaveBeenCalledWith("pl1", {});
   });
 
-  it("sends an emptied token budget as unset and confirms the save (L2)", async () => {
+  it("requires a token limit on every task instead of offering no limit", async () => {
+    // The planner rejects any task without a token budget while caps apply (always, by default).
     const current = plan({
       tasks: plan().tasks.map((t) => ({ ...t, budget: { ...t.budget, tokens: 1000 } })),
     });
@@ -207,17 +208,27 @@ describe("PlansScreen", () => {
     });
     renderWithStore(ui, api, { planId: "pl1" });
     await openTab(/Task budgets/);
+    expect(screen.queryByText(/no token limit/i)).toBeNull();
+    expect(screen.getByText(/Every task needs a token limit/)).toBeTruthy();
     const tokens = (await screen.findByLabelText("implement-frontend: tokens")) as HTMLInputElement;
     expect(tokens.value).toBe("1000");
     // The server sets no upper limit, so the form does not either.
     expect(tokens.hasAttribute("max")).toBe(false);
     expect(screen.getByLabelText("implement-frontend: minutes").hasAttribute("max")).toBe(false);
+    expect(tokens.required).toBe(true);
     await userEvent.clear(tokens);
+    expect(tokens.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByText("A token limit is required.")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Save budgets as new draft" }));
+    expect(api.revisePlan).not.toHaveBeenCalled();
+    await userEvent.type(tokens, "2000");
+    expect(screen.queryByText("A token limit is required.")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Save budgets as new draft" }));
     const sent = (api.revisePlan.mock.calls[0] as [string, { id: string; budget: object }[]])[1];
-    const task = sent.find((t) => t.id === "implement-frontend");
-    expect(task?.budget).toEqual({ wallClockMinutes: 90 });
-    expect("tokens" in (task?.budget ?? {})).toBe(false);
+    expect(sent.find((t) => t.id === "implement-frontend")?.budget).toEqual({
+      wallClockMinutes: 90,
+      tokens: 2000,
+    });
     expect(await screen.findByText(/Saved budgets as draft plan v2/)).toBeTruthy();
   });
 

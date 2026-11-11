@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Icon } from "../icons.js";
-import { cn, focusRing, Link } from "../lib.js";
+import { cn, focusRing, headingSlug, Link } from "../lib.js";
 import { ArchitectureDiagram } from "./architecture.js";
 import { Button } from "./controls.js";
 
@@ -55,18 +55,9 @@ const cells = (row: string) =>
     .split("|")
     .map((c) => c.trim());
 
-/**
- * Heading anchor as `@factory/docs` computes it (`headingAnchors`), so its table of contents,
- * search hits and cross-page links land on the heading: GitHub style, repeats get `-1`, `-2`.
- */
+/** Unique heading anchor: `headingSlug`, with repeats getting `-1`, `-2` as `@factory/docs` does. */
 function headingId(text: string, seen: Map<string, number>): string {
-  const base = text
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*`]/g, "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
-    .trim()
-    .replace(/\s/g, "-");
+  const base = headingSlug(text);
   const n = seen.get(base) ?? 0;
   seen.set(base, n + 1);
   return n === 0 ? base : `${base}-${n}`;

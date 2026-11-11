@@ -77,12 +77,18 @@ export function validatePreferences(value) {
     throw Error("Unknown preference");
   return result;
 }
-/** Execution statuses after which Sindri does nothing more (profileForm.ts keeps the same list). */
+/**
+ * Execution statuses after which Sindri does nothing more. Mirrors isFinalExecution in
+ * profileForm.ts: the release ships apps/server without apps/web, so neither can import the other.
+ */
 const FINAL_EXECUTION_STATUSES = [
   "verified_pending_review",
   "cancelled",
   "failed",
 ];
+const isFinalExecution = (status) =>
+  FINAL_EXECUTION_STATUSES.includes(String(status)) ||
+  String(status).startsWith("delivered");
 export function attentionRecords(state) {
   const out = [];
   const push = (key, title, severity, kind, row, revision) =>
@@ -182,7 +188,7 @@ export function attentionRecords(state) {
           g.evaluatedAt,
         );
     // Sindri keeps the record on a finished run's tasks but refuses to resolve it.
-    if (FINAL_EXECUTION_STATUSES.includes(e.execution.status)) continue;
+    if (isFinalExecution(e.execution.status)) continue;
     for (const t of e.tasks ?? [])
       if (t.escalation)
         push(

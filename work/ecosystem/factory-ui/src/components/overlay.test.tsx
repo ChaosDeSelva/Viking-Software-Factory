@@ -3,6 +3,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { setup } from "../test/render.js";
 import { Button } from "./controls.js";
+import { Markdown } from "./docs.js";
 import {
   ConfirmDialog,
   Dialog,
@@ -53,6 +54,21 @@ describe("InfoHint", () => {
     expect(dialog.textContent).toMatch("Proposes routine decisions");
     expect(screen.getByRole("link", { name: /Read more in Docs/ }).getAttribute("href")).toBe(
       "/docs/glossary#steward",
+    );
+  });
+
+  it("links by default to the id the glossary page gives the term's heading", async () => {
+    const { user } = setup(
+      <GlossaryProvider entries={[{ term: "Node.js", short: "The JavaScript runtime." }]}>
+        <InfoHint term="Node.js" />
+        <Markdown source={"## Node.js"} />
+      </GlossaryProvider>,
+    );
+    const heading = screen.getByRole("heading", { level: 2, name: "Node.js" });
+    await user.click(screen.getByRole("button", { name: "What is Node.js?" }));
+    await screen.findByRole("dialog");
+    expect(screen.getByRole("link", { name: /Read more in Docs/ }).getAttribute("href")).toBe(
+      `/docs/glossary#${heading.id}`,
     );
   });
 

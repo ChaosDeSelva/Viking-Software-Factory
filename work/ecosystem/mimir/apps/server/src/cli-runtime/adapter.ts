@@ -1,4 +1,5 @@
 import { fork, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -66,6 +67,8 @@ export function usageOfEvent(line: string): Usage | null {
 }
 /** Finished sessions kept readable (each holds up to 2 MiB of terminal text); older ones are forgotten. */
 export const FINISHED_SESSIONS_KEPT = 50;
+/** Idempotency keys of forgotten sessions, kept so a replay is refused instead of relaunched. */
+export const FORGOTTEN_LAUNCHES_KEPT = 1000;
 type Entry = {
   session: RuntimeSession;
   key: string;
@@ -78,11 +81,15 @@ type Entry = {
   usage?: Usage;
 };
 
+const digest = (text: string) => createHash("sha256").update(text).digest("hex");
+
 /** Local non-interactive CLIs, supervised through an IPC watchdog. */
 export class CliRuntime implements RuntimeAdapter {
   private readonly sessions = new Map<string, Entry>();
   private readonly keys = new Map<string, string>();
   private readonly requests = new Map<string, string>();
+  /** Request fingerprint hash by idempotency key of evicted sessions, oldest first. */
+  private readonly forgotten = new Map<string, string>();
   /** Sessions whose watchdog has ended, oldest first. */
   private readonly finished = new Set<string>();
   private readonly listeners = new Set<(event: RuntimeEvent) => void>();
@@ -129,6 +136,18 @@ export class CliRuntime implements RuntimeAdapter {
         );
       return this.sessions.get(known)!.session;
     }
+    const forgotten = this.forgotten.get(spec.idempotencyKey);
+    if (forgotten !== undefined) {
+      if (forgotten !== digest(fingerprint))
+        throw new MimirError(
+          "idempotency_replay_mismatch",
+          "Session launch differs from the original request",
+        );
+      throw new MimirError(
+        "conflict",
+        "Session launch already finished and is no longer in runtime memory",
+      );
+    }
     if (this.sessions.has(spec.sessionId))
       throw new MimirError("conflict", "Session ID already belongs to another launch");
     if (!["codex", "claude", "opencode", "gemini", "pi"].includes(spec.agentKind))
@@ -171,7 +190,11 @@ export class CliRuntime implements RuntimeAdapter {
       },
     );
     let resolveDone!: () => void;
+    let finished = false;
+    // `error` and `exit` may both arrive; a second retire would re-add an evicted session.
     const finish = () => {
+      if (finished) return;
+      finished = true;
       resolveDone();
       this.retire(spec.sessionId);
     };
@@ -322,6 +345,11 @@ export class CliRuntime implements RuntimeAdapter {
       const entry = this.sessions.get(old);
       this.sessions.delete(old);
       if (entry) {
+        this.forgotten.set(entry.key, digest(this.requests.get(entry.key) ?? ""));
+        for (const key of this.forgotten.keys()) {
+          if (this.forgotten.size <= FORGOTTEN_LAUNCHES_KEPT) break;
+          this.forgotten.delete(key);
+        }
         this.keys.delete(entry.key);
         this.requests.delete(entry.key);
       }

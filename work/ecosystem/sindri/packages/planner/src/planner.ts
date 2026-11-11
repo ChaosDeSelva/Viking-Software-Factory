@@ -318,6 +318,13 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         v: number;
       }
     ).v;
+  const lineageFlagged = (lineageId: string): boolean =>
+    (
+      db.prepare("SELECT body_json FROM plans WHERE lineage_id = ?").all(lineageId) as Pick<
+        PlanRow,
+        "body_json"
+      >[]
+    ).some((r) => (JSON.parse(r.body_json) as PlanBody).untrustedInstructionDetected === true);
   const requireLatest = (r: PlanRow, action: string) => {
     if (r.version !== latestVersion(r.lineage_id))
       throw new PlanStateError(`can only ${action} the latest version of a plan`);
@@ -663,6 +670,9 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       ).map(toPlan);
     },
 
+    /** Whether any version of the lineage was flagged; approval stays gated on it either way. */
+    lineageFlagged,
+
     listForSpec(specId: string): Plan[] {
       return (
         db
@@ -693,9 +703,9 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         throw new PlanStateError(
           `plan ${id} was built from spec v${spec.version}, which is now ${spec.status}; propose a plan from the approved spec`,
         );
-      // After the state checks, so a stale or non-review plan reports that first. Revisions carry
-      // the flag forward, so the plan's own flag covers its lineage.
-      if (toPlan(r).untrustedInstructionDetected && opts.acknowledgeUntrusted !== true)
+      // After the state checks, so a stale or non-review plan reports that first. Lineage-wide, so a
+      // version that lost the flag (or a row stored without it) cannot skip the acknowledgement.
+      if (lineageFlagged(r.lineage_id) && opts.acknowledgeUntrusted !== true)
         throw new PlanUntrustedError(
           "this plan was built from text with flagged instructions; review them and send acknowledgeUntrusted: true",
         );

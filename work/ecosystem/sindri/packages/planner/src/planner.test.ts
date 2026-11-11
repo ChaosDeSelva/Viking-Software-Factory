@@ -544,6 +544,22 @@ describe("planner", () => {
       );
     });
 
+    it("requires the acknowledgement when any version of the lineage was flagged", async () => {
+      const v1 = await propose(fullstack());
+      const v2 = await planner.revise(v1.id, { tasks: v1.tasks }, { harnesses });
+      expect(planner.lineageFlagged(v1.lineageId)).toBe(false);
+      db.prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      ).run(v1.id);
+      expect(planner.get(v2.id)?.untrustedInstructionDetected).toBeUndefined();
+      expect(planner.lineageFlagged(v1.lineageId)).toBe(true);
+      planner.submitForReview(v2.id);
+      expect(() => planner.approve(v2.id, "jacob")).toThrow(PlanUntrustedError);
+      expect(planner.approve(v2.id, "jacob", { acknowledgeUntrusted: true }).status).toBe(
+        "approved",
+      );
+    });
+
     it("refuses to approve a plan whose spec version has since been replaced", async () => {
       const plan = await propose(fullstack());
       planner.submitForReview(plan.id);

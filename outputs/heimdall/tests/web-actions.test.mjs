@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { changeArchive } from "../apps/web/src/features/projectArchive.ts";
 import { toggleDesktopAlerts } from "../apps/web/src/features/alerts.ts";
-import { poller } from "../apps/web/src/features/poll.ts";
+import { poller, POLL_TIMEOUT_MS } from "../apps/web/src/features/poll.ts";
 
 const project = { id: "p1", name: "demo-app", repoPath: "/repos/demo-app" };
 function archiveContext(saved) {
@@ -121,4 +121,35 @@ test("a failed poll frees the poller for the next tick", async () => {
   await new Promise((r) => setImmediate(r));
   assert.equal(calls, 2);
   assert.deepEqual(errors, ["source down", "source down"]);
+});
+
+test("a load that never settles times out as a failure and polling resumes", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const errors = [];
+  const applied = [];
+  const resolvers = [];
+  const poll = poller(
+    () => new Promise((resolve) => resolvers.push(resolve)),
+    (value) => applied.push(value),
+    (e) => errors.push(e.message),
+  );
+  poll.tick();
+  t.mock.timers.tick(POLL_TIMEOUT_MS - 1);
+  await new Promise((r) => setImmediate(r));
+  poll.tick();
+  assert.equal(resolvers.length, 1, "still in flight before the bound");
+  assert.deepEqual(errors, []);
+  t.mock.timers.tick(1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /timed out/i);
+  poll.tick();
+  assert.equal(resolvers.length, 2, "the next tick loads again");
+  // The abandoned answer arriving late must not overwrite the newer one.
+  resolvers[1]("new");
+  await new Promise((r) => setImmediate(r));
+  resolvers[0]("old");
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(applied, ["new"]);
+  assert.equal(errors.length, 1);
 });

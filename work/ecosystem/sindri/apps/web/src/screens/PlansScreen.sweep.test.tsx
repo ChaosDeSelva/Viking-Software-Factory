@@ -58,7 +58,10 @@ describe("PlansScreen navigation and budgets", () => {
 
   it("sends edited minutes for the edited task only", async () => {
     const current = plan({
-      tasks: [planTask(), planTask({ id: "docs", skills: [], budget: { wallClockMinutes: 30 } })],
+      tasks: [
+        planTask(),
+        planTask({ id: "docs", skills: [], budget: { wallClockMinutes: 30, tokens: 1000 } }),
+      ],
     });
     const next = plan({ id: "pl2", version: 2 });
     const api = mockApi({
@@ -78,8 +81,8 @@ describe("PlansScreen navigation and budgets", () => {
     await userEvent.click(screen.getByRole("button", { name: "Save budgets as new draft" }));
     const [, tasks] = api.revisePlan.mock.calls[0] as [string, ReturnType<typeof planTask>[]];
     expect(tasks.map((t) => t.budget)).toEqual([
-      { wallClockMinutes: 90 },
-      { wallClockMinutes: 45 },
+      { wallClockMinutes: 90, tokens: 250000 },
+      { wallClockMinutes: 45, tokens: 1000 },
     ]);
   });
 });

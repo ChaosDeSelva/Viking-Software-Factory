@@ -81,6 +81,25 @@ class CompanionVersion(unittest.TestCase):
         cargo = tomllib.loads((HERE.parent / 'Cargo.toml').read_text())['package']['version']
         self.assertEqual(result.stdout, cargo)
 
+    def test_build_number_follows_the_version_so_a_newer_companion_reads_as_newer(self):
+        script = (HERE / 'build-app.sh').read_text()
+        self.assertIn('<key>CFBundleVersion</key><string>$build_number</string>', script)
+        lines = [l for l in script.splitlines() if l.startswith(('version=', 'build_number='))]
+        self.assertEqual(len(lines), 2, 'build-app.sh derives build_number from version')
+
+        def build_number(cargo_version):
+            with tempfile.TemporaryDirectory() as root:
+                Path(root, 'Cargo.toml').write_text(f'[package]\nname = "viking"\nversion = "{cargo_version}"\n')
+                body = '; '.join(lines)
+                return subprocess.run(['bash', '-c', f'set -eu; root="$1"; {body}; printf %s "$build_number"', '-', root],
+                                      capture_output=True, text=True, check=True).stdout
+
+        # CFBundleVersion takes at most three dot-separated integers.
+        self.assertEqual(build_number('0.2.0'), '0.2.0')
+        self.assertEqual(build_number('1.10.3'), '1.10.3')
+        self.assertEqual(build_number('1.4.0-rc.1'), '1.4.0')
+        self.assertEqual(build_number('1.4.0+build.7'), '1.4.0')
+
 
 if __name__ == '__main__':
     unittest.main()

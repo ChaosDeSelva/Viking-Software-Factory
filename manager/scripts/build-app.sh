@@ -15,6 +15,8 @@ app="$out/Viking Factory.app"
 # The companion carries the manager it embeds, so it reports that manager's version.
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)
 : "${version:?Cargo.toml has no package version}"
+# CFBundleVersion takes only dot-separated integers, so drop any pre-release or build suffix.
+build_number=${version%%[-+]*}
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 xcrun swiftc -module-cache-path "$out/swift-cache" -O -parse-as-library -target arm64-apple-macosx13.0 "$root/macos/main.swift" -framework AppKit -framework ServiceManagement -o "$app/Contents/MacOS/VikingFactory"
 cp "$root/target/release/viking" "$app/Contents/Resources/viking"
@@ -28,7 +30,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>VikingFactory</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
-<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleVersion</key><string>$build_number</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>

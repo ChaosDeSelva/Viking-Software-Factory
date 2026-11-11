@@ -255,8 +255,33 @@ it("forgets the oldest finished sessions beyond the retention bound but never a 
   await expect(runtime.readTerminal("s4")).rejects.toMatchObject({ code: "not_found" });
   expect(await runtime.readTerminal("s5")).toContain("output of s5");
   expect(await runtime.readTerminal(`s${total - 1}`)).toContain(`output of s${total - 1}`);
-  // The evicted launch's idempotency record goes with it.
-  const relaunch = fakeWorker();
-  await runtime.createSession({ ...spec, sessionId: "s0", idempotencyKey: "k0" });
-  expect(relaunch.send).toHaveBeenCalled();
+  // A replay of an evicted launch is refused rather than starting the agent a second time.
+  const forks = mocks.fork.mock.calls.length;
+  await expect(
+    runtime.createSession({ ...spec, sessionId: "s0", idempotencyKey: "k0" }),
+  ).rejects.toMatchObject({ code: "conflict" });
+  await expect(
+    runtime.createSession({ ...spec, sessionId: "s0", idempotencyKey: "k0", cwd: "/elsewhere" }),
+  ).rejects.toMatchObject({ code: "idempotency_replay_mismatch" });
+  expect(mocks.fork.mock.calls.length).toBe(forks);
+});
+
+it("retires a session once when its watchdog reports both error and exit", async () => {
+  const runtime = new CliRuntime({ codex: "/opt/agent" });
+  const failing = fakeWorker();
+  await runtime.createSession({ ...spec, sessionId: "failing", idempotencyKey: "failing" });
+  failing.connected = false;
+  failing.emit("error", new Error("spawn EAGAIN"));
+  for (let n = 0; n < FINISHED_SESSIONS_KEPT; n++) {
+    const worker = fakeWorker();
+    await runtime.createSession({ ...spec, sessionId: `s${n}`, idempotencyKey: `k${n}` });
+    worker.emit("message", { kind: "exit", code: 0 });
+    worker.connected = false;
+    worker.emit("exit", 0);
+  }
+  expect(await runtime.getSession("failing")).toBeNull();
+  // The late exit of the already-evicted session must not take a retention slot.
+  failing.emit("exit", 1);
+  expect(await runtime.listSessions()).toHaveLength(FINISHED_SESSIONS_KEPT);
+  expect(await runtime.getSession("s0")).not.toBeNull();
 });

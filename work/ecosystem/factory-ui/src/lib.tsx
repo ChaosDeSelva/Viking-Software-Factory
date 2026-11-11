@@ -37,6 +37,20 @@ export function withProject(href: string, projectId: string | null | undefined):
   return `${path}${joiner}project=${encodeURIComponent(projectId)}${hash ? `#${hash}` : ""}`;
 }
 
+/**
+ * Heading anchor as `@factory/docs` computes it (`headingAnchors`), before repeats get `-1`, `-2`:
+ * GitHub style, so the docs table of contents, search hits and glossary links land on the heading.
+ */
+export function headingSlug(text: string): string {
+  return text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*`]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .trim()
+    .replace(/\s/g, "-");
+}
+
 const urlListeners = new Set<() => void>();
 function subscribeUrl(listener: () => void) {
   urlListeners.add(listener);

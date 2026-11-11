@@ -324,7 +324,7 @@ describe("ServerStewardWorld readers", () => {
   });
 
   it("plansProposed: the latest draft or review version of each lineage, once", async () => {
-    const { fl, world } = await setup();
+    const { fl, world, planner } = await setup();
     const specId = await approvedSpec(fl);
     const approved = await approvedPlan(fl, specId);
     const full = (await fl.h.call({ url: `/v1/plans/${approved.id}` })).json().plan;
@@ -355,12 +355,14 @@ describe("ServerStewardWorld readers", () => {
         untrustedFlagged: false,
       },
     ]);
-    // A plan built from flagged text is reported as such, so the steward holds it.
+    // A lineage with any version built from flagged text is reported as such, so the steward
+    // holds it even when the latest version carries no flag.
     fl.h.db
       .prepare(
         "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
       )
-      .run(v2.json().plan.id);
+      .run(v1);
+    expect(planner.get(v2.json().plan.id)!.untrustedInstructionDetected).toBeUndefined();
     expect(world().plansProposed()[0]!.untrustedFlagged).toBe(true);
   });
 
@@ -614,6 +616,32 @@ describe("ServerStewardWorld actions", () => {
       code: "untrusted_unacknowledged",
       message: expect.stringMatching(/Plans screen/),
     });
+    expect(planner.get(planId)!.status).toBe("draft");
+  });
+
+  it("approvePlan refuses a revision whose earlier version was flagged", async () => {
+    const { fl, world, planner, approval } = await setup();
+    const specId = await approvedSpec(fl);
+    const p = await fl.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId } });
+    const v1 = p.json().plan as { id: string; tasks: unknown[] };
+    const r = await fl.h.call({
+      method: "POST",
+      url: `/v1/plans/${v1.id}/revise`,
+      payload: { tasks: v1.tasks },
+    });
+    const planId = r.json().plan.id as string;
+    fl.h.db
+      .prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      )
+      .run(v1.id);
+    expect(planner.get(planId)!.untrustedInstructionDetected).toBeUndefined();
+    await expect(
+      world().approvePlan({ planId } as PlanApprovalSubject, {
+        actor: "user",
+        approval: await approval(),
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "untrusted_unacknowledged" });
     expect(planner.get(planId)!.status).toBe("draft");
   });
 

@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { Icon } from "../icons.js";
-import { cn, focusRing, Link } from "../lib.js";
+import { cn, focusRing, headingSlug, Link } from "../lib.js";
 
 const floating =
   "z-[var(--z-dropdown)] rounded-md border border-line bg-raised text-fg shadow-1 fui-anim-pop";
@@ -69,14 +69,16 @@ export const glossarySlug = (term: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
+// The glossary page renders each term as a heading, so link to the id that heading gets.
+const defaultDocsHref = (term: string) => `/docs/glossary#${headingSlug(term)}`;
 const GlossaryContext = createContext<GlossaryValue>({
   lookup: () => undefined,
-  docsHref: (term) => `/docs/glossary#${glossarySlug(term)}`,
+  docsHref: defaultDocsHref,
 });
 
 export function GlossaryProvider({
   entries,
-  docsHref = (term) => `/docs/glossary#${glossarySlug(term)}`,
+  docsHref = defaultDocsHref,
   children,
 }: {
   entries: readonly GlossaryEntry[];

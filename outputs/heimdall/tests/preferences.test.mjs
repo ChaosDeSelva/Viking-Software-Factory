@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validatePreferences, attentionRecords, STAGES } from "../apps/server/preferences.mjs";
 import { Store } from "../apps/server/storage.mjs";
+import { isFinalExecution } from "../apps/web/src/features/profileForm.ts";
 
 test("each preference is checked, and only known preferences are kept", () => {
   assert.deepEqual(
@@ -144,6 +145,8 @@ test("an escalation on a run that has ended raises no operator-decision notifica
         "verified_pending_review",
         "cancelled",
         "failed",
+        "delivered",
+        "delivered_pending_merge",
       ].map((s) => run("e_" + s, s)),
     },
   })
@@ -151,6 +154,36 @@ test("an escalation on a run that has ended raises no operator-decision notifica
     .map((r) => r.id);
   // Sindri refuses to resolve these, and the attention list leaves them out too.
   assert.deepEqual(ids, ["escalation:e_running:build"]);
+});
+
+test("the server and the web app agree on which runs have ended", () => {
+  const statuses = [
+    "running",
+    "queued",
+    "verified_pending_review",
+    "cancelled",
+    "failed",
+    "delivered",
+    "delivered_pending_merge",
+    "undelivered",
+    undefined,
+  ];
+  const state = {
+    mimir: {},
+    sindri: {
+      executions: statuses.map((s, i) => ({
+        execution: { id: "e" + i, status: s },
+        tasks: [{ planTaskId: "t", escalation: { reason: "stuck" } }],
+      })),
+    },
+  };
+  const raised = new Set(
+    attentionRecords(state)
+      .filter((r) => r.kind === "escalation")
+      .map((r) => r.row.executionId),
+  );
+  for (const [i, s] of statuses.entries())
+    assert.equal(raised.has("e" + i), !isFinalExecution(s), String(s));
 });
 
 test("a failed write leaves the event cache and the notifications as they were", (t) => {

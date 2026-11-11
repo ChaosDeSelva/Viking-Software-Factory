@@ -517,8 +517,8 @@ function PlanBudgets({
     >
       <p className="text-sm text-muted">
         Time limits stop local CLI workers. Tokens include cached input and are reported when an
-        agent session ends; a token limit blocks further sessions. Leave tokens empty for no token
-        limit. Saving creates a new draft for approval.
+        agent session ends; a token limit blocks further sessions. Every task needs a token limit:
+        the project's token caps always apply. Saving creates a new draft for approval.
       </p>
       <form
         aria-label="Task budgets"
@@ -526,6 +526,8 @@ function PlanBudgets({
         onSubmit={(event) => {
           event.preventDefault();
           if (stale) return;
+          // The planner rejects a plan with any task lacking a token limit while caps apply.
+          if (tasks.some((t) => t.budget.tokens === undefined)) return;
           setBusy(true);
           api
             .revisePlan(plan.id, tasks)
@@ -557,18 +559,26 @@ function PlanBudgets({
                 }
               />
             </Field>
-            <Field label={`${task.id}: tokens`} id={`tokens-${task.id}`}>
+            <Field
+              label={`${task.id}: tokens`}
+              id={`tokens-${task.id}`}
+              {...(task.budget.tokens === undefined ? { hint: "A token limit is required." } : {})}
+            >
               <input
                 className={inputClass}
                 id={`tokens-${task.id}`}
                 type="number"
                 min="1"
+                required
+                {...(task.budget.tokens === undefined
+                  ? { "aria-invalid": true, "aria-describedby": `tokens-${task.id}-hint` }
+                  : {})}
                 value={task.budget.tokens ?? ""}
                 onChange={(e) =>
                   setTasks((current) =>
                     current.map((t, i) => {
                       if (i !== index) return t;
-                      // An emptied field means "no token limit", not a limit of 0.
+                      // An emptied field is unset (required, so saving waits), not a limit of 0.
                       const budget = { ...t.budget };
                       if (e.target.value === "") delete budget.tokens;
                       else budget.tokens = Number(e.target.value);

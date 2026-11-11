@@ -571,6 +571,29 @@ it("prunes the oldest delivered sessions beyond the retention bound but keeps li
   await expect(runtime.readTerminal("s4")).rejects.toMatchObject({ code: "not_found" });
   expect(await runtime.readTerminal("s5")).toBe("visible output");
 });
+it("refuses to replay a pruned launch, also after a restart", async () => {
+  const { home, backend, runtime } = fixture();
+  for (let n = 0; n <= DELIVERED_SESSIONS_KEPT; n++) {
+    const before = new Set(readdirSync(home));
+    await runtime.createSession({ ...spec(), sessionId: `s${n}`, idempotencyKey: `k${n}` });
+    const name = readdirSync(home).find((f) => f.endsWith(".launch.json") && !before.has(f))!;
+    const { resultFile } = JSON.parse(readFileSync(join(home, name), "utf8"));
+    writeFileSync(resultFile, JSON.stringify({ state: "completed", exitCode: 0 }));
+    await runtime.reconcile();
+  }
+  await runtime.reconcile();
+  expect(await runtime.getSession("s0")).toBeNull();
+  const launches = vi.mocked(backend.create).mock.calls.length;
+  const replay = { ...spec(), sessionId: "s0", idempotencyKey: "k0" };
+  await expect(runtime.createSession(replay)).rejects.toMatchObject({ code: "conflict" });
+  await expect(
+    runtime.createSession({ ...replay, argv: ["codex", "changed"] }),
+  ).rejects.toMatchObject({ code: "idempotency_replay_mismatch" });
+  const resumed = new TerminalRuntime(backend, home);
+  runtimes.push(resumed);
+  await expect(resumed.createSession(replay)).rejects.toMatchObject({ code: "conflict" });
+  expect(backend.create).toHaveBeenCalledTimes(launches);
+});
 it("stops polling when the last subscriber closes and resumes on the next subscribe", async () => {
   vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
   try {

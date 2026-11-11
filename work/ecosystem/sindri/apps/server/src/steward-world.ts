@@ -214,7 +214,8 @@ export class ServerStewardWorld implements StewardWorld {
             specApproved: spec?.status === "approved",
             tasks: latest.tasks.map((t) => ({ id: t.id, objective: t.objective })),
             problems: [],
-            untrustedFlagged: latest.untrustedInstructionDetected === true,
+            // Same lineage-wide answer the planner's approve gate uses.
+            untrustedFlagged: planner.lineageFlagged(latest.lineageId),
           });
         }
     return out;
@@ -524,9 +525,10 @@ export class ServerStewardWorld implements StewardWorld {
   async approvePlan(s: PlanApprovalSubject, ctx: ActionContext): Promise<ApplyResult> {
     // Before the submit: without the approval factor a draft must stay a draft.
     const approval = this.#approval(ctx);
-    const plan = this.#o.factory.planner.get(s.planId);
+    const { planner } = this.#o.factory;
+    const plan = planner.get(s.planId);
     // Never acknowledged here, so refused; checked before the submit so nothing changes.
-    if (plan?.untrustedInstructionDetected)
+    if (plan && planner.lineageFlagged(plan.lineageId))
       throw new ApiError(
         409,
         "untrusted_unacknowledged",

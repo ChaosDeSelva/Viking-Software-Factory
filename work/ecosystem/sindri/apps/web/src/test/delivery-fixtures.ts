@@ -21,7 +21,8 @@ export const planTask = (over: Partial<PlanTask> = {}): PlanTask => ({
   skills: ["react-testing"],
   selectionRationale: ["harness frontend-react: selected (task types frontend match)"],
   role: "implementer",
-  budget: { wallClockMinutes: 90 },
+  // The planner always sets a token budget: default caps make one required.
+  budget: { wallClockMinutes: 90, tokens: 250000 },
   maxRetries: 2,
   escalation: "replan",
   ...over,
