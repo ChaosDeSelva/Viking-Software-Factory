@@ -1,10 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig, startServer } from "@sindri/server";
 import { CliError, EXIT_CONFIG, EXIT_INFRA } from "./env.js";
 
+/** `apps/web/dist` beside this package, percent-decoded (an install path may hold spaces). */
+export const defaultWebDist = (moduleUrl: string = import.meta.url): string =>
+  fileURLToPath(new URL("../../web/dist", moduleUrl));
+
 export function webDistDir(env: NodeJS.ProcessEnv = process.env): string {
-  return env["SINDRI_WEB_DIST"] || new URL("../../web/dist", import.meta.url).pathname;
+  return env["SINDRI_WEB_DIST"] || defaultWebDist();
 }
 
 export interface StartResult {
@@ -25,7 +30,8 @@ export async function start(env: NodeJS.ProcessEnv = process.env): Promise<Start
   try {
     const s = await startServer(env, {
       webDist: web,
-      logLevel: env["SINDRI_LOG_LEVEL"] ?? "warn",
+      // `||`: an empty value means unset, as for the other SINDRI_* variables.
+      logLevel: env["SINDRI_LOG_LEVEL"] || "warn",
       // The approval pairing code is shown on this terminal only, never logged (audit M9).
       overrides: {
         approval: {

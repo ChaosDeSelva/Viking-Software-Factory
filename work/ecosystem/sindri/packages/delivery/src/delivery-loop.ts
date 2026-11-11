@@ -82,7 +82,7 @@ export interface ExecutionTask {
   mimirTaskId: string;
   /** Mimir task status, from `task.*` events only. */
   status: string;
-  /** Failed attempts seen so far. */
+  /** Failed attempts seen so far, plus retries a human granted on an escalation. */
   attempts: number;
   lastEventCursor: string | null;
   escalation: Escalation | null;
@@ -484,12 +484,14 @@ export class DeliveryLoop {
         .run(at, executionId, planTaskId);
       switch (decision) {
         case "retry":
+          // The human's attempt number is spent: a later automatic retry (here or by the gate
+          // runner) must not reuse its `sindri:retry:<task>:<attempt>` key.
           this.db
             .prepare(
               `UPDATE execution_tasks SET escalation = NULL, escalation_reason = NULL,
-                 blocked_reason = NULL WHERE id = ?`,
+                 blocked_reason = NULL, attempts = ? WHERE id = ?`,
             )
-            .run(task.id);
+            .run(task.attempts + 1, task.id);
           this.setStatusIn(executionId, "running", notices);
           break;
         case "skip": {
@@ -935,8 +937,8 @@ export class DeliveryLoop {
       case "mission.cancelled": {
         // A cancel Sindri itself sent after skipping/aborting arrives after the execution ended.
         if (FINAL.includes(this.row(executionId).status)) break;
-        this.setStatusIn(executionId, "cancelled", notices);
-        this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
+        // Cancelled in Mimir: nobody can act on its approvals or inbox items any more.
+        this.finish(executionId, "cancelled", notices);
         break;
       }
       // `mission.failed` is acted on in `settle`: Mimir emits it exactly when a task is escalated

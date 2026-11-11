@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { redactSecrets, SECRET_PATTERNS } from "@sindri/knowledge";
 import { z } from "zod";
 import {
@@ -211,7 +212,9 @@ function runCli(
       detached: process.platform !== "win32",
       stdio: ["pipe", "pipe", "pipe"],
     });
-    let out = "";
+    // Decoded once at the end: a chunk can end inside a multi-byte character.
+    const out: Buffer[] = [];
+    const err = new StringDecoder("utf8");
     let errTail = "";
     let bytes = 0;
     let failure: ProviderError | undefined;
@@ -236,8 +239,8 @@ function runCli(
       bytes += chunk.length;
       if (bytes > 8 * 1024 * 1024)
         stop("api_error", "CLI planning response exceeded its output limit");
-      else if (stdout) out += chunk.toString("utf8");
-      else errTail = (errTail + chunk.toString("utf8")).slice(-4 * DETAIL_MAX);
+      else if (stdout) out.push(chunk);
+      else errTail = (errTail + err.write(chunk)).slice(-4 * DETAIL_MAX);
     };
     child.stdout.on("data", (c: Buffer) => collect(c, true));
     child.stderr.on("data", (c: Buffer) => collect(c, false));
@@ -252,17 +255,18 @@ function runCli(
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      const stdout = Buffer.concat(out).toString("utf8");
       if (failure) reject(failure);
       else if (code !== 0) {
-        const reported = reportedError(out);
+        const reported = reportedError(stdout);
         reject(
           cliFailure(
             `Planning CLI exited with status ${code}; check its login and model settings`,
-            [errTail, reported.text],
+            [errTail + err.end(), reported.text],
             reported.status,
           ),
         );
-      } else resolve(out);
+      } else resolve(stdout);
     });
     child.stdin.on("error", () => {
       /* early CLI exit is handled above */

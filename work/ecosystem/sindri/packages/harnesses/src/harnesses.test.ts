@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BrokkrHarnessService,
+  HarnessServiceError,
   explainSelection,
   FAKE_HARNESSES,
   FakeHarnessService,
@@ -137,6 +141,57 @@ describe("FakeHarnessService", () => {
     expect((await custom.inspectRepo()).frameworks).toEqual(["react"]);
   });
 
+  it("rejects an invalid task, an unsupported range and a task without task types", async () => {
+    await expect(svc.resolve({ task: task({ id: "" }) })).rejects.toMatchObject({
+      code: "invalid_request",
+      message: expect.stringContaining("invalid task"),
+    });
+    await expect(
+      svc.resolve({ task: task(), harnesses: [{ name: "frontend-react", version: ">=1.0.0" }] }),
+    ).rejects.toMatchObject({ code: "invalid_request", message: "unsupported range '>=1.0.0'" });
+    await expect(svc.resolve({ task: task() })).rejects.toMatchObject({
+      code: "no_match",
+      message: "no harness covers task types []",
+    });
+  });
+
+  it("picks the latest version by task type whatever the fixture order", async () => {
+    const [v100, v110] = FAKE_HARNESSES.filter((h) => h.name === "frontend-react");
+    const svc2 = new FakeHarnessService({ harnesses: [v110!, v100!] });
+    const sel = await svc2.resolve({ task: task({ taskTypes: ["ui"] }) });
+    expect(sel.harnesses.map((h) => `${h.name}@${h.version}`)).toEqual(["frontend-react@1.1.0"]);
+  });
+
+  it("selects a skill both required and optional once, as required", async () => {
+    const h = {
+      name: "h",
+      version: "1.0.0",
+      description: "d",
+      taskTypes: ["api"],
+      skills: { required: ["api-design"], optional: ["api-design"] },
+      checks: [],
+    };
+    const sel = await new FakeHarnessService({ harnesses: [h] }).resolve({
+      task: task({ taskTypes: ["api"] }),
+    });
+    expect(sel.skills).toEqual([expect.objectContaining({ name: "api-design", requiredBy: "h@1.0.0" })]);
+    expect(sel.rationale.filter((r) => r.name === "api-design")).toHaveLength(1);
+  });
+
+  it("reports a harness that names a skill the library lacks", async () => {
+    const h = {
+      name: "h",
+      version: "1.0.0",
+      description: "d",
+      taskTypes: ["api"],
+      skills: { required: [], optional: ["ghost"] },
+      checks: [],
+    };
+    await expect(
+      new FakeHarnessService({ harnesses: [h] }).resolve({ task: task({ taskTypes: ["api"] }) }),
+    ).rejects.toMatchObject({ code: "not_found", message: "skill 'ghost' (from optional list) missing" });
+  });
+
   it("supports custom harness fixtures", async () => {
     const only = new FakeHarnessService({
       harnesses: FAKE_HARNESSES.filter((h) => h.name === "documentation"),
@@ -156,13 +211,44 @@ describe("explainSelection", () => {
 });
 
 describe("BrokkrHarnessService", () => {
+  // A temp home: Brokkr reads user harnesses and org policy from `<home>/.brokkr`.
+  let home: string;
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "sindri-brokkr-home-"));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(home, { recursive: true, force: true });
+  });
+
   it("resolves the installed Brokkr harness and preserves its full lock", async () => {
-    const svc = new BrokkrHarnessService({ cwd: process.cwd() });
+    const svc = new BrokkrHarnessService({ cwd: process.cwd(), homeDir: home });
     const list = await svc.listHarnesses();
     expect(list.some((h) => h.name === "qa-regression")).toBe(true);
     const selection = await svc.resolve({ task: task(), harnesses: [{ name: "qa-regression", version: "^1" }] });
     expect(selection.lock.lockVersion).toBe(2);
     expect(selection.harnesses[0]?.name).toBe("qa-regression");
     expect((await svc.inspectRepo()).scripts).toContain("test");
+  });
+
+  it("maps Brokkr errors to HarnessServiceError codes, profiles included", async () => {
+    const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });
+    await expect(svc.resolve({ task: task(), profile: "nope" })).rejects.toMatchObject({
+      name: "HarnessServiceError",
+      code: "not_found",
+    });
+    const err = await svc
+      .resolve({ task: task(), harnesses: [{ name: "qa-regression", version: "^9.0.0" }] })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HarnessServiceError);
+    expect(err).toMatchObject({ code: "invalid_request" });
+  }, 60_000);
+
+  it("does not disguise a malformed SDK selection as a request error", async () => {
+    const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });
+    vi.spyOn(svc.sdk, "resolve").mockResolvedValue({ harnesses: "nope" } as never);
+    const err = await svc.resolve({ task: task() }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(HarnessServiceError);
   });
 });

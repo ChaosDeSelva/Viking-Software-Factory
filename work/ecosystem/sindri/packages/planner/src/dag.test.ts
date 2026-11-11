@@ -122,6 +122,20 @@ describe("estimatePlan", () => {
       costUsd: null,
     });
   });
+
+  it("refuses a cycle unless told to tolerate it", () => {
+    const cyclic = [t("a", { dependsOn: ["b"] }), t("b", { dependsOn: ["a"] }), t("c")];
+    expect(() => estimatePlan(cyclic)).toThrow("dependency cycle among a, b");
+    expect(estimatePlan(cyclic, { tolerateCycles: true })).toMatchObject({
+      taskCount: 3,
+      wallClockMinutes: 90,
+      criticalPathMinutes: 30,
+    });
+  });
+
+  it("starts a task whose dependency is not in the plan at time zero", () => {
+    expect(estimatePlan([t("a", { dependsOn: ["gone"] })]).criticalPathMinutes).toBe(30);
+  });
 });
 
 describe("dryRun", () => {

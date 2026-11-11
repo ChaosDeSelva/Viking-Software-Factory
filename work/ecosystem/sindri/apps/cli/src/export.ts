@@ -13,9 +13,6 @@ export function exportData(
 ): { out: string; bytes: number } {
   const dbFile = dbPath(dataDir(env));
   if (!existsSync(dbFile)) throw new CliError(`no database at ${dbFile}`, EXIT_INFRA);
-  if (existsSync(out) && !options.force) {
-    throw new CliError(`${out} already exists; pass --force to overwrite`, EXIT_CONFIG);
-  }
   const tmp = mkdtempSync(join(tmpdir(), "sindri-export-"));
   try {
     const db = openDatabase(dbFile);
@@ -36,7 +33,16 @@ export function exportData(
         ),
       });
       mkdirSync(dirname(out), { recursive: true });
-      writeFileSync(out, zip, { mode: 0o600 });
+      // Exclusive create: never through a symlink (even a dangling one) at the output path, and
+      // always 0600. --force replaces the entry instead of writing through it.
+      if (options.force) rmSync(out, { force: true });
+      try {
+        writeFileSync(out, zip, { mode: 0o600, flag: "wx" });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "EEXIST")
+          throw new CliError(`${out} already exists; pass --force to overwrite`, EXIT_CONFIG);
+        throw e;
+      }
       return { out, bytes: zip.length };
     } finally {
       db.close();

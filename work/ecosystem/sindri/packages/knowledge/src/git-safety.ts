@@ -152,9 +152,10 @@ function configEntries(file: string, timeout: number): { key: string; value: str
     });
 }
 
-const resolveConfigPath = (value: string, gitDir: string) => {
+/** Where git opens a config pathname: a relative one is relative to the work tree it runs in. */
+const resolveConfigPath = (value: string, root: string) => {
   if (value.startsWith("~/")) return join(homedir(), value.slice(2));
-  return isAbsolute(value) ? value : join(gitDir, value);
+  return isAbsolute(value) ? value : join(root, value);
 };
 
 /**
@@ -204,7 +205,7 @@ export function gitConfigFindings(root: string, options: GitAuditOptions = {}): 
     for (const { key, value } of entries) {
       if (isDangerousGitKey(key) && !bad.includes(key)) bad.push(key);
       if (key.toLowerCase() === "core.excludesfile") {
-        if (fileKind(resolveConfigPath(value, gitDir)) === "other")
+        if (fileKind(resolveConfigPath(value, root)) === "other")
           bad.push("core.excludesFile:not-a-regular-file");
       }
     }

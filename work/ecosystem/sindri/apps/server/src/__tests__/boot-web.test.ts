@@ -86,3 +86,19 @@ it("boots a real listener with persisted credentials and closes cleanly", async 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it("refuses a path whose percent-escapes do not decode, and serves an encoded API path as the API", async () => {
+  const h = await makeHarness();
+  const root = join(h.dir, "web");
+  mkdirSync(root, { recursive: true });
+  writeFileSync(join(root, "index.html"), "<html>app</html>");
+  serveWeb(h.app, root);
+  try {
+    // The router refuses it before any handler runs.
+    expect((await h.app.inject({ url: "/%E0%A4%A" })).statusCode).toBe(400);
+    // A percent-encoded API path is still the API, behind the token.
+    expect((await h.app.inject({ url: "/%761/projects" })).statusCode).toBe(401);
+  } finally {
+    await h.close();
+  }
+});

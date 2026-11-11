@@ -309,6 +309,37 @@ describe("sindri start", () => {
       }
     }
   }, 30_000);
+  it("treats an empty SINDRI_LOG_LEVEL as unset: no info logs on stdout", async () => {
+    const port = await new Promise<number>((resolve) => {
+      const s = netServer().listen(0, "127.0.0.1", () => {
+        const p = (s.address() as { port: number }).port;
+        s.close(() => resolve(p));
+      });
+    });
+    const web = join(home, "web");
+    mkdirSync(web, { recursive: true });
+    writeFileSync(join(web, "index.html"), "<html></html>");
+    const child = execa(process.execPath, [MAIN, "start", "--json"], {
+      reject: false,
+      extendEnv: false,
+      env: envFor({ SINDRI_PORT: String(port), SINDRI_WEB_DIST: web, SINDRI_LOG_LEVEL: "" }),
+    });
+    let ok = false;
+    try {
+      for (let i = 0; i < 100 && !ok; i++) {
+        ok = await fetch(`http://127.0.0.1:${port}/v1/health`).then(
+          (r) => r.ok,
+          () => false,
+        );
+        if (!ok) await new Promise((r) => setTimeout(r, 100));
+      }
+    } finally {
+      child.kill("SIGTERM");
+    }
+    const r = await child;
+    expect(ok).toBe(true);
+    expect(r.stdout).toBe(JSON.stringify({ url: `http://127.0.0.1:${port}` }));
+  }, 30_000);
   it("exits 2 when the web build is missing", async () => {
     const r = await run(["start"], { SINDRI_WEB_DIST: join(home, "nope") });
     expect(r.exitCode).toBe(2);

@@ -24,5 +24,8 @@ export function satisfies(version: string, range: string): boolean | undefined {
   if (compareVersions(version, range.slice(op.length)) < 0) return false;
   if (op === "") return compareVersions(version, range) === 0;
   if (op === "~") return v[0] === base[0] && v[1] === base[1];
-  return base[0] > 0 ? v[0] === base[0] : v[0] === 0 && v[1] === base[1];
+  // npm semantics: `^` keeps the left-most non-zero part fixed (`^0.0.z` is exactly 0.0.z).
+  if (base[0] > 0) return v[0] === base[0];
+  if (base[1] > 0) return v[0] === 0 && v[1] === base[1];
+  return compareVersions(version, range.slice(1)) === 0;
 }

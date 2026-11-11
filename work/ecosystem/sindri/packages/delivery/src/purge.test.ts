@@ -151,6 +151,21 @@ describe("project purge reaches every delivery table (audit M4)", () => {
       expect(after[table], table).toContain("_b");
   });
 
+  it("purges the quality tables of a database that has no execution tables", () => {
+    const k = openKnowledge(":memory:");
+    ensureQualitySchema(k.db);
+    const p = k.projects.create({ name: "acme", repoPath: "/repos/acme" });
+    k.db
+      .prepare(
+        `INSERT INTO gate_evaluations (id, execution_id, project_id, plan_task_id, mimir_task_id,
+           passed, failures_json, advisories_json, evaluated_at)
+         VALUES ('gev_a', 'exe_a', ?, 'impl', 'tsk_a', 1, '[]', '[]', 't')`,
+      )
+      .run(p.id);
+    k.projects.purge(p.id);
+    expect(k.db.prepare("SELECT COUNT(*) AS n FROM gate_evaluations").get()).toEqual({ n: 0 });
+  });
+
   it("declares project_id foreign keys with ON DELETE CASCADE on executions and deliveries", () => {
     const k = openKnowledge(":memory:");
     ensureDeliverySchema(k.db);

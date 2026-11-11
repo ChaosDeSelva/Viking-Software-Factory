@@ -33,4 +33,8 @@ describe("chunkText", () => {
   it("returns no chunks for blank text", () => {
     expect(chunkText("  \n\n")).toEqual([]);
   });
+
+  it("returns no chunks for empty text", () => {
+    expect(chunkText("")).toEqual([]);
+  });
 });

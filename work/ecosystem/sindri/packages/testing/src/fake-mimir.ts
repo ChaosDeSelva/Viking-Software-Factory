@@ -482,19 +482,31 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
   }) => Reply;
 
   type TaskRequest = Omit<z.infer<typeof CreateTaskRequestSchema>, "missionId">;
-  /** Creates a task (the shared body of `POST /v1/tasks` and `POST /v1/missions { tasks }`). */
-  function addTask(mission: Mission, req: TaskRequest): Task {
-    let maxAttempts = 1;
+  /**
+   * Refuses a task the mission cannot take, before anything is created: a taken id, a crew or
+   * dependency outside the mission. `batch` holds the ids created by the same request.
+   */
+  function checkTask(mission: Mission, req: TaskRequest, batch: ReadonlySet<string>): void {
+    if (req.id !== undefined && tasks.has(req.id)) {
+      throw new MimirError("conflict", `task ${req.id} already exists`);
+    }
     if (req.crewId) {
       const c = need(crews, req.crewId, "crew");
       if (c.crew.missionId !== mission.id) throw new MimirError("conflict", "crew not in mission");
-      maxAttempts = c.crew.limits.maxAttemptsPerTask ?? 1;
     }
     for (const d of req.dependsOn ?? []) {
+      if (batch.has(d)) continue;
       const dep = need(tasks, d, "task");
       if (dep.task.missionId !== mission.id)
         throw new MimirError("conflict", "dependency in other mission");
     }
+  }
+
+  /** Creates a checked task (see `checkTask`). */
+  function addTask(mission: Mission, req: TaskRequest): Task {
+    const maxAttempts = req.crewId
+      ? (need(crews, req.crewId, "crew").crew.limits.maxAttemptsPerTask ?? 1)
+      : 1;
     const acceptance = (req.acceptanceCriteria ?? []).join("\n");
     const task: Task = {
       ...base(req.id ?? newId("tsk")),
@@ -593,6 +605,14 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
         objective: req.objective,
         status: "draft",
       };
+      // Like Mimir, all or nothing: every task is checked before the mission exists.
+      const batch = new Set<string>();
+      for (const t of req.tasks ?? []) {
+        if (t.id === undefined) continue;
+        if (batch.has(t.id)) throw new MimirError("conflict", `task ${t.id} already exists`);
+        batch.add(t.id);
+      }
+      for (const t of req.tasks ?? []) checkTask(mission, t, batch);
       missions.set(mission.id, mission);
       creates.missions += 1;
       emit(
@@ -698,6 +718,7 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       if (mission.status !== "draft") {
         throw new MimirError("invalid_transition", "tasks can only be added to a draft mission");
       }
+      checkTask(mission, req, new Set());
       const task = addTask(mission, req);
       return { status: 201, body: CreateTaskResponseSchema.parse({ task }) };
     },
@@ -856,7 +877,12 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       let ok = true;
       for (let i = 0; i < a.length; i++) {
         const seg = a[i] as string;
-        const val = decodeURIComponent(b[i] as string);
+        let val = b[i] as string;
+        try {
+          val = decodeURIComponent(val);
+        } catch {
+          // A malformed escape stays as sent; it then fails the id or route check below.
+        }
         if (seg === "{id}") params.id = val;
         else if (seg !== val) ok = false;
       }
@@ -940,7 +966,8 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    const url = new URL(req.url ?? "/", "http://fake");
+    // Appended to an origin, so a target such as `//` stays a path instead of failing to parse.
+    const url = new URL(`http://fake${req.url ?? "/"}`);
     const method = (req.method ?? "GET").toUpperCase();
     const raw = method === "POST" ? await readBody(req) : "";
     const key = req.headers[IDEMPOTENCY_HEADER];
@@ -1014,14 +1041,20 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
   let server: Server | undefined;
   const listen = (port: number) =>
     new Promise<number>((resolve, reject) => {
-      const srv = createServer((req, res) => void handle(req, res));
-      server = srv;
+      // A request that dies while being read (client gone mid-body) must not reject unhandled.
+      const srv = createServer(
+        (req, res) => void handle(req, res).catch((err: unknown) => sendError(res, err)),
+      );
       srv.on("connection", (s) => {
         sockets.add(s);
         s.on("close", () => sockets.delete(s));
       });
       srv.once("error", reject);
-      srv.listen(port, "127.0.0.1", () => resolve((srv.address() as AddressInfo).port));
+      srv.listen(port, "127.0.0.1", () => {
+        // Only a server that really listens replaces the tracked one (`start()` on a running fake).
+        server = srv;
+        resolve((srv.address() as AddressInfo).port);
+      });
     });
   const port = await listen(0);
   const url = `http://127.0.0.1:${port}`;

@@ -149,4 +149,17 @@ describe("deriveWorkAreas", () => {
       ["security", ["AC-1"]],
     ]);
   });
+
+  it("ignores impacted paths no rule knows and lists a repeated path once", () => {
+    const areas = deriveWorkAreas(
+      { acceptanceCriteria: [ac("AC-1", "Rows are capped")] },
+      {
+        impactedSystems: [
+          { area: "a", paths: ["Makefile", "src/server/x.ts"] },
+          { area: "b", paths: ["src/server/x.ts"] },
+        ],
+      },
+    );
+    expect(areas.map((a) => [a.kind, a.paths])).toEqual([["backend", ["src/server/x.ts"]]]);
+  });
 });

@@ -129,8 +129,9 @@ async function exportSnapshot(repoPath: string, sha: string, ref: string, dir: s
   } catch {
     return existsSync(complete(dir));
   } finally {
-    await rm(staging, { recursive: true, force: true });
-    await rm(tar, { force: true });
+    // Cleanup failing (the parent is gone or unwritable) must not turn the fallback into a throw.
+    await rm(staging, { recursive: true, force: true }).catch(() => undefined);
+    await rm(tar, { force: true }).catch(() => undefined);
   }
 }
 

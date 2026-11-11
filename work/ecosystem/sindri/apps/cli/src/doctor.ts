@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { openDatabase } from "@sindri/knowledge";
 import { readConfigFile, secretStoreFor } from "@sindri/server";
@@ -122,10 +122,11 @@ async function mimirCheck(settings: StoredSettings, env: NodeJS.ProcessEnv): Pro
   if (!raw)
     return { name, status: "warn", detail: "not configured (no Mimir URL)", required: false };
   const url = displayUrl(raw);
-  // Credentials never travel in the URL; the token goes in the Authorization header.
+  // Credentials never travel in the URL; the token goes in the Authorization header. Appended
+  // to any path prefix, as the Mimir client does.
   const target = (() => {
     try {
-      return new URL("/v1/capabilities", url);
+      return new URL(`${url.replace(/\/+$/, "")}/v1/capabilities`);
     } catch {
       return null;
     }
@@ -218,7 +219,8 @@ export async function doctor(env: NodeJS.ProcessEnv = process.env): Promise<Doct
     let probe = dir;
     while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
     accessSync(probe, constants.W_OK);
-    writable = true;
+    // A regular file at (or above) the data dir is writable but cannot hold it.
+    writable = statSync(probe).isDirectory();
   } catch {
     writable = false;
   }

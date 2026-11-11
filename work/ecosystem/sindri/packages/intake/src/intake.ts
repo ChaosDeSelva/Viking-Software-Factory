@@ -515,11 +515,15 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
     deleteUnreferencedBlobs(paths: readonly string[]): number {
       if (!options.attachmentsDir) return 0;
       const root = resolve(options.attachmentsDir) + sep;
-      const used = db.prepare("SELECT 1 FROM intake_attachments WHERE path = ? LIMIT 1");
+      // Blobs are named by their hash: a row with that hash may reach the same file under another
+      // spelling of the directory (a symlink, a relative path), so it keeps the blob too.
+      const used = db.prepare(
+        "SELECT 1 FROM intake_attachments WHERE path = ? OR sha256 = ? LIMIT 1",
+      );
       let n = 0;
       for (const p of new Set(paths)) {
         const abs = resolve(p);
-        if (!abs.startsWith(root) || used.get(p) || !existsSync(abs)) continue;
+        if (!abs.startsWith(root) || used.get(p, basename(abs)) || !existsSync(abs)) continue;
         rmSync(abs, { force: true });
         n++;
       }

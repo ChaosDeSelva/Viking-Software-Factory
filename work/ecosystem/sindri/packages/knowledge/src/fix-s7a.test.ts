@@ -30,6 +30,8 @@ describe("SindriError", () => {
     });
     expect(isSindriError(foreign)).toBe(true);
     expect(isSindriError(new Error("already exists"))).toBe(false);
+    for (const v of [null, undefined, "not_found", { code: "not_found" }])
+      expect(isSindriError(v)).toBe(false);
   });
 });
 

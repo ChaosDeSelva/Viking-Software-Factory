@@ -67,6 +67,15 @@ function parseHttpsUrl(url: string): URL | undefined {
 
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
 
+// Remote JSON is untrusted: a field of the wrong type must not reach a snapshot, where display
+// sanitizing and storage expect strings.
+const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
+const rec = (v: unknown): Record<string, unknown> =>
+  typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const idText = (v: unknown): string =>
+  typeof v === "string" || typeof v === "number" ? String(v) : "";
+
 // --------------------------------------------------------------------------- Jira
 
 interface AdfNode {
@@ -78,10 +87,17 @@ interface AdfNode {
 
 const ADF_BLOCKS = new Set(["paragraph", "heading", "blockquote", "codeBlock", "rule", "panel"]);
 
+/**
+ * Nodes nested deeper than this are dropped: real documents stay far below it, and recursion on
+ * a hostile document must not overflow the stack.
+ */
+export const MAX_ADF_DEPTH = 100;
+
 /** Flatten Atlassian Document Format into plain text. Never interprets the content. */
 export function adfToText(node: unknown): string {
-  const walk = (n: AdfNode | undefined, bullet = ""): string => {
-    if (!n || typeof n !== "object") return "";
+  const walk = (n: AdfNode | undefined, bullet = "", depth = 0): string => {
+    if (!n || typeof n !== "object" || depth > MAX_ADF_DEPTH) return "";
+    const children = list(n.content) as AdfNode[];
     switch (n.type) {
       case "text":
         return typeof n.text === "string" ? n.text : "";
@@ -95,20 +111,20 @@ export function adfToText(node: unknown): string {
         return String(n.attrs?.url ?? "");
       case "bulletList":
       case "orderedList":
-        return (n.content ?? [])
-          .map((item, i) => walk(item, n.type === "bulletList" ? "- " : `${i + 1}. `))
+        return children
+          .map((item, i) => walk(item, n.type === "bulletList" ? "- " : `${i + 1}. `, depth + 1))
           .join("");
       case "listItem":
         return (
           bullet +
-          (n.content ?? [])
-            .map((c) => walk(c))
+          children
+            .map((c) => walk(c, "", depth + 1))
             .join("")
             .trimEnd() +
           "\n"
         );
       default: {
-        const inner = (n.content ?? []).map((c) => walk(c)).join("");
+        const inner = children.map((c) => walk(c, "", depth + 1)).join("");
         return n.type && ADF_BLOCKS.has(n.type) ? inner + "\n" : inner;
       }
     }
@@ -126,21 +142,6 @@ export interface JiraConnectorOptions {
   /** SecretStore handle; resolved per request, never stored in snapshots. */
   apiToken: SecretSource;
   fetch: FetchFn;
-}
-
-interface JiraIssue {
-  key: string;
-  fields?: {
-    summary?: string;
-    description?: unknown;
-    updated?: string;
-    status?: { name?: string };
-  };
-}
-interface JiraComments {
-  startAt?: number;
-  total?: number;
-  comments?: { id: string; author?: { displayName?: string }; body?: unknown; created?: string }[];
 }
 
 /** At most this many comments are imported per ticket (audit M5: bounded work per import). */
@@ -198,45 +199,51 @@ export class JiraConnector implements Connector {
   }
 
   async fetchIssue(ref: IssueRef): Promise<IssueSnapshot> {
-    const raw = await this.#get<JiraIssue>(`/rest/api/3/issue/${encodeURIComponent(ref.key)}`);
-    const f = raw.fields ?? {};
+    const raw = await this.#get<unknown>(`/rest/api/3/issue/${encodeURIComponent(ref.key)}`);
+    const f = rec(rec(raw)["fields"]);
     const snap: IssueSnapshot = {
       source: "jira",
-      externalId: raw.key ?? ref.key,
+      externalId: str(rec(raw)["key"]) ?? ref.key,
       url: ref.url,
-      title: cap(f.summary ?? ""),
-      body: cap(adfToText(f.description ?? "")),
-      updated: f.updated ?? "",
+      title: cap(str(f["summary"]) ?? ""),
+      body: cap(adfToText(f["description"] ?? "")),
+      updated: str(f["updated"]) ?? "",
       raw,
     };
-    if (f.status?.name) snap.status = f.status.name;
+    const status = str(rec(f["status"])["name"]);
+    if (status) snap.status = status;
     return snap;
   }
 
   async fetchComments(ref: IssueRef): Promise<CommentsResult> {
     const base = `/rest/api/3/issue/${encodeURIComponent(ref.key)}/comment`;
-    const pages: JiraComments[] = [];
-    let page = await this.#get<JiraComments>(base);
+    const pages: unknown[] = [];
+    const commentsOf = (p: unknown) => list(rec(p)["comments"]);
+    let page = await this.#get<unknown>(base);
     pages.push(page);
-    let seen = page.comments?.length ?? 0;
-    while (
-      page.total !== undefined &&
-      seen < page.total &&
-      seen < MAX_IMPORTED_COMMENTS &&
-      (page.comments?.length ?? 0) > 0
-    ) {
-      page = await this.#get<JiraComments>(`${base}?startAt=${seen}`);
+    let seen = commentsOf(page).length;
+    for (;;) {
+      const total = rec(page)["total"];
+      if (
+        typeof total !== "number" ||
+        seen >= total ||
+        seen >= MAX_IMPORTED_COMMENTS ||
+        commentsOf(page).length === 0
+      )
+        break;
+      page = await this.#get<unknown>(`${base}?startAt=${seen}`);
       pages.push(page);
-      seen += page.comments?.length ?? 0;
+      seen += commentsOf(page).length;
     }
     const comments = pages
-      .flatMap((p) => p.comments ?? [])
+      .flatMap(commentsOf)
       .slice(0, MAX_IMPORTED_COMMENTS)
+      .map(rec)
       .map((c) => ({
-        externalId: c.id,
-        author: cap(c.author?.displayName ?? "unknown"),
-        body: cap(adfToText(c.body ?? "")),
-        createdAt: c.created ?? "",
+        externalId: idText(c["id"]),
+        author: cap(str(rec(c["author"])["displayName"]) ?? "unknown"),
+        body: cap(adfToText(c["body"] ?? "")),
+        createdAt: str(c["created"]) ?? "",
       }));
     return { comments, raw: pages.length === 1 ? pages[0] : pages };
   }
@@ -265,21 +272,6 @@ const COMMENTS_QUERY = `query SindriIssueComments($id: String!) {
 export interface LinearConnectorOptions {
   apiKey: SecretSource;
   fetch: FetchFn;
-}
-
-interface LinearIssue {
-  id: string;
-  identifier: string;
-  title?: string;
-  description?: string | null;
-  url?: string;
-  updatedAt?: string;
-  state?: { name?: string };
-}
-interface LinearCommentsIssue {
-  comments?: {
-    nodes?: { id: string; body?: string; createdAt?: string; user?: { name?: string } | null }[];
-  };
 }
 
 /** Linear GraphQL, read-only (queries only; no mutation is ever sent). */
@@ -316,48 +308,46 @@ export class LinearConnector implements Connector {
       body: JSON.stringify({ query, variables }),
     });
     if (!res.ok) throw new ConnectorError(`Linear request failed: HTTP ${res.status}`, res.status);
-    const json = (await res.json()) as {
-      data?: T | null;
-      errors?: { extensions?: { code?: unknown } }[];
-    };
-    if (json.errors?.length || !json.data) {
+    const json = rec(await res.json());
+    const errors = list(json["errors"]);
+    if (errors.length || !json["data"]) {
       // Remote error text is untrusted: surface only a well-formed error code.
-      const code = json.errors?.[0]?.extensions?.code;
+      const code = rec(rec(errors[0])["extensions"])["code"];
       const safe =
         typeof code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? code : "UNKNOWN";
       throw new ConnectorError(`Linear GraphQL error (${safe})`);
     }
-    return json.data;
+    return json["data"] as T;
   }
 
   async fetchIssue(ref: IssueRef): Promise<IssueSnapshot> {
-    const data = await this.#query<{ issue: LinearIssue | null }>(ISSUE_QUERY, { id: ref.key });
-    const issue = data.issue;
-    if (!issue) throw new ConnectorError(`Linear issue ${ref.key} not found`);
+    const data = await this.#query<unknown>(ISSUE_QUERY, { id: ref.key });
+    if (!rec(data)["issue"]) throw new ConnectorError(`Linear issue ${ref.key} not found`);
+    const issue = rec(rec(data)["issue"]);
     const snap: IssueSnapshot = {
       source: "linear",
-      externalId: issue.identifier ?? ref.key,
-      url: issue.url ?? ref.url,
-      title: cap(issue.title ?? ""),
-      body: cap(issue.description ?? ""),
-      updated: issue.updatedAt ?? "",
+      externalId: str(issue["identifier"]) ?? ref.key,
+      url: str(issue["url"]) ?? ref.url,
+      title: cap(str(issue["title"]) ?? ""),
+      body: cap(str(issue["description"]) ?? ""),
+      updated: str(issue["updatedAt"]) ?? "",
       raw: data,
     };
-    if (issue.state?.name) snap.status = issue.state.name;
+    const status = str(rec(issue["state"])["name"]);
+    if (status) snap.status = status;
     return snap;
   }
 
   async fetchComments(ref: IssueRef): Promise<CommentsResult> {
-    const data = await this.#query<{ issue: LinearCommentsIssue | null }>(COMMENTS_QUERY, {
-      id: ref.key,
-    });
-    const comments = (data.issue?.comments?.nodes ?? [])
+    const data = await this.#query<unknown>(COMMENTS_QUERY, { id: ref.key });
+    const comments = list(rec(rec(rec(data)["issue"])["comments"])["nodes"])
       .slice(0, MAX_IMPORTED_COMMENTS)
+      .map(rec)
       .map((c) => ({
-        externalId: c.id,
-        author: cap(c.user?.name ?? "unknown"),
-        body: cap(c.body ?? ""),
-        createdAt: c.createdAt ?? "",
+        externalId: idText(c["id"]),
+        author: cap(str(rec(c["user"])["name"]) ?? "unknown"),
+        body: cap(str(c["body"]) ?? ""),
+        createdAt: str(c["createdAt"]) ?? "",
       }));
     return { comments, raw: data };
   }

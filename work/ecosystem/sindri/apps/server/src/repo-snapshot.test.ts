@@ -195,3 +195,61 @@ it("falls back to the checkout, and says so, when no snapshot can be made", asyn
     expect(ws.label).toContain("working checkout");
   }
 });
+
+it("falls back to the checkout for a repository without a fetched default branch", async () => {
+  const repo = temp("local");
+  sh(repo, "init", "-q", "-b", "main");
+  writeFileSync(join(repo, "a.txt"), "x\n");
+  sh(repo, "add", "-A");
+  sh(repo, "commit", "-q", "-m", "one");
+  const ws = await planningWorkspace({ dataDir: temp("data"), projectId: "p1", repoPath: repo });
+  expect(ws).toMatchObject({ path: repo, label: expect.stringContaining("working checkout") });
+});
+
+it("never passes a commit that is not a hex id to git, and falls back for an unknown one", async () => {
+  const { repo } = cloneWithLocalWork();
+  const dataDir = temp("data");
+  for (const commit of ["HEAD", "--output=/tmp/x", "main", "abc"]) {
+    const ws = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo, commit });
+    expect(ws.path).toBe(repo);
+  }
+  const unknown = await planningWorkspace({
+    dataDir,
+    projectId: "p1",
+    repoPath: repo,
+    commit: "0".repeat(40),
+  });
+  expect(unknown.path).toBe(repo);
+  expect(existsSync(join(dataDir, "snapshots"))).toBe(false);
+});
+
+it("falls back to the checkout when the export cannot be written, leaving no staging behind", async () => {
+  const { repo } = cloneWithLocalWork();
+  const dataDir = temp("data");
+  // A file where the snapshots directory belongs makes every write under it fail.
+  writeFileSync(join(dataDir, "snapshots"), "not a directory");
+  const ws = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo });
+  expect(ws).toMatchObject({ path: repo, label: expect.stringContaining("working checkout") });
+  expect(readdirSync(dataDir)).toEqual(["snapshots"]);
+});
+
+it("prunes stale staging leftovers and an unmarked snapshot, and removes a project's snapshots", async () => {
+  const { repo, sha } = cloneWithLocalWork();
+  const dataDir = temp("data");
+  const projectDir = join(dataDir, "snapshots", "p1");
+  const stale = new Date(Date.now() - 7 * 60 * 60 * 1000);
+  const { mkdirSync, utimesSync } = await import("node:fs");
+  for (const name of [`${"a".repeat(40)}.partial-1-x`, "b".repeat(40)]) {
+    mkdirSync(join(projectDir, name), { recursive: true });
+    utimesSync(join(projectDir, name), stale, stale);
+  }
+  const ws = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo });
+  expect(ws.path).toBe(join(projectDir, sha));
+  expect(readdirSync(projectDir).sort()).toEqual([sha, `${sha}.complete`]);
+
+  const { removeSnapshots } = await import("./repo-snapshot.js");
+  await removeSnapshots(null, "p1");
+  expect(existsSync(projectDir)).toBe(true);
+  await removeSnapshots(dataDir, "p1");
+  expect(existsSync(projectDir)).toBe(false);
+});

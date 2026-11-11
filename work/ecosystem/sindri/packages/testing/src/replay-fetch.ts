@@ -32,13 +32,16 @@ export function createReplayFetch(routes: readonly ReplayRoute[]): ReplayFetch {
   const requests: RecordedRequest[] = [];
   const fake = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const method = (init?.method ?? "GET").toUpperCase();
+    // As with the real fetch, a `Request` carries its own method, headers and body; `init` wins.
+    const request = input instanceof Request ? input : undefined;
+    const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
     const headers: Record<string, string> = {};
-    new Headers(init?.headers).forEach((v, k) => {
+    new Headers(init?.headers ?? request?.headers).forEach((v, k) => {
       headers[k] = v;
     });
     const req: RecordedRequest = { method, url, headers };
     if (typeof init?.body === "string") req.body = init.body;
+    else if (request?.body && init?.body === undefined) req.body = await request.clone().text();
     requests.push(req);
     const route = routes.find(
       (r) =>

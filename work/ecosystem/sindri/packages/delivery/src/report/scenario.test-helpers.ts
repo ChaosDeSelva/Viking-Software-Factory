@@ -243,5 +243,3 @@ export async function approveReview(s: Scenario): Promise<void> {
   );
   await s.reviews.collect(review.id);
 }
-
-export const openTestDb = () => openDeliveryTestDb();

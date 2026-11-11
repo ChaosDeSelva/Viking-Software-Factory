@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { createCipheriv, createDecipheriv, randomBytes, scrypt as scryptCb } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
+import { resolve as resolvePath } from "node:path";
 
 /** Read-only access to named credentials. Implementations must never log values. */
 export interface SecretStore {
@@ -141,6 +142,17 @@ export interface FileSecretStoreOptions {
   passphrase: string;
 }
 
+/**
+ * Pending read-modify-write per secrets file. Overlapping `set`/`delete` calls (from any store on
+ * the same path in this process) run one after another; otherwise the later write would be based
+ * on a file read before the earlier one landed and drop its change.
+ */
+const writeQueues = new Map<string, Promise<void>>();
+
+/** A map without a prototype: a secret may be named `constructor` or `__proto__`. */
+const entryMap = (from: object = {}): Record<string, string> =>
+  Object.assign(Object.create(null) as Record<string, string>, from);
+
 /** Local secrets file encrypted with AES-256-GCM under a scrypt-derived key; mode 0600. */
 export class FileSecretStore implements WritableSecretStore {
   readonly #path: string;
@@ -150,8 +162,24 @@ export class FileSecretStore implements WritableSecretStore {
     this.#passphrase = options.passphrase;
   }
 
+  #exclusive(change: (entries: Record<string, string>) => void): Promise<void> {
+    const key = resolvePath(this.#path);
+    const run = (writeQueues.get(key) ?? Promise.resolve()).then(async () => {
+      const entries = await this.#load();
+      change(entries);
+      await this.#save(entries);
+    });
+    // The queue itself never rejects: a failed write must not block the ones after it.
+    const tail = run.catch(() => undefined);
+    writeQueues.set(key, tail);
+    void tail.then(() => {
+      if (writeQueues.get(key) === tail) writeQueues.delete(key);
+    });
+    return run;
+  }
+
   async #load(): Promise<Record<string, string>> {
-    if (!existsSync(this.#path)) return {};
+    if (!existsSync(this.#path)) return entryMap();
     const file = JSON.parse(await readFile(this.#path, "utf8")) as EncryptedFile;
     if (file.v !== 1 || file.kdf?.name !== "scrypt" || file.cipher !== "aes-256-gcm") {
       throw new Error("unsupported secrets file format");
@@ -167,7 +195,7 @@ export class FileSecretStore implements WritableSecretStore {
       const d = createDecipheriv("aes-256-gcm", key, Buffer.from(file.iv, "base64"));
       d.setAuthTag(Buffer.from(file.tag, "base64"));
       const plain = Buffer.concat([d.update(Buffer.from(file.data, "base64")), d.final()]);
-      return JSON.parse(plain.toString("utf8")) as Record<string, string>;
+      return entryMap(JSON.parse(plain.toString("utf8")) as Record<string, string>);
     } catch {
       throw new Error("cannot decrypt secrets file (wrong passphrase or corrupted file)");
     }
@@ -196,15 +224,15 @@ export class FileSecretStore implements WritableSecretStore {
   async get(key: string): Promise<string | undefined> {
     return (await this.#load())[key];
   }
-  async set(key: string, value: string): Promise<void> {
-    const entries = await this.#load();
-    entries[key] = value;
-    await this.#save(entries);
+  set(key: string, value: string): Promise<void> {
+    return this.#exclusive((entries) => {
+      entries[key] = value;
+    });
   }
-  async delete(key: string): Promise<void> {
-    const entries = await this.#load();
-    delete entries[key];
-    await this.#save(entries);
+  delete(key: string): Promise<void> {
+    return this.#exclusive((entries) => {
+      delete entries[key];
+    });
   }
   async keys(): Promise<string[]> {
     return Object.keys(await this.#load()).sort();

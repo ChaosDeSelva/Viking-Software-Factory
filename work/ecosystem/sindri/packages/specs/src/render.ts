@@ -60,7 +60,9 @@ export function renderSpec(s: RenderInput): string {
   if (!b.acceptanceCriteria.length) out.push("_None._");
   for (const ac of b.acceptanceCriteria) {
     out.push(`- **${inline(ac.id)}** (${ac.verification}): ${inline(ac.text)}`);
-    out.push(`  ${sources(p.acceptanceCriteria[ac.id])}`);
+    out.push(
+      `  ${sources(Object.hasOwn(p.acceptanceCriteria, ac.id) ? p.acceptanceCriteria[ac.id] : undefined)}`,
+    );
   }
   out.push("");
   out.push("## Risks", "", ...list(b.risks), "", sources(p.risks), "");

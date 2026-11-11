@@ -171,7 +171,8 @@ export function openSpecs(pathOrDb: string | SqliteDatabase, options: OpenSpecsO
     if (!p.success) throw new SpecValidationError(`invalid provenance: ${issues(p.error)}`);
     const acIds = new Set(b.data.acceptanceCriteria.map((a) => a.id));
     for (const id of acIds) {
-      if (!p.data.acceptanceCriteria[id]?.length) {
+      // Own entries only: an id such as "constructor" must not find Object.prototype's member.
+      if (!Object.hasOwn(p.data.acceptanceCriteria, id) || !p.data.acceptanceCriteria[id]?.length) {
         throw new SpecValidationError(
           `provenance for acceptance criterion ${id} must not be empty`,
         );

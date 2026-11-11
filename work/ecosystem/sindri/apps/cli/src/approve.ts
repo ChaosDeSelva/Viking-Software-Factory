@@ -25,6 +25,9 @@ export interface ApproveResult {
 }
 
 const enc = encodeURIComponent;
+/** C0/C1 controls and DEL: a title from untrusted content must not drive the terminal. */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g;
 const VIEW: Record<ApproveKind, (id: string) => string> = {
   spec: (id) => `/v1/specs/${enc(id)}`,
   plan: (id) => `/v1/plans/${enc(id)}`,
@@ -53,6 +56,9 @@ export async function approve(
       "sindri approve needs an interactive terminal (TTY). This only stops piped or scripted use (agents can run in terminals too); the pairing code from the server terminal is the human check",
       EXIT_CONFIG,
     );
+  // "." and ".." survive encoding, and URL resolution would send the approval to another route.
+  if (id === "" || id === "." || id === "..")
+    throw new CliError(`invalid ${kind} id "${id}"`, EXIT_CONFIG);
   const env = o.env ?? process.env;
   const doFetch = o.fetch ?? globalThis.fetch;
   let base: string;
@@ -93,10 +99,10 @@ export async function approve(
     kind === "spec" &&
     (view["meta"] as { untrustedInstructionDetected?: boolean } | undefined)
       ?.untrustedInstructionDetected === true;
-  const title =
-    ((view[kind === "pr" ? "execution" : kind] as Record<string, unknown> | undefined)?.[
-      "title"
-    ] as string | undefined) ?? "";
+  const title = String(
+    (view[kind === "pr" ? "execution" : kind] as Record<string, unknown> | undefined)?.["title"] ??
+      "",
+  ).replace(CONTROL, "");
   io.write(
     `About to ${kind === "pr" ? "request a PR for execution" : `approve ${kind}`} ${id}${title ? `: ${title}` : ""}\n`,
   );

@@ -55,6 +55,39 @@ describe("authentication", () => {
     expect(ok.statusCode).toBe(200);
   });
 
+  it("guards a /v1 route reached through a percent-encoded path like the plain one", async () => {
+    // The router decodes `%76%31` to `v1`, so these paths reach the API routes.
+    for (const url of ["/%761/projects", "/%76%31/settings"]) {
+      const none = await h.app.inject({ method: "GET", url });
+      expect(none.statusCode).toBe(401);
+      expect(none.json().error.code).toBe("unauthorized");
+    }
+    const foreignHost = await h.call({
+      method: "GET",
+      url: "/%761/projects",
+      headers: { host: "attacker.example:7800" },
+    });
+    expect(foreignHost.json().error.code).toBe("host_forbidden");
+    const foreignOrigin = await h.call({
+      method: "GET",
+      url: "/%761/projects",
+      headers: { origin: "http://evil.example" },
+    });
+    expect(foreignOrigin.json().error.code).toBe("origin_forbidden");
+    const keyless = await h.call({
+      method: "POST",
+      url: "/%761/projects",
+      payload: newProject(),
+      key: null,
+    });
+    expect(keyless.statusCode).toBe(422);
+    expect(keyless.json().error.code).toBe("idempotency_key_required");
+    expect((await h.call({ method: "GET", url: "/v1/projects" })).json().projects).toEqual([]);
+    // An encoded health path is still health, and an authorized encoded path works.
+    expect((await h.app.inject({ method: "GET", url: "/v1/healt%68" })).statusCode).toBe(200);
+    expect((await h.call({ method: "GET", url: "/%761/projects" })).statusCode).toBe(200);
+  });
+
   it("returns the error envelope for unknown routes (after auth)", async () => {
     const res = await h.call({ method: "GET", url: "/v1/nope" });
     expect(res.statusCode).toBe(404);

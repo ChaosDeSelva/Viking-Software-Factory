@@ -44,7 +44,7 @@ describe("secret scanning (review Ssec I2, m2, m3)", () => {
   it("m2: catches tokens glued to an underscore or letters, and credential URLs", () => {
     for (const t of [
       "MY_AWS_KEY_AKIAABCDEFGHIJ234567",
-      ("TOKEN_gh" + "p_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"),
+      "TOKEN_gh" + "p_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
       "OPENAI_sk-proj-abcdEFGH1234ijklMNOP5678qrst",
       "DATABASE_URL=postgres://admin:Sup3rS3cretPassw0rd@db.internal:5432/prod",
     ])
@@ -61,5 +61,10 @@ describe("secret scanning (review Ssec I2, m2, m3)", () => {
     const stored = chunksAfterBootstrap({ "docs/sa.md": text });
     expect(stored).toContain("ordinary line 59");
     expect(stored).not.toContain("PRIVATE KEY");
+  });
+
+  it("an unterminated PEM block covers every line to the end of the text", () => {
+    const text = ["intro", "-----BEGIN EC PRIVATE KEY-----", "MHcCAQEEIabc", "more"].join("\n");
+    expect(secretLineRanges(text)).toEqual([{ start: 2, end: 4 }]);
   });
 });

@@ -32,3 +32,14 @@ describe("demoResponder", () => {
     expect(out.openQuestions.filter((q) => q.blocking)).toHaveLength(1);
   });
 });
+
+describe("demoResponder without context", () => {
+  it("cites the request itself when the prompt carries no intake or chunk", () => {
+    const out = demoResponder()(req("plain request"), 0).output as {
+      problem: { citations: string[] };
+      goals: { citations: string[] }[];
+    };
+    expect(out.problem.citations).toEqual(["request"]);
+    expect(out.goals[0]!.citations).toEqual(["request"]);
+  });
+});

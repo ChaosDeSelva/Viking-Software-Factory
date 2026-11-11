@@ -105,6 +105,46 @@ describe("loadConfig with <dataDir>/config.json (review S8a I1)", () => {
     expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ port: 70000 }) })).toThrow(/port/);
   });
 
+  it("refuses a config.json that is not an object, an empty host and non-string origins", () => {
+    for (const cfg of ["[]", "null", "7"])
+      expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith(cfg) })).toThrow(
+        /expected a JSON object/,
+      );
+    expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ host: "" }) })).toThrow(/Invalid host/);
+    expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ host: 1 }) })).toThrow(/Invalid host/);
+    expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ allowedOrigins: "x" }) })).toThrow(
+      /allowedOrigins/,
+    );
+    expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ allowedOrigins: [1] }) })).toThrow(
+      /allowedOrigins/,
+    );
+  });
+
+  it("refuses origins that are not plain http(s) origins, or remote without SINDRI_ALLOW_REMOTE", () => {
+    const d = dataWith({});
+    for (const origin of [
+      "ftp://localhost:21",
+      "http://localhost:4000/app",
+      "http://evil.example",
+      "https://[2001:db8::1]",
+    ])
+      expect(
+        () => loadConfig({ SINDRI_DATA_DIR: d, SINDRI_ALLOWED_ORIGINS: origin }),
+        origin,
+      ).toThrow(`Invalid allowedOrigins entry: ${origin}`);
+    expect(
+      loadConfig({ SINDRI_DATA_DIR: d, SINDRI_ALLOWED_ORIGINS: "http://[::1]:5173" })
+        .allowedOrigins,
+    ).toEqual(["http://[::1]:5173"]);
+    expect(
+      loadConfig({
+        SINDRI_DATA_DIR: d,
+        SINDRI_ALLOW_REMOTE: "1",
+        SINDRI_ALLOWED_ORIGINS: "https://sindri.example",
+      }).allowedOrigins,
+    ).toEqual(["https://sindri.example"]);
+  });
+
   it("applies the non-loopback rules to a host from config.json", () => {
     expect(() => loadConfig({ SINDRI_DATA_DIR: dataWith({ host: "0.0.0.0" }) })).toThrow(
       /SINDRI_ALLOW_REMOTE/,
@@ -140,6 +180,13 @@ describe("ensureAuthToken", () => {
     const a = ensureAuthToken(dir);
     expect(a.token).toBe("abc123abc123abc123abc123abc123ab");
     expect(statSync(a.path).mode & 0o777).toBe(0o600);
+  });
+
+  it("tightens a data directory others can read", () => {
+    const dir = tmp();
+    chmodSync(dir, 0o755);
+    ensureAuthToken(dir);
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
   });
 
   it("replaces an empty or too-short token", () => {

@@ -235,10 +235,12 @@ type Scope = { base: string; ig: Ignore };
  * `.gitignore`, then `.git/info/exclude`; a file inside an excluded directory is never
  * re-included because excluded directories are not entered. `.sindriignore` and the default
  * excludes always win. Ignore files are read only when they are regular files, so a FIFO in
- * their place cannot block.
+ * their place cannot block. A subdirectory that cannot be listed is reported in `unreadable`
+ * (as `dir/`) instead of failing the walk.
  */
-function walkFiles(root: string, forced: Ignore): string[] {
+function walkFiles(root: string, forced: Ignore): { files: string[]; unreadable: string[] } {
   const out: string[] = [];
+  const unreadable: string[] = [];
   const infoExclude: Scope = {
     base: "",
     ig: ignore().add(readIgnoreFile(root, ".git/info/exclude")),
@@ -262,7 +264,15 @@ function walkFiles(root: string, forced: Ignore): string[] {
         ig: ignore().add(readIgnoreFile(root, rel ? `${rel}/.gitignore` : ".gitignore")),
       },
     ];
-    for (const ent of readdirSync(join(root, rel), { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = readdirSync(join(root, rel), { withFileTypes: true });
+    } catch (e) {
+      if (!rel) throw e;
+      unreadable.push(`${rel}/`);
+      return;
+    }
+    for (const ent of entries) {
       const p = rel ? `${rel}/${ent.name}` : ent.name;
       if (ent.isDirectory()) {
         if (!ignored(`${p}/`, scopes)) visit(p, scopes);
@@ -272,7 +282,7 @@ function walkFiles(root: string, forced: Ignore): string[] {
     }
   };
   visit("", []);
-  return out;
+  return { files: out, unreadable };
 }
 
 /** Excludes that no `.gitignore` negation can override. */
@@ -289,10 +299,11 @@ function forcedIgnore(root: string): Ignore {
 function listFiles(
   root: string,
   audit: GitAuditOptions = {},
-): { files: string[]; unsafeGitConfig?: string[] } {
-  const files = walkFiles(root, forcedIgnore(root)).sort();
+): { files: string[]; unreadable: string[]; unsafeGitConfig?: string[] } {
+  const { files, unreadable } = walkFiles(root, forcedIgnore(root));
+  files.sort();
   const unsafe = gitConfigFindings(root, audit);
-  return unsafe.length ? { files, unsafeGitConfig: unsafe } : { files };
+  return unsafe.length ? { files, unreadable, unsafeGitConfig: unsafe } : { files, unreadable };
 }
 
 /** List repo-relative files honoring .gitignore files, .git/info/exclude, .sindriignore and defaults. */
@@ -421,6 +432,9 @@ export function bootstrapProject(
   const readable = new Map<string, string>();
   const realRoot = realpathSync(repoPath);
   const linkCache = new Map<string, boolean>();
+  for (const dir of listing.unreadable) {
+    skipped.push({ path: dir, reason: isUnsafeName(dir) ? "unsafe_name" : "unreadable" });
+  }
 
   for (const path of all) {
     if (isUnsafeName(path)) {

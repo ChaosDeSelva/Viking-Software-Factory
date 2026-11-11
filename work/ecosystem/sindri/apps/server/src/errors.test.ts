@@ -4,7 +4,7 @@ import { SindriError } from "@sindri/knowledge";
 import { SpecStateError, SpecValidationError } from "@sindri/specs";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ApiError, toApiError } from "./errors.js";
+import { ApiError, parseBody, toApiError } from "./errors.js";
 
 const map = (e: unknown) => {
   const a = toApiError(e);
@@ -80,5 +80,36 @@ describe("toApiError maps typed errors by code, never by message text", () => {
       "a string",
     ])
       expect(map(e)).toEqual([500, "internal", "internal error"]);
+  });
+});
+
+describe("toApiError: Fastify request errors", () => {
+  const fst = (statusCode: number, code = "FST_ERR_X") =>
+    Object.assign(new Error("fastify"), { statusCode, code });
+
+  it("names an unsupported media type and an oversized body", () => {
+    expect(map(fst(415, "FST_ERR_CTP_INVALID_MEDIA_TYPE"))).toEqual([
+      422,
+      "validation_failed",
+      "unsupported content type",
+    ]);
+    expect(map(fst(413, "FST_ERR_CTP_BODY_TOO_LARGE"))).toEqual([
+      422,
+      "validation_failed",
+      "payload too large",
+    ]);
+  });
+
+  it("treats a Fastify server-side error, or a non-numeric status, as internal", () => {
+    expect(map(fst(500))[0]).toBe(500);
+    expect(map(Object.assign(new Error("x"), { statusCode: "400", code: "FST_ERR_X" }))[0]).toBe(
+      500,
+    );
+    expect(map(Object.assign(new Error("x"), { statusCode: 400, code: 7 }))[0]).toBe(500);
+  });
+
+  it("parseBody treats a missing body as an empty object", () => {
+    expect(parseBody(z.object({ a: z.string().optional() }), undefined)).toEqual({});
+    expect(() => parseBody(z.object({ a: z.string() }), null)).toThrow(ApiError);
   });
 });

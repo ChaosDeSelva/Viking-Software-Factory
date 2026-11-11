@@ -161,3 +161,41 @@ it("preserves task priority when mapping an approved plan to Mimir", () => {
   const mapped = mapPlan(approvedPlan([planTask("a", { priority: 75 })]));
   expect(mapped.tasks[0]!.priority).toBe(75);
 });
+
+describe("plan to Mimir mapping: budgets and limits", () => {
+  it("sends a cost-only crew budget without a token limit", () => {
+    const mapped = mapPlan(
+      approvedPlan([planTask("a", { budget: { wallClockMinutes: 30, costUsd: 2.5 } })]),
+    );
+    expect(mapped.crews[0]!.request.budget).toEqual({
+      limitCost: 2.5,
+      enforce: "hard",
+      onUnknown: "block",
+    });
+  });
+
+  it("caps the task timeout at Mimir's 24 hour maximum", () => {
+    const mapped = mapPlan(
+      approvedPlan([
+        planTask("day", { budget: { wallClockMinutes: 1440 } }),
+        planTask("week", { budget: { wallClockMinutes: 10_080 } }),
+      ]),
+    );
+    expect(mapped.tasks.map((t) => t.timeoutMs)).toEqual([86_400_000, 86_400_000]);
+  });
+
+  it("allows the crew's largest retry count plus the first run and the human retries", () => {
+    const tasks = [planTask("a", { maxRetries: 0 }), planTask("b", { maxRetries: 3 })];
+    const attempts = (humanRetries?: number) =>
+      mapPlan(approvedPlan(tasks), humanRetries === undefined ? {} : { humanRetries }).crews[0]!
+        .request.limits.maxAttemptsPerTask;
+    expect(attempts()).toBe(6);
+    expect(attempts(0)).toBe(4);
+  });
+
+  it("tells the agent when a task has no acceptance criteria", () => {
+    const mapped = mapPlan(approvedPlan([planTask("a", { acceptanceCriteria: [] })]));
+    expect(mapped.tasks[0]!.brief).toContain("Acceptance criteria: (none)");
+    expect(mapped.tasks[0]!.acceptanceCriteria).toEqual([]);
+  });
+});

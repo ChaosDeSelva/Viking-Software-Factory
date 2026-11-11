@@ -266,7 +266,7 @@ export class ReviewOrchestrator implements ReviewVerdictSource {
           ? t.role === options.role
           : t.role === "reviewer" || t.role === "qa";
         if (!isReview || !t.dependsOn.includes(planTaskId)) continue;
-        if (!planTask.acceptanceCriteria.every(id => t.acceptanceCriteria.includes(id))) continue;
+        if (!planTask.acceptanceCriteria.every((id) => t.acceptanceCriteria.includes(id))) continue;
         const et = execTasks.find((x) => x.planTaskId === t.id);
         const crewId = et && mission.tasks.find((x) => x.id === et.mimirTaskId)?.crewId;
         if (!et || !crewId || crewId === implementerCrewId || used.has(et.mimirTaskId)) continue;
@@ -399,13 +399,17 @@ export class ReviewOrchestrator implements ReviewVerdictSource {
     const duplicate = ids.find((id, i) => ids.indexOf(id) !== i);
     // A planned reviewer may assess several direct dependencies in one artifact.
     // Accept its assigned criteria while still requiring this target's criteria below.
-    const executionTasks = row.origin === "plan"
-      ? await this.#o.executions.tasks(row.execution_id) : [];
-    const reviewerPlanId = executionTasks.find(t => t.mimirTaskId === row.reviewer_task_id)?.planTaskId;
-    const reviewerPlan = execution?.plan.tasks.find(t => t.id === reviewerPlanId);
+    const executionTasks =
+      row.origin === "plan" ? await this.#o.executions.tasks(row.execution_id) : [];
+    const reviewerPlanId = executionTasks.find(
+      (t) => t.mimirTaskId === row.reviewer_task_id,
+    )?.planTaskId;
+    const reviewerPlan = execution?.plan.tasks.find((t) => t.id === reviewerPlanId);
     const allowedCriteria = new Set([
       ...criteria,
-      ...(reviewerPlan?.dependsOn.includes(row.plan_task_id) ? reviewerPlan.acceptanceCriteria : []),
+      ...(reviewerPlan?.dependsOn.includes(row.plan_task_id)
+        ? reviewerPlan.acceptanceCriteria
+        : []),
     ]);
     const unknown = ids.find((id) => !allowedCriteria.has(id));
     if (duplicate !== undefined || unknown !== undefined) {
@@ -427,7 +431,12 @@ export class ReviewOrchestrator implements ReviewVerdictSource {
       verdict: blocking ? "request_changes" : file.verdict,
       reason: blocking ? `${blocking}_finding` : null,
       artifactId: artifact.artifactId,
-      file,
+      // A shared review file also assesses other tasks' criteria; this record keeps its own
+      // task's, which is what the review gate checks it against.
+      file: {
+        ...file,
+        acceptance: file.acceptance.filter((a) => criteria.includes(a.criterionId)),
+      },
     });
   }
 

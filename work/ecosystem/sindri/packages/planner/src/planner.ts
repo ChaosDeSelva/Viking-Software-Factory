@@ -500,13 +500,16 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         );
       }
       runOf(res.model, res.usage, "ok");
+      // The provider may have read the workspace, so its text is scanned for secrets like the
+      // drafter's is, before it is stored and handed to agents.
+      const clean = (text: string) => redactInjections(redactSecrets(text).text);
       const tasks = skeleton.map((t) => {
         const f = filled.get(t.id) as z.infer<typeof FillSchema>["tasks"][number];
         return {
           ...t,
-          objective: redactInjections(f.objective),
-          inputs: f.inputs.map(redactInjections),
-          outputs: f.outputs.map(redactInjections),
+          objective: clean(f.objective),
+          inputs: f.inputs.map(clean),
+          outputs: f.outputs.map(clean),
         };
       });
       assertValidPlan({ tasks }, { spec: spec.body, caps });
@@ -627,6 +630,9 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           selectionRationale: explainSelection(sel),
         });
       }
+      // Checked again after the awaits above: an overlapping revision may have stored this
+      // version number meanwhile.
+      requireLatest(r, "revise");
       return insert({
         id: randomUUID(),
         project_id: r.project_id,

@@ -77,4 +77,40 @@ describe("testFileArtifactContentReader (tests only; production reads through Mi
     }
     expect(settled).toMatch(/not a regular file/);
   });
+
+  it("reads a file under a directory whose name starts with two dots", async () => {
+    const root = mkdtempSync(join(tmpdir(), "s6-art-"));
+    dirs.push(root);
+    mkdirSync(join(root, "..data"));
+    writeFileSync(join(root, "..data", "report.json"), "inside");
+    writeFileSync(join(root, "..notes.txt"), "also inside");
+    const reader = testFileArtifactContentReader({ roots: [root] });
+    await expect(
+      reader.read(artifact(pathToFileURL(join(root, "..data", "report.json")).href)),
+    ).resolves.toBe("inside");
+    await expect(
+      reader.read(artifact(pathToFileURL(join(root, "..notes.txt")).href)),
+    ).resolves.toBe("also inside");
+  });
+
+  it("refuses a missing file, the root itself and a directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "s6-art-"));
+    const second = mkdtempSync(join(tmpdir(), "s6-art-"));
+    dirs.push(root, second);
+    mkdirSync(join(root, "runs"));
+    writeFileSync(join(second, "ok.txt"), "from the second root");
+    const reader = testFileArtifactContentReader({ roots: [root, second] });
+    await expect(
+      reader.read(artifact(pathToFileURL(join(root, "missing.json")).href)),
+    ).rejects.toThrow("artifact art_1 is outside the allowed artifact roots");
+    await expect(reader.read(artifact(pathToFileURL(root).href))).rejects.toThrow(
+      /outside the allowed artifact roots/,
+    );
+    await expect(reader.read(artifact(pathToFileURL(join(root, "runs")).href))).rejects.toThrow(
+      "artifact art_1 is not a regular file",
+    );
+    await expect(reader.read(artifact(pathToFileURL(join(second, "ok.txt")).href))).resolves.toBe(
+      "from the second root",
+    );
+  });
 });

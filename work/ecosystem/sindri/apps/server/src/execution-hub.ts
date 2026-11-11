@@ -198,6 +198,13 @@ export class ExecutionHub {
       return;
     }
     const { loop } = await this.connection();
+    // Checked again after the await: a concurrent call may have started the run, or close() ran.
+    if (this.#closed) return;
+    const raced = this.#runs.get(executionId);
+    if (raced) {
+      raced.again = true;
+      return;
+    }
     this.#start(executionId, (signal) => loop.run(executionId, { signal }));
   }
 

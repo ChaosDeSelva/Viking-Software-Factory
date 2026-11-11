@@ -20,6 +20,16 @@ describe("knowledge store", () => {
       expect(k.projects.list().map((x) => x.name)).toEqual(["demo", "other"]);
       expect(k.projects.get("nope")).toBeUndefined();
     });
+
+    it("replaces settings and stamps updatedAt; unknown projects are not_found", () => {
+      k.projects.create({ name: "s", repoPath: "/s", settings: { a: 1, b: 2 } });
+      const p = k.projects.list()[1]!;
+      now = new Date("2026-02-01T00:00:00Z");
+      const updated = k.projects.setSettings(p.id, { c: 3 });
+      expect(updated).toMatchObject({ settings: { c: 3 }, updatedAt: "2026-02-01T00:00:00.000Z" });
+      expect(k.projects.get(p.id)?.settings).toEqual({ c: 3 });
+      expect(() => k.projects.setSettings("nope", {})).toThrow(/unknown project/);
+    });
   });
 
   describe("knowledge entries", () => {
@@ -102,6 +112,31 @@ describe("knowledge store", () => {
       ).toThrow(/valid/i);
     });
 
+    it("history is empty for an unknown id and stops at a missing or cyclic predecessor", () => {
+      expect(k.knowledge.history("nope")).toEqual([]);
+      const src = [{ url: "https://example.com/a" }];
+      const a = k.knowledge.add({
+        projectId,
+        claim: "a",
+        sourceRefs: src,
+        confidence: 1,
+        createdBy: "u",
+      });
+      const b = k.knowledge.supersede(a.id, {
+        claim: "b",
+        sourceRefs: src,
+        confidence: 1,
+        createdBy: "u",
+      });
+      // A predecessor purged by retention leaves a dangling supersedes_id.
+      k.db.pragma("foreign_keys = OFF");
+      k.db.prepare("UPDATE knowledge_entries SET supersedes_id = 'gone' WHERE id = ?").run(a.id);
+      expect(k.knowledge.history(b.id).map((e) => e.claim)).toEqual(["a", "b"]);
+      // A corrupted cycle a -> b -> a must terminate.
+      k.db.prepare("UPDATE knowledge_entries SET supersedes_id = ? WHERE id = ?").run(b.id, a.id);
+      expect(k.knowledge.history(b.id).map((e) => e.claim)).toEqual(["a", "b"]);
+    });
+
     it("retracts entries and purges old retracted ones", () => {
       const src = [{ url: "https://example.com/a" }];
       const a = k.knowledge.add({
@@ -150,7 +185,25 @@ describe("knowledge store", () => {
     });
   });
 
+  it("stores an undefined evidence payload as null", () => {
+    const ev = k.evidence.record({
+      projectId,
+      externalRef: "T-2",
+      kind: "note",
+      payload: undefined,
+    });
+    expect(ev.payload).toBeNull();
+    expect(k.evidence.get(ev.id)?.payload).toBeNull();
+  });
+
   describe("decisions", () => {
+    it("defaults to proposed with no approver", () => {
+      const d = k.decisions.record({ projectId, title: "Maybe", adrMarkdown: "# ADR" });
+      expect(d).toMatchObject({ status: "proposed", approver: null });
+      expect(k.decisions.get(d.id)).toEqual(d);
+      expect(k.decisions.get("nope")).toBeUndefined();
+    });
+
     it("records ADR decisions with approver", () => {
       const d = k.decisions.record({
         projectId,

@@ -181,10 +181,14 @@ export class KnowledgeUpdater {
         seen.add(claim);
         out.push(this.#insertEntry(report, catalog, claim, [r.eventId], 0.8));
       }
+      // One draft per title: (delivery, kind, claim) is unique, and reviewers repeat themselves.
+      const titles = new Set<string>();
       for (const review of report.reviews) {
         const decisions = this.#reviewDecisions(review.reviewId);
         if (!review.reviewArtifactId) continue;
         for (const d of decisions) {
+          if (titles.has(d.title)) continue;
+          titles.add(d.title);
           out.push(this.#insertDecision(report, catalog, d, review.reviewArtifactId));
         }
       }

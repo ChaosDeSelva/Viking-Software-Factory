@@ -48,7 +48,9 @@ describe("KeychainSecretStore", () => {
   });
 });
 
-describe("FileSecretStore", () => {
+// Every load and save derives a scrypt key: several in a row outlast the default timeout on a
+// busy machine.
+describe("FileSecretStore", { timeout: 60_000 }, () => {
   const dirs: string[] = [];
   afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
   const tmpFile = () => {

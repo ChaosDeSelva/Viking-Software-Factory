@@ -83,6 +83,38 @@ describe("settingsFromProfile", () => {
   });
 });
 
+describe("settingsFromProfile: values that are present but empty", () => {
+  it("treats null like an unset key and keeps a timeout of zero", () => {
+    expect(
+      settingsFromProfile({ env: null, pathPrepend: null, codexSandbox: {}, network: "allow" }),
+    ).toEqual({});
+    expect(settingsFromProfile({ env: null, verificationTimeoutMs: 0 })).toEqual({
+      verificationTimeoutMs: 0,
+    });
+    expect(settingsFromProfile({ verificationTimeoutMs: "60000" })).toEqual({});
+  });
+});
+
+describe("profileSettingsFromDb", () => {
+  it("uses the oldest project of a repository that has a profile, and none without the table", () => {
+    const bare = openDatabase(":memory:");
+    try {
+      expect(profileSettingsFromDb(bare, "/repos/app")).toBeUndefined();
+    } finally {
+      bare.close();
+    }
+    db = openDatabase(":memory:");
+    const knowledge = openKnowledge(db);
+    const first = knowledge.projects.create({ name: "First", repoPath: "/repos/app" });
+    const second = knowledge.projects.create({ name: "Second", repoPath: "/repos/app" });
+    knowledge.projects.setSettings(first.id, { executionProfile: "not an object" });
+    knowledge.projects.setSettings(second.id, {
+      executionProfile: { verificationTimeoutMs: 5000 },
+    });
+    expect(profileSettingsFromDb(db, "/repos/app")).toEqual({ verificationTimeoutMs: 5000 });
+  });
+});
+
 describe("ensureProject with an execution profile", () => {
   it("sends the agent settings when it creates the Mimir project", async () => {
     const { facade, fake } = await boot({ projectSettingsFor: () => SETTINGS });

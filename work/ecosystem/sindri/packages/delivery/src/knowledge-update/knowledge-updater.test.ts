@@ -1,7 +1,8 @@
 import type { FakeResponder } from "@sindri/director";
 import { openKnowledge } from "@sindri/knowledge";
 import { describe, expect, it } from "vitest";
-import { approveReview, IMPL, QA, scenario } from "../report/scenario.test-helpers.js";
+import { approveReview, IMPL, passingRun, QA, scenario } from "../report/scenario.test-helpers.js";
+import { REVIEW_ARTIFACT_KIND } from "../review/review-orchestrator.js";
 import { KnowledgeUpdateError, KnowledgeUpdater } from "./knowledge-updater.js";
 
 async function delivered(
@@ -204,5 +205,204 @@ describe("KnowledgeUpdater fix round 1", () => {
         table,
       ).toBe(true);
     }
+  });
+});
+
+describe("KnowledgeUpdater: bug sweep and edge cases", () => {
+  /** A delivered scenario whose independent review file is `review` (approving by default). */
+  async function deliveredWithReview(
+    review: Record<string, unknown>,
+    opts: {
+      failingFirstRun?: boolean;
+      before?: (s: Awaited<ReturnType<typeof scenario>>) => Promise<void>;
+    } = {},
+  ) {
+    const s = await scenario(opts.failingFirstRun ? { failingFirstRun: true } : {});
+    const k = openKnowledge(s.db);
+    const project = k.projects.create({ name: "app", repoPath: "/repos/app" });
+    s.w.plan.projectId = project.id;
+    await opts.before?.(s);
+    const r = await s.reviews.requestReview(s.w.executionId, IMPL);
+    s.w.artifact(
+      r.reviewerTaskId,
+      REVIEW_ARTIFACT_KIND,
+      JSON.stringify({
+        verdict: "approve",
+        findings: [],
+        acceptance: [
+          { criterionId: "AC-1", satisfied: true },
+          { criterionId: "AC-2", satisfied: true },
+        ],
+        ...review,
+      }),
+    );
+    await s.reviews.collect(r.id);
+    await s.gates.evaluate(s.w.executionId, IMPL);
+    await s.gates.evaluate(s.w.executionId, QA);
+    const deliveryId = (await s.reports.requestPr(s.w.executionId)).deliveryId;
+    const updater = new KnowledgeUpdater({ db: s.db, knowledge: k, reports: s.reports });
+    return { s, k, project, deliveryId, updater, reviewId: r.id };
+  }
+
+  it("proposes one ADR per title when a review repeats a decision title", async () => {
+    const { deliveryId, updater } = await deliveredWithReview({
+      decisions: [
+        { title: "Cache player lookups", decision: "Use an in-memory LRU" },
+        { title: "Cache player lookups", context: "Second thoughts", decision: "Use Redis" },
+        { title: "Keep the endpoint read-only", decision: "GET never writes" },
+      ],
+    });
+    const decisions = updater.proposeEntries(deliveryId).filter((p) => p.kind === "decision");
+    expect(decisions.map((p) => p.claim)).toEqual([
+      "Cache player lookups",
+      "Keep the endpoint read-only",
+    ]);
+    // The first statement of the decision is the one kept; no context reads "Not stated.".
+    expect(decisions[0]!.body).toContain("Use an in-memory LRU");
+    expect(decisions[0]!.body).toContain("## Context\n\nNot stated.");
+    expect(decisions[0]!.body).not.toContain("Use Redis");
+    // And the call stays idempotent.
+    expect(updater.proposeEntries(deliveryId).filter((p) => p.kind === "decision")).toEqual(
+      decisions,
+    );
+  });
+
+  it("stamps proposals with the current time by default", async () => {
+    const { deliveryId, updater } = await deliveredWithReview({});
+    const before = Date.now();
+    const [p] = updater.proposeEntries(deliveryId);
+    const at = Date.parse(p!.createdAt);
+    expect(at).toBeGreaterThanOrEqual(before);
+    expect(at).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("proposes test claims only for attributed, passing runs, once per command", async () => {
+    const { s, deliveryId, updater } = await deliveredWithReview(
+      {},
+      {
+        failingFirstRun: true,
+        before: (sc) => {
+          passingRun(sc.w);
+          // The same command passes again, and one run belongs to no task.
+          sc.w.event(
+            "test.run_completed",
+            { command: "pnpm test", passed: true, exitCode: 0 },
+            { taskId: "mt_impl" },
+          );
+          sc.w.event("test.run_completed", { command: "pnpm lint", passed: true }, {});
+          // Mimir says passed but records a non-zero exit code: not a claim.
+          sc.w.event(
+            "test.run_completed",
+            { command: "pnpm e2e", passed: true, exitCode: 3 },
+            { taskId: "mt_impl" },
+          );
+          return Promise.resolve();
+        },
+      },
+    );
+    const report = s.reports.get(deliveryId)!;
+    expect(report.testResults.map((r) => [r.command, r.passed, r.planTaskId])).toEqual([
+      ["pnpm test", false, IMPL],
+      ["pnpm test", true, IMPL],
+      ["pnpm test", true, IMPL],
+      ["pnpm lint", true, null],
+      ["pnpm e2e", true, IMPL],
+    ]);
+    const claims = updater
+      .proposeEntries(deliveryId)
+      .map((p) => p.claim)
+      .filter((c) => c.startsWith("Test command"));
+    expect(claims).toEqual([
+      "Test command `pnpm test` passes on the delivered change (plan task implement-backend).",
+    ]);
+  });
+
+  it("drafts no ADR from a review without an artifact or whose record is gone", async () => {
+    const { s, deliveryId, updater, reviewId } = await deliveredWithReview(
+      { decisions: [{ title: "Keep it simple", decision: "No cache" }] },
+      {
+        before: async (sc) => {
+          // An earlier reviewer finished without writing review.json.
+          const missing = await sc.reviews.requestReview(sc.w.executionId, IMPL);
+          sc.w.setMissionTaskStatus(missing.reviewerTaskId, "completed");
+          expect(await sc.reviews.collect(missing.id)).toMatchObject({
+            verdict: "request_changes",
+            reason: "missing_review",
+            reviewArtifactId: null,
+          });
+        },
+      },
+    );
+    expect(s.reports.get(deliveryId)!.reviews.map((r) => r.reviewArtifactId === null)).toEqual([
+      true,
+      false,
+    ]);
+    s.db.prepare("DELETE FROM reviews WHERE id = ?").run(reviewId);
+    expect(updater.proposeEntries(deliveryId).filter((p) => p.kind === "decision")).toEqual([]);
+  });
+
+  it("records one task evidence row per Mimir ref, however many proposals cite it", async () => {
+    const { s, k, project, deliveryId, updater } = await deliveredWithReview({});
+    const run = s.reports.get(deliveryId)!.testResults[0]!.eventId;
+    const a = updater.proposeEntry(deliveryId, {
+      claim: "  Tests run with pnpm  ",
+      refs: [run, run],
+    });
+    const b = updater.proposeEntry(deliveryId, {
+      claim: "CI uses pnpm",
+      refs: [run],
+      confidence: 0.9,
+    });
+    expect(a).toMatchObject({ claim: "Tests run with pnpm", confidence: 0.5 });
+    expect(b.confidence).toBe(0.9);
+    expect(a.sourceRefs).toEqual(b.sourceRefs);
+    expect(a.sourceRefs).toHaveLength(1);
+    expect(k.evidence.list(project.id)).toHaveLength(1);
+    expect(updater.evidenceFor(deliveryId, run)).toBe(a.sourceRefs[0]!.taskEvidenceId);
+    expect(updater.evidenceFor(deliveryId, "evt_other")).toBeUndefined();
+  });
+
+  it("refuses decisions on unknown or already decided proposals", async () => {
+    const { deliveryId, updater } = await deliveredWithReview({});
+    expect(() => updater.accept("kpr_nope", "jacob")).toThrow(
+      expect.objectContaining({ code: "unknown_proposal", message: "unknown proposal kpr_nope" }),
+    );
+    expect(() => updater.reject("kpr_nope", "jacob", "no")).toThrow(
+      expect.objectContaining({ code: "unknown_proposal" }),
+    );
+    const [p] = updater.proposeEntries(deliveryId);
+    updater.reject(p!.id, "jacob", "too vague");
+    expect(() => updater.reject(p!.id, "jacob", "again")).toThrow(
+      expect.objectContaining({
+        code: "not_proposed",
+        message: `proposal ${p!.id} is not proposed (it is rejected)`,
+      }),
+    );
+    expect(() => updater.accept(p!.id, "jacob")).toThrow(
+      expect.objectContaining({ code: "not_proposed" }),
+    );
+    expect(updater.list(deliveryId).find((x) => x.id === p!.id)).toMatchObject({
+      status: "rejected",
+      reason: "too vague",
+      entryId: null,
+    });
+  });
+
+  it("does not auto-accept when the project record cannot be read", async () => {
+    const { s, k, project, deliveryId } = await deliveredWithReview({});
+    const updater = new KnowledgeUpdater({
+      db: s.db,
+      knowledge: {
+        projects: { get: () => undefined } as unknown as typeof k.projects,
+        knowledge: k.knowledge,
+        evidence: k.evidence,
+        decisions: k.decisions,
+      },
+      reports: s.reports,
+    });
+    const proposals = updater.proposeEntries(deliveryId);
+    expect(proposals.length).toBeGreaterThan(0);
+    expect(proposals.every((p) => p.status === "proposed")).toBe(true);
+    expect(k.knowledge.listValid(project.id)).toEqual([]);
   });
 });

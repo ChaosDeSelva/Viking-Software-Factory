@@ -53,15 +53,24 @@ function stripMarkup(input: string): string {
   const lts: number[] = [];
   /** Open script-like blocks (output position of their `<`), overall and per element name. */
   const blocks: { name: string; pos: number }[] = [];
+  const blockAt = new Set<number>();
   const byName = new Map<string, number[]>();
   const truncate = (len: number) => {
     out.length = len;
     while (lts.length && lts[lts.length - 1]! >= len) lts.pop();
-    while (blocks.length && blocks[blocks.length - 1]!.pos >= len)
-      byName.get(blocks.pop()!.name)!.pop();
+    while (blocks.length && blocks[blocks.length - 1]!.pos >= len) {
+      const b = blocks.pop()!;
+      blockAt.delete(b.pos);
+      byName.get(b.name)!.pop();
+    }
   };
   const tagLikeAt = (lt: number) =>
     isTagStartAt(out[lt]! + (out[lt + 1] ?? "") + (out[lt + 2] ?? ""), 0);
+  /**
+   * True when the one or two characters after the `<` at `lt` can still change: an open block
+   * starts right there, and its removal lets later text follow the `<` (`<<script>..</script>b>`).
+   */
+  const pendingAt = (lt: number) => blockAt.has(out[lt + 1] === "/" ? lt + 2 : lt + 1);
 
   for (let i = 0; i < input.length; i++) {
     const ch = input[i]!;
@@ -81,9 +90,18 @@ function stripMarkup(input: string): string {
         continue;
       }
     }
-    if (ch !== ">" || !lts.length) continue;
+    if (ch !== ">") continue;
+    // A `<` that is not tag-like and cannot become so is plain text ("a < b > c"). It is
+    // forgotten here, so it cannot shield an earlier tag: a browser ends `<img onerror=x < b >`
+    // at this `>`. Each `<` is dropped at most once, so the pass stays linear.
+    while (lts.length) {
+      const top = lts[lts.length - 1]!;
+      if (tagLikeAt(top) || pendingAt(top)) break;
+      lts.pop();
+    }
+    if (!lts.length) continue;
     const lt = lts[lts.length - 1]!;
-    if (!tagLikeAt(lt)) continue; // "a < b > c": plain text, checked in O(1)
+    if (!tagLikeAt(lt)) continue; // waits for the block after it to close
     // Amortised linear: a tag-like candidate leaves the buffer (or the `<` stack) below.
     const candidate = out.slice(lt).join("");
     const closing = candidate.charCodeAt(1) === 47;
@@ -104,6 +122,7 @@ function stripMarkup(input: string): string {
     if (BLOCK_ELEMENTS.has(name) && !isAlpha(after) && !(after >= 48 && after <= 57)) {
       // Keep the opener in the buffer (it marks where the block's removal starts).
       blocks.push({ name, pos: lt });
+      blockAt.add(lt);
       if (!byName.has(name)) byName.set(name, []);
       byName.get(name)!.push(lt);
       lts.pop();
@@ -113,11 +132,11 @@ function stripMarkup(input: string): string {
   }
   // An unclosed block runs to the end of the text.
   if (blocks.length) truncate(blocks[0]!.pos);
-  // Drop trailing unterminated tags (`x <iframe src=evil`).
+  // Drop trailing unterminated tags (`x <iframe src=evil`), also behind a stray `<`.
   while (lts.length) {
     const lt = lts[lts.length - 1]!;
-    if (!tagLikeAt(lt)) break;
-    truncate(lt);
+    if (tagLikeAt(lt)) truncate(lt);
+    else lts.pop();
   }
   return out.join("");
 }

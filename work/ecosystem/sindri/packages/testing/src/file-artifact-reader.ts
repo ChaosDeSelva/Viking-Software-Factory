@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -33,7 +33,9 @@ export function testFileArtifactContentReader(options: {
       let inside = false;
       for (const root of options.roots) {
         const rel = relative(await realpath(resolve(root)), real);
-        if (rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)) inside = true;
+        // `..` or `../x` leaves the root; a name that merely starts with dots (`..data`) does not.
+        const escapes = rel === ".." || rel.startsWith(`..${sep}`);
+        if (rel !== "" && !escapes && !isAbsolute(rel)) inside = true;
       }
       if (!inside) {
         throw new Error(`artifact ${artifact.id} is outside the allowed artifact roots`);

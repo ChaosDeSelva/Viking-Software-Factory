@@ -167,6 +167,9 @@ export class MimirClientFacade {
     const existing = projects.find((p) => p.repoPath === repoPath);
     if (existing) return owned ? this.syncProjectSettings(existing, owned) : existing;
     const key = `sindri:project:${createHash("sha256").update(repoPath).digest("hex").slice(0, 32)}`;
+    // Mimir has no project for this path, so a local record of creating one is stale (another
+    // or a reset Mimir): replaying it would return a project that does not exist there.
+    this.db.prepare("DELETE FROM mimir_submissions WHERE idempotency_key = ?").run(key);
     const { project } = await this.submit("project", key, async () => {
       const res = await this.sdk.projects.create(
         { name: basename(repoPath) || repoPath, repoPath, settings },
