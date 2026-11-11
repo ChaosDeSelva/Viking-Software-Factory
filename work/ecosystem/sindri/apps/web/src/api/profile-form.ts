@@ -3,18 +3,22 @@ import type { ExecutionProfile, ProfileCheck } from "./types.js";
 // The execution profile as the form edits it (text everywhere) and the conversion both ways.
 
 /**
- * Splits a command line into argv on whitespace. Single and double quotes group text and are
- * removed; nothing else is special (no escapes, variables, globs or pipes). `unclosed` is true
- * when a quote is never closed.
+ * Splits a command line into argv on whitespace. Quotes group words; inside double quotes `\"`
+ * and `\\` stand for a quote and a backslash. Nothing else is special: no variables, pipes or
+ * globs, because the command is run directly and not through a shell. The same rules as the
+ * operator dashboard's editor, so a command reads the same in both.
  */
 export function parseArgv(line: string): { argv: string[]; unclosed: boolean } {
   const argv: string[] = [];
   let current = "";
   let started = false;
   let quote: string | null = null;
-  for (const ch of line) {
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
     if (quote) {
       if (ch === quote) quote = null;
+      else if (quote === '"' && ch === "\\" && ['"', "\\"].includes(line[i + 1] ?? ""))
+        current += line[++i];
       else current += ch;
     } else if (ch === "'" || ch === '"') {
       quote = ch;
@@ -35,15 +39,13 @@ export function parseArgv(line: string): { argv: string[]; unclosed: boolean } {
 /** The command line `parseArgv` reads back as `argv`. */
 export function formatArgv(argv: string[]): string {
   return argv
-    .map((arg) => {
-      if (arg !== "" && !/[\s'"]/.test(arg)) return arg;
-      if (!arg.includes("'")) return `'${arg}'`;
-      if (!arg.includes('"')) return `"${arg}"`;
-      return arg
-        .split("'")
-        .map((part) => `'${part}'`)
-        .join(`"'"`);
-    })
+    .map((arg) =>
+      arg !== "" && !/[\s'"]/.test(arg)
+        ? arg
+        : !arg.includes("'")
+          ? `'${arg}'`
+          : `"${arg.replace(/[\\"]/g, "\\$&")}"`,
+    )
     .join(" ");
 }
 

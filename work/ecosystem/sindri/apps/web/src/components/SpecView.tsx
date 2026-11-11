@@ -258,5 +258,5 @@ export function OpenQuestions(props: {
   );
 }
 
-/** The earlier name, from when only blocking questions could be answered. */
+/** Alias under the old name: it renders non-blocking questions too. */
 export const BlockingQuestions = OpenQuestions;

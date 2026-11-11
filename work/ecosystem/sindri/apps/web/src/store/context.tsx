@@ -49,7 +49,7 @@ export function AppProviders(props: {
     if (state.token) sessionStorage.setItem(TOKEN_KEY, state.token);
     else sessionStorage.removeItem(TOKEN_KEY);
   }, [state.token]);
-  // Sign-out and a rejected token also drop the approval secret held by the client (audit L8).
+  // Sign-out and a rejected token also drop the approval secret held by the client.
   useEffect(() => {
     if (!state.token) props.api.forgetApproval();
   }, [state.token, props.api]);

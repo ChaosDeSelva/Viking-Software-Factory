@@ -89,7 +89,8 @@ const PLAIN_WORDS = /^[A-Za-z0-9_./:=@%+,-]+(?: [A-Za-z0-9_./:=@%+,-]+)*$/;
 
 /**
  * What the policy gate classifies for a session's argv:
- * - explicit task argv: exec argv for shell members; non-template agent flags need approval;
+ * - explicit task argv: exec argv for shell members; agent flags need approval (the caller
+ *   passes `explicit: false` for argv equal to the agent kind's plain template);
  * - a `shell` member's `sh -c <cmd>`: the words of `cmd` when it is plain words (no quoting,
  *   expansion, redirection or separators, so `sh` runs exactly that argv), else the full
  *   `sh -c` argv (which the exact allowlist never matches, so it needs approval);
@@ -100,10 +101,8 @@ export function classifiedArgv(
   argv: readonly string[],
   explicit: boolean,
   agentKind: string,
-  template?: readonly string[],
 ): string[] | null {
   if (explicit && agentKind !== "shell") {
-    if (template && JSON.stringify(argv) === JSON.stringify(template)) return null;
     // Empty command heads can never be allowlisted. Agent arguments are not exec argv.
     return ["", ...argv];
   }

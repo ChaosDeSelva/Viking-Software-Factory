@@ -75,7 +75,6 @@ const EnvNameSchema = z
 const hasControlChar = (text: string) =>
   [...text].some((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f);
 
-/** An absolute path without control characters or `..` segments. */
 const AbsolutePathSchema = z
   .string()
   .max(1024)
@@ -87,7 +86,6 @@ const AbsolutePathSchema = z
  * environment. Operator configuration: only the projects API writes it.
  */
 export const ProjectAgentSettingsSchema = z.strictObject({
-  /** Extra environment variables. */
   env: z
     .record(
       EnvNameSchema,

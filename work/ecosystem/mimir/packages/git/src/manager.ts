@@ -103,7 +103,6 @@ export interface GitManagerOptions {
   isTaskLive?: (taskId: string) => boolean | Promise<boolean>;
 }
 
-/** What {@link GitManager.exportResult} returns. */
 export interface ExportedResult {
   /** The commit `patch` applies to. */
   baseSha: string;
@@ -717,12 +716,23 @@ export class GitManager {
     if (!opts.fromDefaultBranch) return { ...own, resultCommit };
     // Not a failed delivery: no default branch (detached HEAD without origin/HEAD), or one that
     // shares no history with the work.
+    // Only these two outcomes mean "follow-up only". Any other git failure is an error to
+    // surface and retry, not a reason to record a delivery that silently lacks the whole change.
     const tip = await this.defaultBranch(repo)
       .then((branch) => resolveCommit(repo, branch, "default branch"))
-      .catch(() => undefined);
+      .catch((err: unknown) => {
+        const code = err instanceof MimirError ? err.code : undefined;
+        if (code === "validation_failed" || code === "not_found") return undefined;
+        throw err;
+      });
     if (tip === undefined)
       return { ...own, resultCommit, followUpOnly: "the default branch could not be determined" };
-    const baseSha = await mergeBase([ownBase, tip]).catch(() => undefined);
+    // `git merge-base` exits 1 when the commits share no ancestor.
+    const baseSha = await mergeBase([ownBase, tip]).catch((err: unknown) => {
+      const exit = err instanceof MimirError ? (err.details as { exitCode?: number }).exitCode : 0;
+      if (exit === 1) return undefined;
+      throw err;
+    });
     if (baseSha === undefined)
       return {
         ...own,

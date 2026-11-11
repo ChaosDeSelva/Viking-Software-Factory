@@ -48,7 +48,7 @@ describe("App", () => {
     render(<App api={api as unknown as ApiClient} initial={{ token: "stale" }} />);
     await waitFor(() => expect(screen.getByLabelText("API token")).toBeTruthy());
     expect(screen.getByText(/rejected the token/)).toBeTruthy();
-    // The approval session ends with the token (audit L8).
+    // The approval session ends with the token.
     expect(api.forgetApproval).toHaveBeenCalled();
   });
 
@@ -84,7 +84,6 @@ describe("App", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Propose plan" }));
     expect(api.proposePlan).toHaveBeenCalledWith("sb");
-    // A long call says it is running (M9).
     expect(screen.getByRole("button", { name: "Proposing plan…" }).hasAttribute("disabled")).toBe(
       true,
     );

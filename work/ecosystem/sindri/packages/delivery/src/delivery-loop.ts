@@ -1062,9 +1062,11 @@ export class DeliveryLoop {
         this.setStatus(executionId, waiting);
         return waiting;
       }
-      // Everything unfinished was skipped by a human: deliver the verified part.
+      // Everything unfinished was skipped by a human: deliver the verified part, if there is
+      // one. With nothing completed there is nothing to review or export, so the run failed.
       const skipped =
         tasks.some((t) => t.resolution) &&
+        tasks.some((t) => t.status === "completed") &&
         tasks.every((t) => t.status === "completed" || t.resolution);
       if (skipped) await this.collectArtifacts(executionId);
       const status: ExecutionStatus = skipped ? "verified_pending_review" : "failed";

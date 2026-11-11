@@ -560,6 +560,8 @@ describe("deliveries when Mimir cannot be reached or answers badly", () => {
         repoPath: "/repos/app<script>x</script>",
         apply: "git apply change.patch",
         undo: "git apply -R change.patch",
+        // A rework's artifact also carries the follow-up, which must arrive just as exact.
+        followUp: { baseSha: "c".repeat(40), patch: `${patch}+<b>follow-up</b>\n` },
       }),
     ));
     const { execution } = await run(flow);
@@ -568,6 +570,10 @@ describe("deliveries when Mimir cannot be reached or answers badly", () => {
     expect(res.statusCode).toBe(200);
     const { result } = res.json();
     expect(result.patch).toBe(patch);
+    expect(result.followUp).toEqual({
+      baseSha: "c".repeat(40),
+      patch: `${patch}+<b>follow-up</b>\n`,
+    });
     expect(result.repoPath).not.toContain("<script>");
     expect(result.apply).toBe("git apply change.patch");
     // Still behind the bearer token.

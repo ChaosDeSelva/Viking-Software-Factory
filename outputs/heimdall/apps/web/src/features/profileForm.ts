@@ -203,6 +203,10 @@ export function formToProfile(form: ProfileForm): { profile: R; errors: string[]
       errors.push("The verification timeout must be between 1 second (0.017 minutes) and 1440 minutes.");
     else profile.verificationTimeoutMs = ms;
   }
+  // Heimdall replaces anything that looks like a credential with this text before it reaches the
+  // form, in any field. Saving would store the placeholder in place of the real command or path.
+  if (JSON.stringify(profile).includes("[redacted]") && !errors.some((e) => e.includes("hidden for display")))
+    errors.push("Part of this profile was hidden for display and shows as [redacted]. Enter the real text again before saving.");
   return { profile, errors };
 }
 

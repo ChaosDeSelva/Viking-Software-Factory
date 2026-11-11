@@ -46,6 +46,15 @@ const harnessFile = (name: string) =>
   join(brokkrHome, ".brokkr", "harnesses", name, "harness.json");
 
 describe("execution profile", () => {
+  it("returns a profile exactly as stored, so saving it back cannot alter a command", async () => {
+    // The response sanitizer would strip the tag; an editor would then save the stripped argv.
+    const profile = { checks: [{ id: "title", command: ["grep", "<title>", "index.html"] }] };
+    const saved = await put(profile);
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json().profile).toEqual(profile);
+    expect((await f.h.call({ url: url() })).json().profile).toEqual(profile);
+  });
+
   it("is empty until set, then round-trips", async () => {
     const empty = await f.h.call({ url: url() });
     expect(empty.statusCode).toBe(200);

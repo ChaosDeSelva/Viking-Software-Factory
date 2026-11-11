@@ -114,6 +114,11 @@ test("what Sindri would refuse is reported before sending", () => {
   assert.match(errorsOf({ env: [{ name: "GIT_DIR", value: "x" }] }), /cannot be set from a profile/);
   assert.match(errorsOf({ env: [{ name: "A", value: "1" }, { name: "A", value: "2" }] }), /listed twice/);
   assert.match(errorsOf({ env: [{ name: "A", value: "[redacted]" }] }), /hidden for display/);
+  // The placeholder can stand in for any field, not only an env value.
+  assert.match(
+    errorsOf({ checks: [{ ...check, command: 'curl -H "Authorization: [redacted]" http://localhost/health' }] }),
+    /hidden for display/,
+  );
   assert.equal(errorsOf({ env: [{ name: "", value: "" }] }), "");
   assert.match(errorsOf({ pathPrepend: "relative/bin" }), /PATH additions/);
   assert.match(errorsOf({ pathPrepend: "/" }), /PATH additions/);

@@ -5,6 +5,7 @@ import { ExecutionProfileSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
 import type { ApprovalAuthority } from "../approval.js";
 import { z } from "zod";
+import { DISPLAY_SANITIZED } from "../display.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import { PROFILE_KEY, profileHarness, profileOf } from "../execution-profile.js";
 import type { Services } from "../services.js";
@@ -58,7 +59,12 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
     project: requireProject(req.params.id),
   }));
 
-  app.get<{ Params: { id: string } }>("/v1/projects/:id/profile", (req) => ({
+  // A profile is returned exactly as stored. Editors send the whole profile back, so a value
+  // altered for display (markup stripped from a command argument, say) would be saved altered.
+  // It is operator-entered, strictly validated configuration; clients must render it as text.
+  const exactProfile = { config: { [DISPLAY_SANITIZED]: true } };
+
+  app.get<{ Params: { id: string } }>("/v1/projects/:id/profile", exactProfile, (req) => ({
     profile: profileOf(requireProject(req.params.id)),
   }));
 
@@ -67,13 +73,13 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
   // commands verify the work and what agents may write to and reach outside their worktree, so
   // it takes the human approval factor: the bearer token alone, which agents can read, is not
   // enough.
-  app.put<{ Params: { id: string } }>("/v1/projects/:id/profile", (req) => {
+  app.put<{ Params: { id: string } }>("/v1/projects/:id/profile", exactProfile, (req) => {
     const approver = approvals.require(req);
     const project = requireProject(req.params.id);
-    req.log.info({ projectId: project.id, approver }, "execution profile changed");
     const profile = parseBody(ExecutionProfileSchema, req.body);
     const harness = profileHarness(project, profile);
     s.knowledge.projects.setSettings(project.id, { ...project.settings, [PROFILE_KEY]: profile });
+    req.log.info({ projectId: project.id, approver }, "execution profile changed");
     return { profile, harness };
   });
 

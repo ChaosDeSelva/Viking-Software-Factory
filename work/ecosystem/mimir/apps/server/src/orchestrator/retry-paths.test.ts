@@ -5,12 +5,7 @@ import type { FakeRuntime } from "@mimir/fake-runtime";
 import { MimirError, type RuntimeAdapter, type RuntimeSessionSpec } from "@mimir/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { argvFor } from "../templates.js";
-import {
-  CAPACITY_RETRY_MS,
-  DEFAULT_CAPACITY_WAIT_MS,
-  EVENT_OUTPUT_CAP,
-  verificationFailureNote,
-} from "./orchestrator.js";
+import { CAPACITY_RETRY_MS, EVENT_OUTPUT_CAP, verificationFailureNote } from "./orchestrator.js";
 import { writingRuntime } from "./test-agent-files.js";
 import {
   FAST_TEST_COMMAND,
@@ -281,14 +276,31 @@ describe("a runtime that reports it is full before a launch", () => {
     expect(state.launches).toBe(0);
   });
 
-  it("fails the attempt as fleet_capacity_timeout after the total wait, then retries or gives up", async () => {
+  it("waits for a busy fleet without limit by default: no attempt is spent", async () => {
     const state = { full: true, launches: 0 };
     const h = await track({ wrapRuntime: (fake) => fleetLike(fake, state) });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 1 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(6 * 60 * 60 * 1000);
+    await h.tick();
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 0 });
+    expect(failures(h, t)).toEqual([]);
+  });
+
+  it("fails the attempt as fleet_capacity_timeout after the total wait, then retries or gives up", async () => {
+    const state = { full: true, launches: 0 };
+    const WAIT = 30 * 60 * 1000;
+    const h = await track({
+      wrapRuntime: (fake) => fleetLike(fake, state),
+      overrides: { capacityWaitMs: WAIT },
+    });
     const { missionId } = await setupMission(h, { maxAttemptsPerTask: 2 });
     const t = await createTask(h, missionId, "T", "echo t");
     await h.post(`/v1/missions/${missionId}/start`);
     await h.tick();
-    await h.advance(DEFAULT_CAPACITY_WAIT_MS - 1000);
+    await h.advance(WAIT - 1000);
     await h.tick();
     expect(h.task(t)).toMatchObject({ status: "ready", attempt: 0 });
     expect(failures(h, t)).toEqual([]);
@@ -302,7 +314,7 @@ describe("a runtime that reports it is full before a launch", () => {
     await h.tick();
     await h.tick();
     expect(h.task(t)).toMatchObject({ status: "ready", attempt: 1 });
-    await h.advance(DEFAULT_CAPACITY_WAIT_MS);
+    await h.advance(WAIT);
     await h.tick();
     expect(failures(h, t)).toHaveLength(2);
     expect(failures(h, t)[1]).toMatchObject({

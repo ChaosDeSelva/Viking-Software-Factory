@@ -49,6 +49,16 @@ describe("formatArgv", () => {
   });
 });
 
+describe("quoting shared with the operator dashboard", () => {
+  it("reads and writes an argument holding both quote characters the same way it does", () => {
+    const argv = ["echo", `a'b"c`, "back\\slash"];
+    expect(formatArgv(argv)).toBe(`echo "a'b\\"c" back\\slash`);
+    expect(parseArgv(formatArgv(argv))).toEqual({ argv, unclosed: false });
+    // Only a quote or a backslash is escaped, and only inside double quotes.
+    expect(parseArgv(`"a\\nb" 'c\\"d'`).argv).toEqual(["a\\nb", `c\\"d`]);
+  });
+});
+
 describe("profile form conversion", () => {
   const full: ExecutionProfile = {
     checks: [

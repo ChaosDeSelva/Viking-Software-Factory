@@ -20,6 +20,10 @@ const LocalDelivery = z.object({
   repoPath: z.string(),
   apply: z.string(),
   undo: z.string(),
+  /** A rework only: the change since the delivery it revises, for a checkout that has that. */
+  followUp: z.object({ baseSha: z.string(), patch: z.string() }).optional(),
+  /** A rework only: why `patch` is the follow-up and not the whole change. */
+  followUpOnly: z.string().optional(),
 });
 
 /** Runs a call that talks to Mimir, so an unreachable Mimir is 503 `mimir_unavailable`, not 500. */
@@ -165,7 +169,7 @@ export function deliveryRoutes(
   });
 
   // The response sanitizer strips markup and cuts strings at 64 KB, which would leave a patch
-  // that does not apply. This route opts out of it and sanitizes every field but `patch` itself.
+  // that does not apply. This route opts out of it and sanitizes every field but the patches.
   app.get<{ Params: { id: string } }>(
     "/v1/deliveries/:id/local",
     { config: { [DISPLAY_SANITIZED]: true } },
@@ -197,8 +201,17 @@ export function deliveryRoutes(
           "Mimir returned a local delivery result Sindri cannot read (not JSON, or fields are missing)",
         );
       }
-      const { patch, ...rest } = parsed;
-      return { result: { ...forDisplay(rest), patch } };
+      // Patches are served byte for byte; everything around them is sanitized.
+      const { patch, followUp, ...rest } = parsed;
+      return {
+        result: {
+          ...forDisplay(rest),
+          patch,
+          ...(followUp
+            ? { followUp: { baseSha: forDisplay(followUp.baseSha), patch: followUp.patch } }
+            : {}),
+        },
+      };
     },
   );
 

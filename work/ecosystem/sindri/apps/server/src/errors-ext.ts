@@ -20,8 +20,7 @@ export function domainApiError(err: unknown): ApiError | null {
   if (err instanceof PlanStateError) return new ApiError(409, "invalid_state", err.message);
   if (err instanceof HarnessServiceError) {
     switch (err.code) {
-      // Brokkr is resolved through its SDK now, so nothing raises this today; the code is
-      // still part of the harness error type.
+      // Never raised (Brokkr is resolved through its SDK), but still in the harness error type.
       case "not_wired":
         return new ApiError(503, "brokkr_unavailable", "Brokkr is enabled but not available");
       case "not_found":

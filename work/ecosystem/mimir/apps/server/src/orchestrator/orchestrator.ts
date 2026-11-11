@@ -81,8 +81,12 @@ export const DEFAULT_RECONCILE_EVERY_TICKS = 30;
 /** First wait before a launch that found the runtime full is tried again; doubles per try. */
 export const CAPACITY_RETRY_MS = 2000;
 export const CAPACITY_RETRY_MAX_MS = 30_000;
-/** Longest a task waits for a free worker before its attempt fails (`FLEET_CAPACITY_TIMEOUT`). */
-export const DEFAULT_CAPACITY_WAIT_MS = 30 * 60 * 1000;
+/**
+ * Longest a task waits for a free worker before its attempt fails (`FLEET_CAPACITY_TIMEOUT`).
+ * No limit by default: queueing behind long-running tasks on a small fleet is normal and must
+ * not cost attempts. Set `MIMIR_CAPACITY_WAIT_MS` to bound it where a full fleet means trouble.
+ */
+export const DEFAULT_CAPACITY_WAIT_MS = Number.POSITIVE_INFINITY;
 export const FLEET_CAPACITY_TIMEOUT = "fleet_capacity_timeout";
 
 /** The system actor that requests approvals for actions an operator asked for. */
@@ -738,6 +742,9 @@ export class Orchestrator {
       const current = stillOurs();
       if (!current) return;
       let reason = failure;
+      // A launch that failed for another reason got its slot: its capacity wait is over, so a
+      // later wait for this task starts from zero.
+      if (!atCapacity(err)) this.capacityWaits.delete(current.id);
       if (atCapacity(err)) {
         // Reached only when the runtime could not say so before the launch (see `dispatch`).
         const prior = this.capacityWaits.get(current.id);
@@ -1367,7 +1374,6 @@ export class Orchestrator {
     });
   }
 
-  /** The project's environment and time limit for a verification run. */
   private verificationSettings(project: Project | undefined): {
     env?: Record<string, string>;
     timeoutMs?: number;

@@ -199,7 +199,7 @@ describe("profile harness", () => {
         { id: "vet", required: false },
       ]);
     }
-    // Without the contract the service chooses by task type, as before: never this harness.
+    // Without the contract the service chooses by task type: never this harness.
     const plain = new BrokkrHarnessService({ cwd: home, homeDir: home });
     const sel = await plain.resolve({
       task: { id: "t", title: "t", description: "d", taskTypes: ["docs"] },
