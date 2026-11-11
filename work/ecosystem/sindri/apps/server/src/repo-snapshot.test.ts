@@ -1,5 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -43,25 +51,100 @@ it("snapshots the fetched default branch, not the working checkout", async () =>
   expect(readFileSync(join(ws.path, "a.txt"), "utf8")).toBe("default branch\n");
   expect(existsSync(join(ws.path, ".env"))).toBe(false);
   expect(existsSync(join(ws.path, ".git"))).toBe(false);
+  expect(existsSync(`${ws.path}.complete`)).toBe(true);
   // The checkout itself is left exactly as it was.
   expect(readFileSync(join(repo, "a.txt"), "utf8")).toBe("feature branch, uncommitted\n");
   expect(sh(repo, "worktree", "list", "--porcelain").split("\n\n")).toHaveLength(1);
 });
 
-it("reuses a snapshot for the same commit and replaces it when the branch moves", async () => {
+it("reuses a snapshot, keeps a recently used one when the branch moves, and prunes a stale one", async () => {
   const { repo, sha } = cloneWithLocalWork();
   const dataDir = temp("data");
-  const first = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo });
+  const hour = 60 * 60 * 1000;
+  const first = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo, now: () => 0 });
   writeFileSync(join(first.path, "marker"), "kept\n");
-  const again = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo });
+  const again = await planningWorkspace({
+    dataDir,
+    projectId: "p1",
+    repoPath: repo,
+    now: () => hour,
+  });
   expect(existsSync(join(again.path, "marker"))).toBe(true);
 
   sh(repo, "commit", "-q", "--allow-empty", "-m", "two");
   sh(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
-  const moved = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo });
-  expect(moved.path).not.toBe(first.path);
-  expect(readdirSync(join(dataDir, "snapshots", "p1"))).toEqual([sh(repo, "rev-parse", "HEAD")]);
-  expect(sha).not.toBe(sh(repo, "rev-parse", "HEAD"));
+  const head = sh(repo, "rev-parse", "HEAD");
+  const dirs = () =>
+    readdirSync(join(dataDir, "snapshots", "p1"))
+      .filter((n) => !n.endsWith(".complete"))
+      .sort();
+  // A planner may still be reading the old snapshot two hours after its last use.
+  const moved = await planningWorkspace({
+    dataDir,
+    projectId: "p1",
+    repoPath: repo,
+    now: () => 2 * hour,
+  });
+  expect(moved.path).toBe(join(dataDir, "snapshots", "p1", head));
+  expect(dirs()).toEqual([sha, head].sort());
+  // Long after, it is gone, marker included.
+  await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo, now: () => 12 * hour });
+  expect(readdirSync(join(dataDir, "snapshots", "p1")).sort()).toEqual([head, `${head}.complete`]);
+});
+
+it("shares one export between concurrent requests for the same commit", async () => {
+  const { repo } = cloneWithLocalWork();
+  const dataDir = temp("data");
+  const all = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      planningWorkspace({ dataDir, projectId: "p1", repoPath: repo }),
+    ),
+  );
+  expect(new Set(all.map((w) => w.path)).size).toBe(1);
+  expect(readFileSync(join(all[0]!.path, "a.txt"), "utf8")).toBe("default branch\n");
+  expect(readdirSync(join(dataDir, "snapshots", "p1")).some((n) => n.includes(".partial-"))).toBe(
+    false,
+  );
+});
+
+it("never writes through a symlink the repository tracks", async () => {
+  const upstream = temp("upstream");
+  const victim = join(temp("victim"), "auth-token");
+  writeFileSync(victim, "original\n");
+  sh(upstream, "init", "-q", "-b", "main");
+  for (const name of [".sindri-snapshot-complete", ".complete", "x.complete"])
+    symlinkSync(victim, join(upstream, name));
+  sh(upstream, "add", "-A");
+  sh(upstream, "commit", "-q", "-m", "links");
+  const repo = temp("repo");
+  sh(repo, "clone", "-q", upstream, ".");
+  const ws = await planningWorkspace({ dataDir: temp("data"), projectId: "p1", repoPath: repo });
+  expect(ws.label).toContain("snapshot");
+  expect(readFileSync(victim, "utf8")).toBe("original\n");
+});
+
+it("snapshots a delivered commit for a rework and says what else the work starts from", async () => {
+  const { repo, sha } = cloneWithLocalWork();
+  const other = "b".repeat(40);
+  const ws = await planningWorkspace({
+    dataDir: temp("data"),
+    projectId: "p1",
+    repoPath: repo,
+    commit: sha,
+    alsoStartsFrom: [other],
+  });
+  expect(ws.label).toContain("already delivered change");
+  expect(ws.label).toContain(other.slice(0, 12));
+  expect(ws.label).toContain("NOT in this directory");
+});
+
+it("does not run git in a linked worktree, whose config lives elsewhere", async () => {
+  const { repo } = cloneWithLocalWork();
+  const linked = join(temp("linked"), "wt");
+  sh(repo, "worktree", "add", "-q", "--detach", linked);
+  const ws = await planningWorkspace({ dataDir: temp("data"), projectId: "p1", repoPath: linked });
+  expect(ws.path).toBe(linked);
+  expect(ws.label).toContain("working checkout");
 });
 
 it("tolerates a husky hooks path and never runs the hook", async () => {

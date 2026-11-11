@@ -44,7 +44,7 @@ export interface Services {
   /** The directory a planner reads for a project: a default-branch snapshot when possible. */
   planningWorkspace(
     project: { id: string; repoPath: string },
-    opts?: { commit?: string },
+    opts?: { commit?: string; alsoStartsFrom?: readonly string[] },
   ): Promise<PlanningWorkspace>;
   intake(): Intake;
   director(): Director;
@@ -103,13 +103,14 @@ export function createServices(o: ServiceOptions): Services {
 
   const workspaceFor = (
     project: { id: string; repoPath: string },
-    opts: { commit?: string } = {},
+    opts: { commit?: string; alsoStartsFrom?: readonly string[] } = {},
   ): Promise<PlanningWorkspace> =>
     planningWorkspace({
       dataDir: o.dataDir ?? null,
       projectId: project.id,
       repoPath: project.repoPath,
       ...(opts.commit ? { commit: opts.commit } : {}),
+      ...(opts.alsoStartsFrom ? { alsoStartsFrom: opts.alsoStartsFrom } : {}),
     });
 
   let intakeCache: { key: string; intake: Intake } | undefined;

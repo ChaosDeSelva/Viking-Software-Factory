@@ -3,6 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SECRET_PATTERNS } from "@sindri/knowledge";
 import { z } from "zod";
 import {
   parseStructured,
@@ -22,10 +23,11 @@ export interface CliProviderOptions {
 }
 
 const WORKSPACE_TOOLS = "Read,Grep,Glob";
-/** Files a planner never reads, even inside the workspace. */
-const WORKSPACE_DENY = [".env", ".env.*", "*.pem", "*.key", "id_rsa*", "id_ed25519*"].flatMap(
-  (glob) => [`Read(./${glob})`, `Read(./**/${glob})`],
-);
+/**
+ * Files a planner never reads, even inside the workspace: the same names the indexer refuses.
+ * A snapshot holds tracked files only, but the fallback workspace is the operator's checkout.
+ */
+const WORKSPACE_DENY = SECRET_PATTERNS.flatMap((glob) => [`Read(./${glob})`, `Read(./**/${glob})`]);
 /** Reading a repository takes longer than answering from supplied context alone. */
 const WORKSPACE_TIMEOUT_MS = 600_000;
 
@@ -59,7 +61,9 @@ export class CliProvider implements LlmProvider {
         ? z.toJSONSchema(req.responseSchema, { target: "draft-7" })
         : undefined;
       const output = join(dir, "response.json");
-      const workspace = isDirectory(req.workspace) ? req.workspace : undefined;
+      // Only the Claude CLI can be held to read-only tools and a deny list. Codex has no
+      // equivalent here, so it keeps answering from the supplied context alone.
+      const workspace = !codex && isDirectory(req.workspace) ? req.workspace : undefined;
       const args = codex
         ? [
             "exec",

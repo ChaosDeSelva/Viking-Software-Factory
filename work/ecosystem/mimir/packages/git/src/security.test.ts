@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { newId, type ProjectId, type TaskId } from "@mimir/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -132,6 +132,9 @@ describe("C1 config audit before worktree add/remove", () => {
     ["core.gitProxy", "x"],
     ["credential.helper", "x"],
     ["core.fsmonitor", "x"],
+    ["core.hooksPath", "/nonexistent/hooks"],
+    ["core.hooksPath", "../outside/hooks"],
+    ["core.hooksPath", "~/hooks"],
     ["gpg.program", "x"],
     ["alias.st", "status"],
     ["include.path", "/nonexistent/mimir-include"],
@@ -146,12 +149,12 @@ describe("C1 config audit before worktree add/remove", () => {
     expect(sh(repo, "worktree", "list", "--porcelain").split("\n\n")).toHaveLength(1);
   });
 
-  it("core.hooksPath (husky) is tolerated and its hooks never run on createWorktree", async () => {
-    const hooks = await dirs.make("hooks");
-    const hook = join(hooks, "post-checkout");
+  it("an in-repo core.hooksPath (husky) is tolerated and its hooks never run on createWorktree", async () => {
+    const hook = join(repo, ".husky", "post-checkout");
+    await mkdir(join(repo, ".husky"), { recursive: true });
     await writeFile(hook, `#!/bin/sh\n'${driver}' hook\n`);
     await chmod(hook, 0o755);
-    sh(repo, "config", "--local", "core.hooksPath", hooks);
+    sh(repo, "config", "--local", "core.hooksPath", ".husky");
     const w = await mgr.createWorktree(input());
     expect(existsSync(w.path)).toBe(true);
     expect(await sentinelText()).toBe("");

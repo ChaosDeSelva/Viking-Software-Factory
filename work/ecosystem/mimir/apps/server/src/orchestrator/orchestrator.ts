@@ -1927,6 +1927,7 @@ export class Orchestrator {
       project.repoPath,
       roots as string[],
       tasks.map((t) => t.resultCommit!),
+      { fromDefaultBranch: !!this.rm.missions.get(task.missionId)?.baseCommits?.length },
     );
     this.recordArtifact(
       now,

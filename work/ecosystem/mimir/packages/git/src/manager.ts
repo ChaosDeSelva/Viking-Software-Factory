@@ -661,6 +661,7 @@ export class GitManager {
     repoPath: string,
     bases: readonly string[],
     results: readonly string[],
+    opts: { fromDefaultBranch?: boolean } = {},
   ): Promise<{ baseSha: string; resultCommit: string; patch: string }> {
     if (!bases.length || !results.length)
       throw new MimirError("conflict", "no verified result to export");
@@ -669,6 +670,10 @@ export class GitManager {
     const repo = await this.registerProject({ projectId: id, repoPath });
     const scratch = await ScratchRepo.open(join(await this.ensureRoot(), SCRATCH_DIR), id, repo);
     const roots = [...new Set(bases)].map((sha) => GitShaSchema.parse(sha));
+    // Work that started from earlier verified results (a rework) is exported against the default
+    // branch, so the patch carries the whole change and not only the follow-up.
+    if (opts.fromDefaultBranch)
+      roots.push(await resolveCommit(repo, await this.defaultBranch(repo), "default branch"));
     const baseSha =
       roots.length === 1
         ? roots[0]!

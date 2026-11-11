@@ -77,10 +77,6 @@ export class ReworkStore {
         .all(sourceExecutionId) as Row[]
     ).map(toRework);
   }
-
-  deleteProject(projectId: string): void {
-    this.db.prepare("DELETE FROM rework_requests WHERE project_id = ?").run(projectId);
-  }
 }
 
 /**

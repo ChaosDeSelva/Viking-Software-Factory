@@ -40,6 +40,7 @@ export interface WorktreePort {
     repoPath: string,
     bases: readonly string[],
     results: readonly string[],
+    opts?: { fromDefaultBranch?: boolean },
   ): Promise<{ baseSha: string; resultCommit: string; patch: string }>;
   dependencyBase(
     projectId: string,
@@ -72,8 +73,9 @@ export class GitWorktreePort implements WorktreePort {
     repoPath: string,
     bases: readonly string[],
     results: readonly string[],
+    opts: { fromDefaultBranch?: boolean } = {},
   ) {
-    return this.manager.exportResult(projectId, repoPath, bases, results);
+    return this.manager.exportResult(projectId, repoPath, bases, results, opts);
   }
 
   dependencyBase(

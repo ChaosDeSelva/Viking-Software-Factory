@@ -56,7 +56,9 @@ export function planRoutes(
     const workspace = project
       ? await s.planningWorkspace(
           project,
-          rework?.baseCommits[0] ? { commit: rework.baseCommits[0] } : {},
+          rework?.baseCommits[0]
+            ? { commit: rework.baseCommits[0], alsoStartsFrom: rework.baseCommits.slice(1) }
+            : {},
         )
       : undefined;
     const plan = await f.planner.propose(

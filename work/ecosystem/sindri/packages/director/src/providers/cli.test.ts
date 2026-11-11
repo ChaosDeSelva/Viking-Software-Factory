@@ -133,7 +133,9 @@ it("gives Claude read-only tools and the repository as cwd only when a workspace
   expect(realpathSync(grounded.cwd)).toBe(realpathSync(workspace));
   expect(grounded.tools).toBe("Read,Grep,Glob");
   expect(grounded.allowed).toBeNull();
-  expect(JSON.parse(grounded.settings!).permissions.deny).toContain("Read(./**/.env)");
+  const deny = JSON.parse(grounded.settings!).permissions.deny as string[];
+  for (const rule of ["Read(./**/.env*)", "Read(./.npmrc)", "Read(./**/*credentials*)"])
+    expect(deny).toContain(rule);
 
   for (const req of [request, { ...request, workspace: join(workspace, "missing") }]) {
     const isolated = seen(await provider.complete(req));
@@ -141,4 +143,20 @@ it("gives Claude read-only tools and the repository as cwd only when a workspace
     expect(isolated.allowed).toBeNull();
     expect(isolated.cwd).toContain("sindri-director-");
   }
+});
+
+it("keeps a Codex planner on the supplied context: it gets no workspace to read", async () => {
+  const bin = executable(
+    `const fs=require('node:fs'); const a=process.argv; fs.writeFileSync(a[a.indexOf('--output-last-message')+1],JSON.stringify({ready:true,cwd:process.cwd()}));`,
+  );
+  const workspace = mkdtempSync(join(tmpdir(), "director-cli-workspace-"));
+  roots.push(workspace);
+  const result = await new CliProvider({ kind: "codex-cli", executable: bin }).complete({
+    system: "Plan",
+    messages: [{ role: "user", content: "Hello" }],
+    maxTokens: 100,
+    temperature: 0,
+    workspace,
+  });
+  expect((JSON.parse(result.text) as { cwd: string }).cwd).toContain("sindri-director-");
 });

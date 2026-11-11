@@ -9,6 +9,7 @@ import { ApiError, notFound, parseBody } from "../errors.js";
 import { receiptKey } from "../idempotency.js";
 import { REDACTED_RECEIPT } from "./approvals.js";
 import { deliveryPurgeTargets, purgeDeliveryData } from "../delivery-purge.js";
+import { removeSnapshots } from "../repo-snapshot.js";
 import type { Services } from "../services.js";
 import { localOnlyViolation, SettingsSchema } from "../settings.js";
 
@@ -121,6 +122,8 @@ export function settingsRoutes(app: FastifyInstance, s: Services, o: SettingsRou
         s.knowledge.projects.purge(project.id, { eraseEvidence: body.eraseEvidence === true });
         s.commands.purgeProject(project.id, ownKey);
       })();
+      // The planner's exported copies of the project's source go with the rest of its data.
+      await removeSnapshots(s.dataDir, project.id);
       // Move the zeroed pages out of the WAL so purged text does not linger on disk.
       s.db.pragma("wal_checkpoint(TRUNCATE)");
       intake.deleteUnreferencedBlobs(blobs);

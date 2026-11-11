@@ -161,6 +161,8 @@ export interface DraftSpecInput {
    * the delivered change it revises.
    */
   workspaceCommit?: string;
+  /** Further commits the work starts from that `workspaceCommit`'s tree does not contain. */
+  workspaceAlsoStartsFrom?: readonly string[];
 }
 
 export interface DraftSpecResult {
@@ -178,12 +180,12 @@ export interface OpenDirectorOptions {
   topK?: number;
   maxTokens?: number;
   /**
-   * Where the provider may read a project's code while drafting. Defaults to the project's
-   * `repoPath`; a server passes a snapshot of the default branch instead.
+   * Where the provider may read a project's code while drafting; a server passes a snapshot of
+   * the default branch. Without it the provider answers from the supplied context alone.
    */
   workspaceFor?: (
     project: { id: string; repoPath: string },
-    opts?: { commit?: string },
+    opts?: { commit?: string; alsoStartsFrom?: readonly string[] },
   ) => Promise<{ path: string; label?: string } | undefined>;
 }
 
@@ -267,6 +269,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
     purpose: string,
     req: Omit<CompleteRequest<T>, "metadata">,
     workspaceCommit?: string,
+    workspaceAlsoStartsFrom?: readonly string[],
   ) => {
     log.info("director.llm", { purpose, provider: provider.name, projectId });
     let res: CompleteResult<T>;
@@ -274,14 +277,15 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       // Classification is a quick label; only drafting is worth a read of the repository.
       const project =
         projectId && purpose !== "classify" ? knowledge.projects.get(projectId) : undefined;
-      const workspace = project
-        ? options.workspaceFor
+      const workspace =
+        project && options.workspaceFor
           ? await options.workspaceFor(
               { id: project.id, repoPath: project.repoPath },
-              workspaceCommit ? { commit: workspaceCommit } : {},
+              workspaceCommit
+                ? { commit: workspaceCommit, alsoStartsFrom: workspaceAlsoStartsFrom ?? [] }
+                : {},
             )
-          : { path: project.repoPath }
-        : undefined;
+          : undefined;
       res = await provider.complete<T>({
         ...req,
         metadata: { purpose },
@@ -641,6 +645,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
           responseSchema: DraftOutputSchema,
         },
         input.workspaceCommit,
+        input.workspaceAlsoStartsFrom,
       );
 
       // 4. Resolve citations deterministically; uncited or unknown-cited claims become assumptions.

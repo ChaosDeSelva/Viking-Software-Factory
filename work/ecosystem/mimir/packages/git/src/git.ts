@@ -149,8 +149,6 @@ const AUDIT_PATTERNS: RegExp[] = [
   /^merge\..+\.driver$/,
   /^diff\..+\.(command|textconv)$/,
   /^diff\.external$/,
-  // core.hookspath is not audited: husky and similar tools set it in ordinary repositories, and
-  // SAFE_CONFIG pins it to /dev/null on every Mimir git call, which outranks repo config.
   /^core\.(sshcommand|gitproxy|fsmonitor|askpass|editor|pager|alternaterefscommand)$/,
   /^credential\./,
   /^gpg\.(.+\.)?program$/,
@@ -161,6 +159,23 @@ const AUDIT_PATTERNS: RegExp[] = [
   /^uploadpack\.packobjectshook$/,
   /^extensions\.worktreeconfig$/,
 ];
+
+/**
+ * `core.hooksPath` as husky sets it: a relative directory inside the working tree. Mimir's own
+ * git calls never run hooks (SAFE_CONFIG), so the key matters only to whoever next runs git in a
+ * checkout. A relative path resolves inside that checkout, which an agent confined to its own
+ * worktree cannot write; an absolute or escaping path could point at files an agent planted.
+ */
+function isInRepoHooksPath(value: string): boolean {
+  const path = value.trim();
+  return (
+    path.length > 0 &&
+    !path.startsWith("/") &&
+    !path.startsWith("~") &&
+    !/^[A-Za-z]:/.test(path) &&
+    !path.split(/[\\/]/).includes("..")
+  );
+}
 
 /**
  * Fails closed with `policy_denied` when the repository's own (agent-writable) config — local or
@@ -181,6 +196,8 @@ export async function auditRepoConfig(cwd: string): Promise<void> {
     const nl = kv.indexOf("\n");
     const key = (nl < 0 ? kv : kv.slice(0, nl)).toLowerCase();
     if (AUDIT_PATTERNS.some((p) => p.test(key))) keys.add(key);
+    if (key === "core.hookspath" && !isInRepoHooksPath(nl < 0 ? "" : kv.slice(nl + 1)))
+      keys.add(key);
   }
   if (keys.size > 0) {
     throw new MimirError(

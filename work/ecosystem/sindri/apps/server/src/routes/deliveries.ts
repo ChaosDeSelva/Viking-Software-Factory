@@ -14,6 +14,24 @@ import { DELIVERED_STATUSES } from "../statuses.js";
 const ProjectQuery = z.object({ projectId: z.string().min(1) });
 const Rework = z.strictObject({ feedback: z.string().trim().min(1).max(20_000) });
 
+/** Every task `id` depends on, directly or through other tasks. */
+function transitiveDeps(
+  tasks: readonly { id: string; dependsOn: string[] }[],
+  id: string,
+): string[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const seen = new Set<string>();
+  const walk = (taskId: string) => {
+    for (const dep of byId.get(taskId)?.dependsOn ?? []) {
+      if (seen.has(dep)) continue;
+      seen.add(dep);
+      walk(dep);
+    }
+  };
+  walk(id);
+  return [...seen];
+}
+
 /** Reviews inbox, deliveries (report, PR text, trace) and PR requests. */
 export function deliveryRoutes(
   app: FastifyInstance,
@@ -163,7 +181,6 @@ export function deliveryRoutes(
     if (!plan || !original || !projectId || !s.knowledge.projects.get(projectId))
       throw notFound("delivery");
 
-    // The results nothing else in the plan builds on: together they are the delivered change.
     const { facade } = await hub.connection();
     const results = new Map(
       (await facade.taskResultCommits(execution.mimirMissionId)).map((r) => [
@@ -171,15 +188,21 @@ export function deliveryRoutes(
         r.resultCommit,
       ]),
     );
-    const dependedOn = new Set(plan.tasks.flatMap((t) => t.dependsOn));
+    // The delivered change is the frontier of verified results: every task that has a result
+    // commit and no dependant with one. A skipped task (no result) must not hide the completed
+    // work beneath it, and with nothing skipped this is simply the plan's leaves.
     const mimirTask = new Map(
       hub.reader.tasks(execution.id).map((t) => [t.planTaskId, t.mimirTaskId]),
+    );
+    const resultOf = (planTaskId: string) => results.get(mimirTask.get(planTaskId) ?? "");
+    const superseded = new Set(
+      plan.tasks.filter((t) => resultOf(t.id)).flatMap((t) => transitiveDeps(plan.tasks, t.id)),
     );
     const baseCommits = [
       ...new Set(
         plan.tasks
-          .filter((t) => !dependedOn.has(t.id))
-          .map((t) => results.get(mimirTask.get(t.id) ?? ""))
+          .filter((t) => !superseded.has(t.id))
+          .map((t) => resultOf(t.id))
           .filter((c): c is string => typeof c === "string"),
       ),
     ];
@@ -191,9 +214,10 @@ export function deliveryRoutes(
       );
 
     const report = await delivery.report(execution.id).catch(() => null);
+    // No intakeId: the feedback, not the original ticket, is the source of this spec, so the
+    // drafter records it as its own request instead of re-specifying the delivered ticket.
     const out = await s.director().draftSpec({
       projectId,
-      ...(original.intakeId ? { intakeId: original.intakeId } : {}),
       request: reworkRequestText({
         originalTitle: original.title,
         feedback: body.feedback,
@@ -201,6 +225,7 @@ export function deliveryRoutes(
         changedFiles: report?.changedFiles.map((c) => c.path) ?? [],
       }),
       workspaceCommit: baseCommits[0]!,
+      workspaceAlsoStartsFrom: baseCommits.slice(1),
     });
     const rework = s.rework.create({
       projectId,
