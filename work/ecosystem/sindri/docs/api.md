@@ -126,5 +126,27 @@ An execution is final in `verified_pending_review`, `cancelled` or `failed`.
 * `POST /v1/deliveries/:id/proposals`: generate proposals after completed delivery; approval factor required.
 * `POST /v1/deliveries/:id/proposals/:proposalId/decision`: accept/reject with the approval factor.
 
+## Steward
+
+The steward's decision log, modes, notes and guidance ([steward.md](steward.md)). A `Decision` is
+`{id, projectId, type, subject:{kind, id, label}, inputs:[{kind, ref, summary}], recommendation:{value, detail?}, reasoning, confidence, mode, status, outcome, reversible, notes, createdAt, decidedAt, appliedValue, error}`.
+
+| Method | Path                                     | Body or query                                                       | Response                                                                                   |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| GET    | `/v1/steward/status`                     |                                                                     | `{running, types:[{type, mode, autoAllowed, stats}], feedbackGraph}`                        |
+| PUT    | `/v1/steward/modes`                      | `{type, mode:"off"\|"recommend"\|"auto"}` + `X-Sindri-Approval`     | `{types}`; 422 `validation_failed` for `auto` on `spec.approve` or `plan.approve`          |
+| POST   | `/v1/steward/pause`                      | `{}`                                                                | status (as `GET /v1/steward/status`)                                                       |
+| POST   | `/v1/steward/resume`                     | `{}`                                                                | status                                                                                     |
+| GET    | `/v1/steward/decisions`                  | `?projectId=&type=&status=&limit=&before=` (`before`: a decision id or ISO time) | `{decisions}`, newest first (limit default 50, at most 500)                     |
+| GET    | `/v1/steward/decisions/:id`              |                                                                     | `{decision}` with `history:[{action, actor, detail, createdAt}]`                            |
+| POST   | `/v1/steward/decisions/:id/accept`       | `{value?}` (an edited value makes it `changed`)                     | `{decision}`; performs the value. `spec.approve`/`plan.approve` need `X-Sindri-Approval`. 409 when not pending or no recommendation yet; 422 for a value outside the type's values |
+| POST   | `/v1/steward/decisions/:id/reject`       | `{reason?}`                                                         | `{decision}`; 409 when not pending                                                          |
+| POST   | `/v1/steward/decisions/:id/rollback`     | `{reason}`                                                          | `{decision}` (`rolled_back`); 409 `invalid_state` when not applied, not reversible, or the subject moved on (for example a later spec version was approved or planned) |
+| POST   | `/v1/steward/decisions/:id/notes`        | `{text}`                                                            | `{decision}`                                                                                |
+| GET    | `/v1/steward/notes`                      | `?projectId=` (that project's notes and the global ones; without it, all) | `{notes}`, newest first                                                              |
+| POST   | `/v1/steward/notes`                      | `{projectId: string\|null, text}` (`null` is a global note)         | 201 `{note}`; 404 unknown project                                                          |
+| GET    | `/v1/steward/guidance`                   | `?projectId=`                                                       | `{guidance:[{id, projectId, type, rule, decisionIds, status, entryId, decidedBy, decidedAt, reason, createdAt}]}` |
+| POST   | `/v1/steward/guidance/:id/decision`      | `{decision:"accepted"\|"rejected", reason?}` + `X-Sindri-Approval`  | `{guidance}`; accepting records task evidence and a knowledge entry; 409 when already decided |
+
 Web app routes `GET /` and `GET /*` are public when started with `sindri start`; static responses
 set nosniff, and unmatched `/v1/*` requests remain API errors.

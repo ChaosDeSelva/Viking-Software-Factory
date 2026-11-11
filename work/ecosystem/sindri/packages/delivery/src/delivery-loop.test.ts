@@ -1233,3 +1233,311 @@ describe("DeliveryLoop: bug sweep and edge cases", () => {
     ]);
   });
 });
+
+describe("DeliveryLoop: a task parked on its crew budget escalates to a human", () => {
+  const CREW = "crw_01J000000000000000000000RV";
+  const BUDGET = "bgt_01J000000000000000000000RV";
+  const at = "2026-11-11T04:13:13.870Z";
+  /** The live shape: impl waits on an approval, review is parked on the reviewer crew budget. */
+  const plan = () =>
+    approvedPlan([
+      planTask("impl"),
+      planTask("review", { role: "reviewer", dependsOn: ["impl"], escalation: "block" }),
+    ]);
+
+  async function parkedRun() {
+    const h = await boot({ impl: [{ kind: "approval", action: "git.push" }] });
+    const exec = await execute(h, plan());
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    const review = h.loop.tasks(exec.id).find((t) => t.planTaskId === "review")!;
+    const missionId = exec.mimirMissionId as never;
+    const budget = () => ({
+      id: BUDGET,
+      createdAt: at,
+      updatedAt: at,
+      version: 0,
+      missionId,
+      crewId: CREW,
+      limitTokens: 300_000,
+      limitCost: null,
+      warnAtFraction: 0.8,
+      enforce: "hard",
+      onUnknown: "block",
+    });
+    const storeEvent = (type: string, payload: unknown) =>
+      h.db
+        .prepare(
+          `INSERT INTO execution_events (id, execution_id, mimir_event_id, type, payload_json, occurred_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          `exv_${type}_${Math.random()}`,
+          exec.id,
+          `evt_${Math.random()}`,
+          type,
+          JSON.stringify(payload),
+          at,
+        );
+    const inject = {
+      /** Mimir's `crew.created` for the reviewer crew, carrying its budget. */
+      crew: () =>
+        h.fake.inject(
+          "crew.created",
+          {
+            crew: {
+              id: CREW,
+              createdAt: at,
+              updatedAt: at,
+              version: 0,
+              missionId,
+              template: "reviewer",
+              status: "configured",
+              limits: { maxConcurrentTasks: 1, maxAttemptsPerTask: 4 },
+            },
+            members: [],
+            budget: budget(),
+          },
+          { missionId },
+        ),
+      blocked: (reason = "budget_exceeded") =>
+        h.fake.inject("task.blocked", { from: "ready", to: "blocked", reason }, {
+          missionId,
+          taskId: review.mimirTaskId as never,
+          crewId: CREW,
+        } as never),
+      exceeded: (refs: { crewId?: string } = {}) =>
+        h.fake.inject(
+          "budget.exceeded",
+          { budgetId: BUDGET, unit: "tokens", used: 338_679, limit: 300_000 },
+          { missionId, ...refs } as never,
+        ),
+      /** Mimir's `budget.updated` raising the crew budget to version 1, stored as Mimir sent it. */
+      // Stored directly: the vendored @mimir/protocol 0.2.0 predates `budget.updated`/`budgetVersion`.
+      updated: () => storeEvent("budget.updated", { budget: { ...budget(), version: 1 } }),
+      exceededAt: (budgetVersion: number) =>
+        storeEvent("budget.exceeded", {
+          budgetId: BUDGET,
+          unit: "tokens",
+          used: 401_000,
+          limit: 400_000,
+          budgetVersion,
+        }),
+      released: () =>
+        h.fake.inject("task.ready", { from: "blocked", to: "ready" }, {
+          missionId,
+          taskId: review.mimirTaskId as never,
+          crewId: CREW,
+        } as never),
+    };
+    return { h, exec, inject };
+  }
+
+  const reviewOf = (h: Harness, executionId: string) =>
+    h.loop.tasks(executionId).find((t) => t.planTaskId === "review")!;
+
+  it("escalates task.blocked budget_exceeded as ask with the crew budget's numbers (live order)", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    // As in the live run: the task is parked first, the crew budget event (no task) follows.
+    inject.blocked();
+    inject.exceeded();
+    expect((await h.loop.resume(exec.id)).status).toBe("awaiting_human");
+    const review = reviewOf(h, exec.id);
+    expect(review).toMatchObject({
+      status: "blocked",
+      blockedReason: "budget_exceeded: tokens 338679/300000",
+      // The plan says `block`, but only a human can raise a budget.
+      escalation: "ask",
+    });
+    expect(review.escalationReason).toContain(
+      `the crew budget is used up (tokens 338679 of 300000, budget ${BUDGET})`,
+    );
+    expect(review.escalationReason).toContain("Raise the crew budget in Mimir, then retry");
+    // One actionable item, on the task, with the numbers; no task-less alert nobody can answer.
+    expect(h.loop.inbox(exec.id)).toEqual([
+      expect.objectContaining({
+        kind: "budget_exceeded",
+        planTaskId: "review",
+        status: "open",
+        detail: expect.objectContaining({
+          reason: "budget_exceeded",
+          crewId: CREW,
+          budgetId: BUDGET,
+          unit: "tokens",
+          used: 338_679,
+          limit: 300_000,
+        }),
+      }),
+    ]);
+    expect(h.notices).toContainEqual(
+      expect.objectContaining({
+        type: "escalated",
+        planTaskId: "review",
+        escalation: "ask",
+        reason: review.escalationReason,
+      }),
+    );
+  });
+
+  it("finds the numbers when the budget event came first, and opens nothing for a crew with no parked task", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.exceeded({ crewId: CREW });
+    expect((await h.loop.resume(exec.id)).status).toBe("awaiting_human");
+    expect(h.loop.inbox(exec.id)).toEqual([]);
+    expect(reviewOf(h, exec.id).escalation).toBeNull();
+    inject.blocked();
+    await h.loop.resume(exec.id);
+    expect(reviewOf(h, exec.id)).toMatchObject({
+      blockedReason: "budget_exceeded: tokens 338679/300000",
+      escalation: "ask",
+    });
+    expect(h.loop.inbox(exec.id)).toHaveLength(1);
+  });
+
+  it("escalates budget_uncertain (usage not measurable) the same way", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.blocked("budget_uncertain");
+    await h.loop.resume(exec.id);
+    const review = reviewOf(h, exec.id);
+    expect(review).toMatchObject({ blockedReason: "budget_uncertain", escalation: "ask" });
+    expect(review.escalationReason).toContain("cannot measure the crew's usage");
+  });
+
+  it("gives budget_uncertain no numbers even after an earlier budget.exceeded", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.exceeded({ crewId: CREW });
+    inject.blocked("budget_uncertain");
+    await h.loop.resume(exec.id);
+    const review = reviewOf(h, exec.id);
+    expect(review.blockedReason).toBe("budget_uncertain");
+    expect(review.escalationReason).toContain("cannot measure the crew's usage");
+    expect(review.escalationReason).not.toContain("338679");
+    expect(h.loop.inbox(exec.id)[0]!.detail).not.toHaveProperty("used");
+  });
+
+  it("ignores a budget.exceeded measured before the budget was raised", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.exceeded({ crewId: CREW });
+    await h.loop.resume(exec.id);
+    inject.updated();
+    inject.blocked();
+    await h.loop.resume(exec.id);
+    expect(reviewOf(h, exec.id).blockedReason).toBe("budget_exceeded");
+    expect(h.loop.inbox(exec.id)[0]!.detail).not.toHaveProperty("used");
+  });
+
+  it("uses a budget.exceeded measured against the current budget version", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.exceeded({ crewId: CREW });
+    await h.loop.resume(exec.id);
+    inject.updated();
+    inject.exceededAt(1);
+    inject.blocked();
+    await h.loop.resume(exec.id);
+    expect(reviewOf(h, exec.id).blockedReason).toBe("budget_exceeded: tokens 401000/400000");
+  });
+
+  it("Mimir's release resolves only the budget item, not another open item on the task", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.blocked();
+    inject.exceeded();
+    await h.loop.resume(exec.id);
+    h.db
+      .prepare(
+        `INSERT INTO execution_inbox (id, execution_id, kind, plan_task_id, detail_json, status, created_at)
+         VALUES ('exi_other', ?, 'escalation', 'review', '{}', 'open', ?)`,
+      )
+      .run(exec.id, at);
+    inject.released();
+    await h.loop.decideApproval(exec.id, h.loop.approvals(exec.id)[0]!.mimirApprovalId, "approved");
+    await h.loop.resume(exec.id);
+    expect(h.loop.inbox(exec.id).map((i) => [i.kind, i.status])).toEqual([
+      ["budget_exceeded", "resolved"],
+      ["escalation", "open"],
+    ]);
+  });
+
+  it("retry waits for Mimir to release the task, then continues without spending an attempt", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.blocked();
+    inject.exceeded();
+    await h.loop.resume(exec.id);
+    const retry = () =>
+      h.loop.resolveEscalation(exec.id, "review", {
+        decision: "retry",
+        actor: "jacob",
+        reason: "raised the reviewer budget",
+      });
+    // Not raised in Mimir yet: the task is still parked, so there is nothing to continue.
+    await expect(retry()).rejects.toMatchObject({
+      code: "invalid_state",
+      message: expect.stringContaining("Raise the crew budget in Mimir first"),
+    });
+    expect(reviewOf(h, exec.id).escalation).toBe("ask");
+
+    // The operator raises the budget in Mimir, which returns the task to ready; impl is approved.
+    inject.released();
+    await h.loop.decideApproval(exec.id, h.loop.approvals(exec.id)[0]!.mimirApprovalId, "approved");
+    expect((await retry()).status).toBe("verified_pending_review");
+    expect(h.fake.requests.some((r) => r.path.endsWith("/retry"))).toBe(false);
+    expect(reviewOf(h, exec.id)).toMatchObject({
+      attempts: 0,
+      escalation: null,
+      blockedReason: null,
+      status: "completed",
+    });
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+    expect(sindriEvents(h, exec.id)).toContainEqual(
+      expect.objectContaining({
+        type: "escalation_resolved",
+        payload: expect.objectContaining({
+          planTaskId: "review",
+          decision: "retry",
+          actor: "jacob",
+        }),
+      }),
+    );
+  });
+
+  it("answers the escalation itself when Mimir releases the task (budget raised in Mimir)", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.crew();
+    inject.blocked();
+    inject.exceeded();
+    await h.loop.resume(exec.id);
+    inject.released();
+    await h.loop.decideApproval(exec.id, h.loop.approvals(exec.id)[0]!.mimirApprovalId, "approved");
+    expect((await h.loop.resume(exec.id)).status).toBe("verified_pending_review");
+    expect(reviewOf(h, exec.id)).toMatchObject({ escalation: null, blockedReason: null });
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+    expect(sindriEvents(h, exec.id)).toContainEqual(
+      expect.objectContaining({
+        type: "escalation_resolved",
+        payload: expect.objectContaining({
+          planTaskId: "review",
+          decision: "retry",
+          actor: "mimir",
+        }),
+      }),
+    );
+  });
+
+  it("abort works on a budget escalation as on any other", async () => {
+    const { h, exec, inject } = await parkedRun();
+    inject.blocked();
+    await h.loop.resume(exec.id);
+    const result = await h.loop.resolveEscalation(exec.id, "review", {
+      decision: "abort",
+      actor: "jacob",
+      reason: "too expensive",
+    });
+    expect(result.status).toBe("cancelled");
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+  });
+});

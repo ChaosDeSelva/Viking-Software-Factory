@@ -26,6 +26,8 @@ const ENDPOINTS = [
   "GET /v1/crews",
   "POST /v1/crews/:id/pause",
   "POST /v1/crews/:id/resume",
+  "PATCH /v1/crews/:id/budget",
+  "PATCH /v1/missions/:id/budget",
   "POST /v1/tasks/:id/verify",
   "GET /v1/tasks/:id",
   "GET /v1/sessions/:id",

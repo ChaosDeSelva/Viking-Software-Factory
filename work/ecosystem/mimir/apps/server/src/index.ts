@@ -39,6 +39,7 @@ import {
   DEFAULT_STUCK_THRESHOLD_MS,
   attentionRoutes,
 } from "./routes/attention.js";
+import { budgetRoutes } from "./routes/budgets.js";
 import { crewRoutes } from "./routes/crews.js";
 import { missionRoutes } from "./routes/missions.js";
 import { sessionRoutes } from "./routes/sessions.js";
@@ -295,6 +296,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   projectRoutes(app);
   missionRoutes(app);
   crewRoutes(app);
+  budgetRoutes(app);
   taskRoutes(app);
   approvalRoutes(app);
   sessionRoutes(app);

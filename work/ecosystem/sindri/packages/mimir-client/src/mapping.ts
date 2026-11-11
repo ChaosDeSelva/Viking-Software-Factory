@@ -27,6 +27,21 @@ export interface MapPlanOptions {
 /** Mimir attempts a human can add with `DeliveryLoop.resolveEscalation(..., "retry")`. */
 export const DEFAULT_HUMAN_RETRIES = 2;
 
+/**
+ * How Mimir enforces the crew budgets Sindri sends. The limits themselves are the sums of the
+ * crew's plan task budgets, whose defaults are the planner's `ROLE_TOKEN_BUDGETS`.
+ * - `warnAtFraction`: Mimir emits `budget.warning` at 80% of a limit;
+ * - `enforce: "hard"`: at 100% Mimir stops dispatching the crew's tasks and parks them `blocked`
+ *   with `blockedReason: budget_exceeded`, which Sindri escalates to a human;
+ * - `onUnknown: "block"`: when usage cannot be measured the task is parked too
+ *   (`budget_uncertain`), so an unmeasured agent cannot run past its budget unnoticed.
+ */
+export const CREW_BUDGET_POLICY = {
+  warnAtFraction: 0.8,
+  enforce: "hard",
+  onUnknown: "block",
+} as const satisfies Omit<BudgetInput, "limitTokens" | "limitCost">;
+
 export interface MappedCrew {
   /** `<harnessId>:<role>` (Sindri role). */
   key: string;
@@ -187,8 +202,7 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
         ? {
             ...(limitTokens > 0 ? { limitTokens } : {}),
             ...(limitCost > 0 ? { limitCost } : {}),
-            enforce: "hard",
-            onUnknown: "block",
+            ...CREW_BUDGET_POLICY,
           }
         : undefined;
     return {

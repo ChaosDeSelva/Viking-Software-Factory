@@ -24,7 +24,7 @@ const EXTRA = [
   [
     "POST",
     "/v1/tasks/{id}/pr",
-    "Request a pull request for a task. `pr.create` is gated by policy: the response is `status: approval_required` with an `approvalId` until a human approves, then `delivered`. By default nothing is pushed and no pull request is opened: delivery records a `local_delivery` artifact, a git patch of the mission's verified results with its `apply` and `undo` commands (`LocalDeliveryRunner`). The `gh` CLI is used only by a server built with `GhPrRunner`. 202 OperationAccepted.",
+    "Request a pull request for a task. `pr.create` is gated by policy: the response is `status: approval_required` with an `approvalId` until a human approves, then `delivered`. By default nothing is pushed and no pull request is opened: delivery records a `local_delivery` artifact, a git patch of the mission's verified results with its `apply` and `undo` commands (`LocalDeliveryRunner`). For a mission created with `baseCommits` (a rework) `patch` is the complete change against the default branch and `followUp: { baseSha, patch }` is the change since the earlier delivery, for a checkout that already has it applied; when no default-branch base can be determined, `patch` is that follow-up and `followUpOnly` gives the reason. The `gh` CLI is used only by a server built with `GhPrRunner`. 202 OperationAccepted.",
   ],
   [
     "PATCH",

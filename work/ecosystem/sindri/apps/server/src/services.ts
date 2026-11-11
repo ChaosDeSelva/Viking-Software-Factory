@@ -1,5 +1,10 @@
 import { createProvider, openDirector, type Director, type LlmProvider } from "@sindri/director";
 import {
+  createFeedbackGraphService,
+  PROJECT_OVERRIDE_KEY,
+  type FeedbackGraphService,
+} from "@sindri/feedback-graph";
+import {
   JiraConnector,
   LinearConnector,
   openIntake,
@@ -18,7 +23,12 @@ import { CommandStore } from "./idempotency.js";
 import { planningWorkspace, type PlanningWorkspace } from "./repo-snapshot.js";
 import { ReworkStore } from "./rework.js";
 import { SERVER_MIGRATIONS } from "./schema.js";
-import { effectiveProvider, SettingsStore, type Settings } from "./settings.js";
+import {
+  effectiveProvider,
+  feedbackGraphLocalOnlyViolation,
+  SettingsStore,
+  type Settings,
+} from "./settings.js";
 
 export interface ServiceOptions {
   db: SqliteDatabase;
@@ -31,6 +41,8 @@ export interface ServiceOptions {
   /** Sindri data directory; refused as a project repoPath. */
   dataDir?: string;
   now?: () => Date;
+  /** Fetch used for Feedback Graph (tests). */
+  feedbackGraphFetch?: typeof globalThis.fetch;
 }
 
 export interface Services {
@@ -48,6 +60,8 @@ export interface Services {
   ): Promise<PlanningWorkspace>;
   intake(): Intake;
   director(): Director;
+  /** Read-only Feedback Graph lessons per project (docs/feedback-graph.md). */
+  feedbackGraph: FeedbackGraphService;
 }
 
 /** Connectors built from settings; credentials are SecretStore handles resolved per request. */
@@ -113,6 +127,23 @@ export function createServices(o: ServiceOptions): Services {
       ...(opts.alsoStartsFrom ? { alsoStartsFrom: opts.alsoStartsFrom } : {}),
     });
 
+  const feedbackGraph = createFeedbackGraphService({
+    config: () => settings.get().feedbackGraph,
+    blocked: () => feedbackGraphLocalOnlyViolation(settings.get()),
+    ...(o.secrets ? { secrets: o.secrets } : {}),
+    ...(o.feedbackGraphFetch ? { fetch: o.feedbackGraphFetch } : {}),
+    project: (id) => {
+      const p = knowledge.projects.get(id);
+      if (!p) return undefined;
+      const override = p.settings[PROJECT_OVERRIDE_KEY];
+      return {
+        id: p.id,
+        repoPath: p.repoPath,
+        override: typeof override === "string" ? override : null,
+      };
+    },
+  });
+
   let intakeCache: { key: string; intake: Intake } | undefined;
   let directorCache: { key: string; director: Director } | undefined;
   return {
@@ -124,6 +155,7 @@ export function createServices(o: ServiceOptions): Services {
     rework: new ReworkStore(db, now),
     dataDir: o.dataDir ?? null,
     planningWorkspace: workspaceFor,
+    feedbackGraph,
     intake() {
       const st = settings.get();
       const key = JSON.stringify(st.connectors ?? {});
@@ -145,7 +177,11 @@ export function createServices(o: ServiceOptions): Services {
       if (directorCache?.key !== key)
         directorCache = {
           key,
-          director: openDirector(db, { provider: providerFactory(st), now, workspaceFor }),
+          director: openDirector(db, {
+            provider: providerFactory(st),
+            now,
+            workspaceFor,
+          }),
         };
       return directorCache.director;
     },

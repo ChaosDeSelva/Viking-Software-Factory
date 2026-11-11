@@ -16,6 +16,7 @@ import { approvalRoutes, NO_IDEMPOTENCY, REDACTED_RECEIPT } from "./routes/appro
 import { projectRoutes } from "./routes/projects.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { specRoutes } from "./routes/specs.js";
+import { stewardRoutes, type StewardServerOptions } from "./routes/steward.js";
 import { APPROVAL_HEADER, ApprovalAuthority, type ApprovalOptions } from "./approval.js";
 import { isLoopbackHostHeader, tokenMatches } from "./security.js";
 import { createServices, type ServiceOptions, type Services } from "./services.js";
@@ -43,6 +44,8 @@ export interface BuildServerOptions extends ServiceOptions, FactoryOptions {
   resumeOnReady?: boolean;
   /** Approval pairing code handling (audit M9); the code reaches only `onPairingCode`. */
   approval?: ApprovalOptions;
+  /** The steward loop (docs/steward.md). */
+  steward?: StewardServerOptions;
 }
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -242,6 +245,14 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     },
     services,
   );
+  // Before the execution routes, so its preClose stops the loop before the hub closes.
+  stewardRoutes(app, services, factory, approvals, {
+    ...opts.steward,
+    authToken: opts.authToken,
+    now: opts.now ?? (() => new Date()),
+    ...(opts.resumeOnReady !== undefined ? { resumeOnReady: opts.resumeOnReady } : {}),
+    fixedProvider: opts.providerFactory !== undefined || opts.director !== undefined,
+  });
   planRoutes(app, services, factory, approvals);
   harnessRoutes(app, services, factory);
   executionRoutes(app, services, factory, factory.hub, factory.delivery, approvals);

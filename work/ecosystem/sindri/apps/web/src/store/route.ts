@@ -12,6 +12,7 @@ const VIEWS: readonly View[] = [
   "runs",
   "reviews",
   "deliveries",
+  "autonomy",
 ];
 
 /** The routable part of the state. */

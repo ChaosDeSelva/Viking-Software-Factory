@@ -15,9 +15,10 @@ export const VIEWS: { view: View; label: string }[] = [
   { view: "reviews", label: "Reviews" },
   { view: "deliveries", label: "Deliveries" },
   { view: "harnesses", label: "Harnesses" },
+  { view: "autonomy", label: "Autonomy" },
 ];
 
-/** Alt+1..9 then Alt+0 switch screens, in nav order (the eleventh has no shortcut). */
+/** Alt+1..9 then Alt+0 switch screens, in nav order (later ones have no shortcut). */
 const SHORTCUT_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
 export function NoticeRegion() {

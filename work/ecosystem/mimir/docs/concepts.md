@@ -51,6 +51,28 @@ terminal text to decide state. Values it computes are `derived`; model written t
 Usage has a source: `measured`, `estimated` or `unavailable`. Without agent hooks, measured usage
 is unavailable.
 
+## Budgets
+
+A sample's `tokens` is what counts against a token budget: fresh input (prompt-cache writes
+included) plus output. Input served from the provider's prompt cache is recorded as `cachedTokens`
+and never counted. For the local CLIs (`apps/server/src/cli-runtime/adapter.ts`, `usageOfEvent`):
+
+* Codex `exec --json`: the last `turn.completed` is the session total;
+  `tokens = input_tokens - cached_input_tokens + output_tokens`, `cachedTokens = cached_input_tokens`.
+* Claude `stream-json`: the `result` event is the session total;
+  `tokens = input_tokens + cache_creation_input_tokens + output_tokens`,
+  `cachedTokens = cache_read_input_tokens`. `estimatedCost` is Claude's `total_cost_usd`.
+
+A hard budget that is exhausted blocks its ready tasks (`blockedReason: budget_exceeded`), appends
+`budget.exceeded` once per budget version and shows a `budget_exceeded` item in `GET /v1/attention`.
+The event payload says which budget and by how much:
+`{ budgetId, scope: crew|mission|project, unit: tokens|cost, used, limit, overBy, budgetVersion }`
+(the envelope carries `missionId` and `crewId`). The operator resolves it with
+`PATCH /v1/crews/{id}/budget` or `PATCH /v1/missions/{id}/budget`
+(`{ limitTokens?, limitCost?, warnAtFraction?, enforce?, onUnknown?, expectedVersion? }`, a limit is
+positive and bounded, `null` removes it). That appends `budget.updated` `{ budget, previous }`, and
+the scheduler returns the blocked tasks to `ready` on its next tick.
+
 ## Policy
 
 Shell commands and other actions are classified, then evaluated deny by default:

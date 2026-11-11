@@ -10,9 +10,81 @@ const TIMEOUTS = {
   "execution.cancel": 120000,
 };
 export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
+// Accepting a recommendation of these types performs the approval, so it needs the human factor.
+export const APPROVAL_DECISION_TYPES = ["spec.approve", "plan.approve"];
+// Types known to need no approval factor; any other (newer) type is treated as an approval.
+const PLAIN_DECISION_TYPES = ["spec.answer", "escalation.resolve", "rework.suggest"];
+export const decisionNeedsApproval = (type) =>
+  APPROVAL_DECISION_TYPES.includes(type) || !PLAIN_DECISION_TYPES.includes(type);
+const STEWARD_MODES = ["off", "recommend", "auto"];
+const text = (value, what, max = 20000) => {
+  if (typeof value !== "string" || !value.trim() || value.length > max)
+    throw Error(`${what} is required`);
+  return value;
+};
+const optionalText = (value, what) =>
+  value === undefined || value === null ? undefined : text(value, what);
+const projectRef = (value) => {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^[\w-]{1,200}$/.test(value))
+    throw Error("Invalid project ID");
+  return value;
+};
+/** Steward and Feedback Graph controls; null for any other action. */
+function stewardRoute(c, id) {
+  const b = c.body ?? {};
+  const decision = `/v1/steward/decisions/${id}`;
+  switch (c.action) {
+    case "steward.mode":
+      if (typeof b.type !== "string" || !/^[\w.-]{1,100}$/.test(b.type))
+        throw Error("Invalid decision type");
+      if (!STEWARD_MODES.includes(b.mode)) throw Error("Unknown steward mode");
+      return { method: "PUT", path: "/v1/steward/modes", body: { type: b.type, mode: b.mode }, approval: true };
+    case "steward.pause":
+    case "steward.resume":
+      return { path: "/v1/steward/" + c.action.split(".")[1], body: {} };
+    case "steward.accept": {
+      // The browser names the type; the server checks it against Sindri's record before sending.
+      if (typeof c.decisionType !== "string" || !/^[\w.-]{1,100}$/.test(c.decisionType))
+        throw Error("The decision type is required");
+      const value = optionalText(b.value, "An answer");
+      return {
+        path: decision + "/accept",
+        body: value === undefined ? {} : { value },
+        approval: decisionNeedsApproval(c.decisionType),
+      };
+    }
+    case "steward.reject": {
+      const reason = typeof b.reason === "string" && b.reason.trim() ? b.reason : undefined;
+      return { path: decision + "/reject", body: reason === undefined ? {} : { reason } };
+    }
+    case "steward.rollback":
+      return { path: decision + "/rollback", body: { reason: text(b.reason, "A rollback reason", 2000) } };
+    case "steward.note":
+      return { path: decision + "/notes", body: { text: text(b.text, "Note text") } };
+    case "steward.globalNote":
+      return {
+        path: "/v1/steward/notes",
+        body: { projectId: projectRef(b.projectId ?? null), text: text(b.text, "Note text") },
+      };
+    case "project.feedbackGraph": {
+      const key = b.projectKey ?? null;
+      if (key !== null && (typeof key !== "string" || !key.trim() || key.length > 500))
+        throw Error("Invalid Feedback Graph project key");
+      return { method: "PUT", path: `/v1/projects/${id}/feedback-graph`, body: { projectKey: key } };
+    }
+  }
+  return null;
+}
 export function commandRoute(c) {
   const id = String(c.id ?? "");
   if (!/^[\w-]{1,200}$/.test(id)) throw Error("Invalid resource ID");
+  const steward = stewardRoute(c, id);
+  if (steward) {
+    const route = { source: "sindri", method: "POST", approval: false, ...steward };
+    if (JSON.stringify(route.body).length > 500000) throw Error("Command body too large");
+    return route;
+  }
   const body = { ...(c.body ?? {}) };
   let source, path, method = "POST";
   if (
@@ -110,5 +182,6 @@ export function commandRoute(c) {
   } else throw Error("Unsupported operator action");
   if (JSON.stringify(body).length > 500000)
     throw Error("Command body too large");
-  return { source, path, body, method };
+  // Every non-steward Sindri control carries the approval secret.
+  return { source, path, body, method, approval: source === "sindri" };
 }

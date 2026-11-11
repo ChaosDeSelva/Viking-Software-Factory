@@ -274,6 +274,23 @@ describe("reducer: events", () => {
       event: event("budget.exceeded", { budgetId, unit: "tokens", used: 101, limit: 100 }),
     });
     expect(s.budgetAlerts[budgetId]?.level).toBe("exceeded");
+    const at = "2026-01-01T00:00:00.000Z";
+    const budget = {
+      id: budgetId,
+      missionId: m,
+      crewId: null,
+      limitTokens: 1000,
+      limitCost: null,
+      warnAtFraction: 0.8,
+      createdAt: at,
+      updatedAt: at,
+      version: 1,
+    };
+    s = reducer(s, {
+      type: "event/received",
+      event: event("budget.updated", { budget, previous: { ...budget, limitTokens: 100 } }),
+    });
+    expect(s.budgetAlerts[budgetId]).toBeUndefined();
   });
 });
 

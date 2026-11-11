@@ -1,5 +1,6 @@
 // Browser checks for the specification, plan and delivery workflow against fixture Sindri records.
 import { chromium } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import { startHeimdall } from "../apps/server/main.mjs";
 import { fixture } from "./fixture.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -495,6 +496,200 @@ try {
   assert.match(await inspector.innerText(), /Drafted: Round per line/);
   await closeInspector();
 
+  console.log("Autonomy page");
+  const stamp = (n) => `2026-11-0${n}T10:00:00.000Z`;
+  const decisionRow = (id, over) => ({
+    id, projectId: "prj_demo", type: "spec.answer",
+    subject: { kind: "question", id: "q-" + id, label: id },
+    inputs: [], recommendation: { value: "" }, reasoning: "", confidence: 0.5, mode: "recommend",
+    status: "pending", outcome: null, reversible: false, notes: [], createdAt: stamp(1), decidedAt: null,
+    ...over,
+  });
+  source.steward = {
+    running: true,
+    types: [
+      { type: "spec.answer", mode: "recommend", autoAllowed: true, stats: { decided: 12, accepted: 9, changed: 2, rejected: 1, rolledBack: 0, autoApplied: 0, accuracy: 0.92 } },
+      { type: "spec.approve", mode: "recommend", autoAllowed: false, stats: { decided: 3, accepted: 3, changed: 0, rejected: 0, rolledBack: 0, autoApplied: 0, accuracy: null } },
+      { type: "brand.new", mode: "turbo", autoAllowed: false, stats: {} },
+    ],
+    decisions: [
+      decisionRow("dec_answer", {
+        subject: { kind: "question", id: "q-hard", label: "Rounding rule" },
+        recommendation: { value: "Round half to even", detail: "Matches the ledger module" },
+        reasoning: "The ledger module already rounds half to even.",
+        confidence: 0.87,
+        inputs: [
+          { kind: "lesson", ref: "fg:l1", summary: "Keep integer cents" },
+          { kind: "hunch", ref: "x1", summary: "An input kind this page does not know" },
+        ],
+        createdAt: stamp(5),
+      }),
+      decisionRow("dec_approve", { type: "spec.approve", subject: { kind: "spec", id: "spc_v2", label: "Approve totals spec" }, recommendation: { value: "approve" }, createdAt: stamp(4) }),
+      decisionRow("dec_fix", { type: "escalation.resolve", subject: { kind: "task", id: "build", label: "Retry the build" }, recommendation: { value: "retry" }, status: "applied", mode: "auto", reversible: true, createdAt: stamp(3) }),
+      decisionRow("dec_odd", { type: "brand.new", subject: { kind: "plan", id: "p", label: "Odd one" }, status: "mystery", createdAt: stamp(2) }),
+    ],
+    notes: [],
+  };
+  source.feedbackGraph = {
+    status: { configured: true, enabled: true, url: "http://127.0.0.1:8787", reachable: true, error: null },
+    projects: {
+      prj_demo: {
+        auto: "invoice-lib",
+        link: { projectKey: "invoice-lib", source: "auto" },
+        lessons: [{ id: "l1", title: "Keep integer cents", rule: "Never use floats for money", appliesWhen: "Touching totals", paths: ["src/total.js"], status: "approved" }],
+        error: null,
+      },
+    },
+  };
+  await nav("Autonomy");
+  await page.getByRole("heading", { name: "Steward", exact: true }).waitFor();
+  await page.getByText("The steward is looking at new work").waitFor();
+  const modes = (name) => page.getByRole("group", { name: "Mode for " + name });
+  await modes("Answer specification questions").waitFor();
+  assert.match(await page.locator(".steward-type").first().innerText(), /92%[\s\S]*9 \/ 2 \/ 1/);
+  const approveAuto = modes("Approve specifications").getByRole("button", { name: "Automatic" });
+  assert.equal(await approveAuto.isDisabled(), true);
+  assert.match(await approveAuto.getAttribute("title"), /never automatic/);
+  await page.getByText("Approvals are never automatic; they can only be recommended.").first().waitFor();
+  // An unknown type and mode are shown as sent, and the unknown type cannot go automatic.
+  const odd = page.locator(".steward-type").filter({ hasText: "brand.new" });
+  await odd.getByText("turbo", { exact: true }).waitFor();
+  assert.equal(await modes("brand.new").getByRole("button", { name: "Automatic" }).isDisabled(), true);
+  await modes("Answer specification questions").getByRole("button", { name: "Automatic" }).click();
+  await send("Track record is good");
+  await confirmed();
+  const modePut = source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/steward/modes");
+  assert.deepEqual(JSON.parse(modePut.body), { type: "spec.answer", mode: "auto" });
+  assert.equal(modePut.headers["x-sindri-approval"], "sindri-human-secret");
+  await modes("Answer specification questions").getByRole("button", { name: "Automatic", pressed: true }).waitFor();
+
+  await page.getByRole("button", { name: "Pause steward" }).click();
+  await send("Quiet period");
+  await confirmed();
+  await page.getByRole("button", { name: "Resume steward" }).waitFor();
+  await page.getByText(/The steward is paused/).waitFor();
+  assert.equal(source.steward.running, false);
+  assert.equal(source.requests.findLast((r) => r.path === "/v1/steward/pause").headers["x-sindri-approval"], undefined);
+
+  const detail = page.locator(".decision-detail");
+  const decisionButton = (name) => page.getByRole("button", { name });
+  await decisionButton(/Odd one/).click();
+  await detail.getByText("mystery", { exact: true }).first().waitFor();
+  await decisionButton(/Rounding rule/).click();
+  await detail.getByText("The ledger module already rounds half to even.").waitFor();
+  await detail.getByText("Keep integer cents").waitFor();
+  await detail.getByText("hunch", { exact: true }).waitFor();
+  assert.match(await detail.innerText(), /87%/);
+  const rollback = detail.getByRole("button", { name: "Roll back" });
+  assert.equal(await rollback.isDisabled(), true);
+  assert.match(await rollback.getAttribute("title"), /cannot be reversed/);
+  const answerBox = detail.getByLabel("Answer to send");
+  assert.equal(await answerBox.inputValue(), "Round half to even");
+  await answerBox.fill("Round half up");
+  await detail.getByRole("button", { name: "Accept with my answer" }).click();
+  await send("Finance prefers half up");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/steward/decisions/dec_answer/accept"), { value: "Round half up" });
+  assert.equal(source.requests.findLast((r) => r.path === "/v1/steward/decisions/dec_answer/accept").headers["x-sindri-approval"], undefined);
+  await detail.getByText("Accepted with changes").waitFor();
+  assert.equal(await detail.getByRole("button", { name: /^Accept/ }).isDisabled(), true);
+
+  await detail.getByLabel("Note on this decision").fill("Finance owns rounding");
+  await detail.getByRole("button", { name: "Add note" }).click();
+  await send("Context for later");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/steward/decisions/dec_answer/notes"), { text: "Finance owns rounding" });
+  await detail.getByText("Finance owns rounding").waitFor();
+
+  await decisionButton(/Approve totals spec/).click();
+  await detail.getByText(/performs the approval itself/).waitFor();
+  assert.equal(await detail.getByRole("button", { name: "Accept and approve" }).isEnabled(), true);
+  await detail.getByRole("button", { name: "Reject" }).click();
+  await send("Not ready yet");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/steward/decisions/dec_approve/reject"), { reason: "Not ready yet" });
+  await detail.getByText("Rejected", { exact: true }).waitFor();
+
+  await decisionButton(/Retry the build/).click();
+  await detail.getByText(/Retry the build · task/).waitFor();
+  assert.equal(await rollback.isEnabled(), true);
+  // Sindri has the last word: a refused rollback is reported and nothing changes.
+  source.intercept = (req, res) => {
+    if (!req.url.endsWith("/rollback")) return false;
+    res.writeHead(409);
+    res.end('{"error":{"code":"invalid_state","message":"the retry already finished and cannot be undone"}}');
+    return true;
+  };
+  await rollback.click();
+  await send("Wrong call");
+  await page.getByRole("alert").filter({ hasText: /cannot be undone/ }).waitFor();
+  source.intercept = null;
+  await page.getByRole("button", { name: "Go back" }).click();
+  assert.equal(source.steward.decisions.find((d) => d.id === "dec_fix").status, "applied");
+  await rollback.click();
+  await send("Wrong call");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/steward/decisions/dec_fix/rollback"), { reason: "Wrong call" });
+  await detail.getByText("Rolled back", { exact: true }).waitFor();
+  assert.equal(await rollback.isDisabled(), true);
+
+  const noteButton = page.getByRole("button", { name: "Review note" });
+  assert.equal(await noteButton.isDisabled(), true);
+  await page.getByText("Write the note first.").first().waitFor();
+  await page.getByLabel("New note", { exact: true }).fill("Prefer small plans");
+  await noteButton.click();
+  await send("Guidance");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/steward/notes"), { projectId: null, text: "Prefer small plans" });
+  await page.getByLabel("Notes").last().getByText("Prefer small plans").waitFor();
+
+  const statusFilter = page.getByRole("combobox", { name: "Decision status" });
+  await statusFilter.click();
+  await page.getByRole("option", { name: "Rolled back" }).click();
+  await page.waitForFunction(() => /1 shown/.test(document.body.innerText));
+  assert.equal(await decisionButton(/Rounding rule/).count(), 0);
+  await decisionButton(/Retry the build/).waitFor();
+
+  // The populated page, with a decision open, passes the same checks as the other pages.
+  await decisionButton(/Retry the build/).click();
+  await detail.getByText(/Retry the build · task/).waitFor();
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1050 });
+    const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+    assert.deepEqual(axe.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], `Autonomy at ${width}`);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Autonomy overflow at ${width}`);
+  }
+  await page.setViewportSize({ width: 1440, height: 1050 });
+
+  console.log("Feedback Graph");
+  await openProfile("Invoice library");
+  await inspector.getByRole("heading", { name: "Feedback Graph" }).waitFor();
+  await inspector.getByText(/Matched automatically/).waitFor();
+  await inspector.getByText("invoice-lib", { exact: true }).waitFor();
+  await inspector.getByText("Never use floats for money").waitFor();
+  await inspector.getByText("Applies when: Touching totals").waitFor();
+  const clearLink = inspector.getByRole("button", { name: "Clear override" });
+  assert.equal(await clearLink.isDisabled(), true);
+  await inspector.getByText("There is no operator override to clear.").first().waitFor();
+  await inspector.getByLabel("Feedback Graph project key").fill("demo-app");
+  await inspector.getByRole("button", { name: "Review link override" }).click();
+  await send("Different key in Feedback Graph");
+  await confirmed();
+  const linkPut = source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/projects/prj_demo/feedback-graph");
+  assert.deepEqual(JSON.parse(linkPut.body), { projectKey: "demo-app" });
+  await inspector.getByText(/Set by the operator/).waitFor();
+  await inspector.getByText("demo-app", { exact: true }).waitFor();
+  await clearLink.click();
+  await send("Back to automatic");
+  await confirmed();
+  await inspector.getByText(/Matched automatically/).waitFor();
+  assert.equal(JSON.parse(source.requests.findLast((r) => r.method === "PUT" && r.path === "/v1/projects/prj_demo/feedback-graph").body).projectKey, null);
+  await closeInspector();
+  await nav("Connections");
+  await page.getByRole("button", { name: "Services", exact: true }).click();
+  await page.getByText("Sindri reaches Feedback Graph at http://127.0.0.1:8787.").waitFor();
+  await nav("Pipeline");
+
   console.log("Project filter survives the ID change");
   const filter = page.getByRole("combobox", { name: "Filter by project" });
   await filter.click();
@@ -532,7 +727,7 @@ try {
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, stable project filter, session expiry and session loss.",
+    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, Autonomy page (modes, pause, accept with edit, note, reject, refused and allowed rollback, global note, filters), Feedback Graph link and status, stable project filter, session expiry and session loss.",
   );
 } finally {
   await browser.close();

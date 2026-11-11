@@ -31,6 +31,7 @@ import type {
   SpecMeta,
 } from "./types.js";
 import { deliveryMethods } from "./delivery-client.js";
+import { stewardMethods } from "./steward-client.js";
 
 /** An API failure carrying the server's `{ error: { code, message } }` envelope. */
 export class ApiError extends Error {
@@ -57,10 +58,12 @@ const enc = encodeURIComponent;
 
 /**
  * Routes that need the approval secret: spec and plan approval, PR requests (audit M9),
- * decisions on agents' gated actions (review I1) and a project's execution profile.
+ * decisions on agents' gated actions (review I1), a project's execution profile and the
+ * steward's per-type modes. Accepting a steward decision is gated only for approval types, which
+ * the path cannot tell, so those calls pass `approval: true` instead.
  */
 const APPROVAL_ROUTE =
-  /^\/v1\/(?:(?:specs|plans)\/[^/]+\/approve|executions\/[^/]+\/(?:pr|approvals\/[^/]+)|projects\/[^/]+\/(?:data|profile)|deliveries\/[^/]+\/proposals(?:\/[^/]+\/decision)?)$/;
+  /^\/v1\/(?:(?:specs|plans)\/[^/]+\/approve|executions\/[^/]+\/(?:pr|approvals\/[^/]+)|projects\/[^/]+\/(?:data|profile)|deliveries\/[^/]+\/proposals(?:\/[^/]+\/decision)?|steward\/modes)$/;
 const APPROVAL_HEADER = "x-sindri-approval";
 const qs = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
@@ -72,14 +75,19 @@ export function createApiClient(opts: ClientOptions) {
   // store, so it is gone when the tab closes (audit M9).
   let approvalSecret: string | null = null;
 
-  async function send(method: string, path: string, body?: unknown): Promise<Response> {
+  async function send(
+    method: string,
+    path: string,
+    body?: unknown,
+    o: { approval?: boolean } = {},
+  ): Promise<Response> {
     const headers = new Headers();
     const token = opts.getToken();
     if (token) headers.set("authorization", `Bearer ${token}`);
     const route = path.split("?")[0] ?? "";
     // No read is gated (a profile and a delivery's proposals are read on gated paths), so a GET
     // never carries the secret.
-    const approvalRoute = method !== "GET" && APPROVAL_ROUTE.test(route);
+    const approvalRoute = method !== "GET" && (o.approval === true || APPROVAL_ROUTE.test(route));
     if (approvalRoute && approvalSecret) headers.set(APPROVAL_HEADER, approvalSecret);
     const init: RequestInit = { method, headers };
     if (method !== "GET") {
@@ -112,8 +120,12 @@ export function createApiClient(opts: ClientOptions) {
     }
     return res;
   }
-  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> =>
-    (await (await send(method, path, body)).json()) as T;
+  const call = async <T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    o?: { approval?: boolean },
+  ): Promise<T> => (await (await send(method, path, body, o)).json()) as T;
 
   return {
     listProposals: async (id: string) =>
@@ -251,6 +263,7 @@ export function createApiClient(opts: ClientOptions) {
       (await call<{ settings: Settings }>("PUT", "/v1/settings", settings)).settings,
     exportData: async () => (await send("GET", "/v1/export")).blob(),
     ...deliveryMethods(call, send),
+    ...stewardMethods(call),
   };
 }
 

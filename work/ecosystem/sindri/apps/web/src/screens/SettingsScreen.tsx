@@ -57,6 +57,10 @@ export function SettingsScreen() {
                     if (!clean.mimirUrl) delete clean.mimirUrl;
                     if (!clean.apiKeySecret) delete clean.apiKeySecret;
                     if (!clean.mimirTokenSecret) delete clean.mimirTokenSecret;
+                    // An untouched, empty Feedback Graph section is left out rather than saved.
+                    const fg = clean.feedbackGraph;
+                    if (fg && !fg.url.trim() && !fg.tokenSecret.trim() && !fg.enabled)
+                      delete clean.feedbackGraph;
                     setForm(await api.putSettings(clean));
                     notify("Settings saved");
                   });
@@ -113,17 +117,20 @@ export function SettingsScreen() {
                       <option value="opencode">OpenCode (experimental)</option>
                       <option value="gemini">Gemini CLI (experimental)</option>
                       <option value="pi">Pi (experimental)</option>
-<option value="pi-signed">pi-signed (experimental; interactive backend)</option>
-<option value="grok">grok (experimental; interactive backend)</option>
-<option value="kimi">kimi (experimental; interactive backend)</option>
-<option value="cursor">cursor (experimental; interactive backend)</option>
-<option value="muse">muse (experimental; interactive backend)</option>
-<option value="rovo">rovo (experimental; interactive backend)</option>
-<option value="omp">omp (experimental; interactive backend)</option>
-<option value="agy">agy (experimental; interactive backend)</option>
-<option value="devin">devin (experimental; interactive backend)</option>
-<option value="commandcode">commandcode (experimental; interactive backend)</option>
-
+                      <option value="pi-signed">
+                        pi-signed (experimental; interactive backend)
+                      </option>
+                      <option value="grok">grok (experimental; interactive backend)</option>
+                      <option value="kimi">kimi (experimental; interactive backend)</option>
+                      <option value="cursor">cursor (experimental; interactive backend)</option>
+                      <option value="muse">muse (experimental; interactive backend)</option>
+                      <option value="rovo">rovo (experimental; interactive backend)</option>
+                      <option value="omp">omp (experimental; interactive backend)</option>
+                      <option value="agy">agy (experimental; interactive backend)</option>
+                      <option value="devin">devin (experimental; interactive backend)</option>
+                      <option value="commandcode">
+                        commandcode (experimental; interactive backend)
+                      </option>
                     </select>
                   </Field>
                 ))}
@@ -208,6 +215,10 @@ export function SettingsScreen() {
                     </p>
                   </div>
                 </div>
+                <FeedbackGraphSettings
+                  value={form.feedbackGraph}
+                  onChange={(feedbackGraph) => setForm({ ...form, feedbackGraph })}
+                />
                 <Button type="submit" disabled={busy}>
                   Save settings
                 </Button>
@@ -339,5 +350,64 @@ export function SettingsScreen() {
         </Card>
       </div>
     </div>
+  );
+}
+
+type FeedbackGraphSetting = NonNullable<Settings["feedbackGraph"]>;
+
+/** Where Feedback Graph runs and which SecretStore entry holds its token (never the token). */
+function FeedbackGraphSettings(props: {
+  value: Settings["feedbackGraph"];
+  onChange: (v: FeedbackGraphSetting) => void;
+}) {
+  const v: FeedbackGraphSetting = props.value ?? { url: "", tokenSecret: "", enabled: false };
+  const set = (patch: Partial<FeedbackGraphSetting>) => props.onChange({ ...v, ...patch });
+  return (
+    <fieldset className="space-y-3 border-t border-slate-200 pt-3 dark:border-slate-700">
+      <legend className="font-semibold">Feedback Graph</legend>
+      <p className="text-xs text-slate-600 dark:text-slate-300">
+        Store the token with{" "}
+        <code className="font-mono">
+          security add-generic-password -s sindri -a feedback-graph.token -w
+        </code>{" "}
+        and enter <span className="font-mono">feedback-graph.token</span> as the secret name.
+      </p>
+      <div className="flex items-start gap-2">
+        <input
+          id="s-fg-enabled"
+          type="checkbox"
+          className="mt-1 h-4 w-4"
+          checked={v.enabled}
+          onChange={(e) => set({ enabled: e.target.checked })}
+        />
+        <label htmlFor="s-fg-enabled" className="text-sm font-medium">
+          Use Feedback Graph lessons
+        </label>
+      </div>
+      <Field label="Feedback Graph URL" id="s-fg-url" hint="Usually http://127.0.0.1:8787.">
+        <input
+          id="s-fg-url"
+          type="url"
+          aria-describedby="s-fg-url-hint"
+          className={inputClass}
+          placeholder="http://127.0.0.1:8787"
+          value={v.url}
+          onChange={(e) => set({ url: e.target.value })}
+        />
+      </Field>
+      <Field
+        label="Feedback Graph token secret name"
+        id="s-fg-token"
+        hint="The SecretStore entry holding the token (for example feedback-graph.token)."
+      >
+        <input
+          id="s-fg-token"
+          aria-describedby="s-fg-token-hint"
+          className={inputClass}
+          value={v.tokenSecret}
+          onChange={(e) => set({ tokenSecret: e.target.value })}
+        />
+      </Field>
+    </fieldset>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ApiClient } from "./api/client.js";
@@ -30,5 +30,35 @@ describe("App navigation for plans, runs, reviews, deliveries and harnesses", ()
     expect(current()).toBe("Deliveries");
     await userEvent.click(screen.getByRole("button", { name: "Harnesses" }));
     expect(await screen.findByText(/Fixture harnesses/)).toBeTruthy();
+  });
+
+  it("lists Autonomy last and opens it from the navigation", async () => {
+    const api = mockApi({
+      listProjects: [],
+      stewardStatus: {
+        running: true,
+        types: [],
+        feedbackGraph: {
+          configured: false,
+          enabled: false,
+          url: null,
+          reachable: null,
+          error: null,
+        },
+      },
+      listDecisions: [],
+      listStewardNotes: [],
+    });
+    render(<App api={api as unknown as ApiClient} initial={{ token: "t" }} />);
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    const buttons = within(nav).getAllByRole("button");
+    expect(buttons.at(-1)!.textContent).toBe("Autonomy");
+    expect(buttons.at(-1)!.getAttribute("aria-keyshortcuts")).toBeNull();
+    await userEvent.click(buttons.at(-1)!);
+    expect(await screen.findByRole("heading", { name: "Decision log" })).toBeTruthy();
+    expect(window.location.hash).toBe("#/autonomy");
+    // No project selected: the log and notes cover all projects.
+    expect(api.listDecisions).toHaveBeenCalledWith({ limit: 50 });
+    expect(api.listStewardNotes).toHaveBeenCalledWith(null);
   });
 });

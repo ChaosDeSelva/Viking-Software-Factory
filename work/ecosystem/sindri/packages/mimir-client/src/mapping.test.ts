@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { crewKey, idempotencyKey, mapPlan, mimirRoleFor } from "./mapping.js";
+import { ROLE_DEFAULTS, type PlanTask, type Role } from "@sindri/planner";
+import { CREW_BUDGET_POLICY, crewKey, idempotencyKey, mapPlan, mimirRoleFor } from "./mapping.js";
 import { approvedPlan, planTask } from "./testing.js";
 
 describe("plan to Mimir mapping", () => {
@@ -78,7 +79,7 @@ describe("plan to Mimir mapping", () => {
       template: "implementer",
       // maxRetries 2 + the first run + DEFAULT_HUMAN_RETRIES (2) granted via resolveEscalation.
       limits: { maxConcurrentTasks: 2, maxAttemptsPerTask: 5 },
-      budget: { limitTokens: 2000, enforce: "hard", onUnknown: "block" },
+      budget: { limitTokens: 2000, warnAtFraction: 0.8, enforce: "hard", onUnknown: "block" },
       members: [{ role: "implementer", agentKind: "shell", name: "backend-node-implementer" }],
     });
     expect(mapped.crews[1]!.request.members[0]!.agentKind).toBe("claude");
@@ -134,6 +135,7 @@ describe("plan to Mimir mapping", () => {
     expect(mapped.crews[0]!.request.budget).toEqual({
       limitTokens: 1500,
       limitCost: 1.5,
+      warnAtFraction: 0.8,
       enforce: "hard",
       onUnknown: "block",
     });
@@ -169,9 +171,46 @@ describe("plan to Mimir mapping: budgets and limits", () => {
     );
     expect(mapped.crews[0]!.request.budget).toEqual({
       limitCost: 2.5,
+      warnAtFraction: 0.8,
       enforce: "hard",
       onUnknown: "block",
     });
+  });
+
+  it("gives the live farewell plan's crews realistic default budgets that warn at 80%", () => {
+    // Role defaults as the planner assigns them; the live run used ~900k tokens on the two
+    // implementers (one retry) and ~339k on the two reviews, and blocked on 800k / 300k.
+    const task = (id: string, role: Role, overrides: Partial<PlanTask> = {}) =>
+      planTask(id, {
+        role,
+        budget: ROLE_DEFAULTS[role].budget,
+        maxRetries: ROLE_DEFAULTS[role].maxRetries,
+        ...overrides,
+      });
+    const mapped = mapPlan(
+      approvedPlan([
+        task("implement-backend", "implementer"),
+        task("implement-frontend", "implementer", { dependsOn: ["implement-backend"] }),
+        task("review-backend", "reviewer", { dependsOn: ["implement-backend"] }),
+        task("review-frontend", "reviewer", { dependsOn: ["implement-frontend"] }),
+        task("docs", "docs", { dependsOn: ["review-backend", "review-frontend"] }),
+        task("qa", "qa", { dependsOn: ["docs"] }),
+      ]),
+    );
+    const budgets = Object.fromEntries(mapped.crews.map((c) => [c.key, c.request.budget]));
+    expect(budgets).toEqual({
+      "backend-node:implementer": { limitTokens: 2_000_000, ...CREW_BUDGET_POLICY },
+      "backend-node:reviewer": { limitTokens: 800_000, ...CREW_BUDGET_POLICY },
+      "backend-node:docs": { limitTokens: 300_000, ...CREW_BUDGET_POLICY },
+      "backend-node:qa": { limitTokens: 500_000, ...CREW_BUDGET_POLICY },
+    });
+    expect(CREW_BUDGET_POLICY).toEqual({
+      warnAtFraction: 0.8,
+      enforce: "hard",
+      onUnknown: "block",
+    });
+    expect(budgets["backend-node:implementer"]!.limitTokens).toBeGreaterThan(900_215);
+    expect(budgets["backend-node:reviewer"]!.limitTokens).toBeGreaterThan(338_679);
   });
 
   it("caps the task timeout at Mimir's 24 hour maximum", () => {

@@ -10,11 +10,12 @@ export const planSystem = (
 
 ${dataRules(nonce)}
 
-The plan skeleton is fixed: task ids, roles, dependencies, harnesses, acceptance criteria and budgets are decided by the planner and cannot be changed by you.
+The plan skeleton is fixed: task ids, roles, harnesses, acceptance criteria and budgets are decided by the planner and cannot be changed by you. Dependencies are fixed too, except that you may add the ones rule 5 describes.
 Rules:
 1. Return exactly one entry per skeleton task, with the same id. Do not add, remove, rename or merge tasks.
 2. objective: one or two sentences saying what the task must achieve, grounded in the specification blocks and the task's acceptance criteria.
 3. inputs: the artifacts or context the task needs (for example the specification, an API contract, the output of a dependency).
 4. outputs: the artifacts the task must produce (code changes, tests, review notes, test evidence, documentation).
-5. Never plan further delegation: no task may create, assign or spawn other tasks or agents.
-6. Do not invent facts that are not in the specification.`;
+5. dependsOn (optional, implementer tasks only): implementer tasks without a dependency between them run in parallel from the same base and cannot see each other's changes. When an implementer task's objective or acceptance criteria need another implementer task's change to pass (for example a frontend test that calls an endpoint the backend task adds), list that task's id in dependsOn; the task then starts from its verified result. Name only other implementer task ids from the skeleton, never create a cycle, and omit dependsOn when the tasks are independent. The skeleton's own dependencies always stay.
+6. Never plan further delegation: no task may create, assign or spawn other tasks or agents.
+7. Do not invent facts that are not in the specification.`;

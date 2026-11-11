@@ -10,7 +10,60 @@ import {
   type RuntimeSessionSpec,
 } from "@mimir/protocol";
 
-type Usage = { tokens: number; estimatedCost: number | null };
+type Usage = { tokens: number; estimatedCost: number | null; cachedTokens: number };
+type RawUsage = {
+  input_tokens?: unknown;
+  output_tokens?: unknown;
+  cached_input_tokens?: unknown;
+  cache_creation_input_tokens?: unknown;
+  cache_read_input_tokens?: unknown;
+};
+const count = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
+
+/**
+ * Budget usage of one agent JSONL event, or null for an event that does not report it.
+ *
+ * - Codex `exec --json` `turn.completed`: `usage` is the thread's running total
+ *   (`total_token_usage`), not the turn's delta, so the last one is the session's total and the
+ *   caller keeps only the last (summing them would count earlier turns again). `input_tokens`
+ *   sums the input of every model request in the turn and INCLUDES `cached_input_tokens`; each
+ *   request re-sends the context, so ~90% of it is cache hits (live: 259,194 input of which
+ *   235,520 cached). `output_tokens` already includes `reasoning_output_tokens`.
+ *   Counted: (input - cached) + output, Codex's own "blended total". Cached: cached_input_tokens.
+ * - Claude `stream-json` `result`: totals for the whole run. `input_tokens` EXCLUDES the cache:
+ *   `cache_creation_input_tokens` is fresh input written to the cache (counted, it is real new
+ *   context), `cache_read_input_tokens` is re-read context (not counted, reported as cached).
+ *   Counted: input + cache_creation + output. Cached: cache_read.
+ */
+export function usageOfEvent(line: string): Usage | null {
+  let e: { type?: unknown; usage?: RawUsage; total_cost_usd?: unknown };
+  try {
+    e = JSON.parse(line) as typeof e;
+  } catch {
+    return null; // terminal output is not necessarily a JSON event
+  }
+  if (e === null || typeof e !== "object" || !e.usage || typeof e.usage !== "object") return null;
+  const u = e.usage;
+  const input = count(u.input_tokens);
+  const output = count(u.output_tokens);
+  if (input === null || output === null) return null;
+  let tokens: number;
+  let cachedTokens: number;
+  if (e.type === "turn.completed") {
+    cachedTokens = Math.min(count(u.cached_input_tokens) ?? 0, input);
+    tokens = input - cachedTokens + output;
+  } else if (e.type === "result") {
+    cachedTokens = count(u.cache_read_input_tokens) ?? 0;
+    tokens = input + (count(u.cache_creation_input_tokens) ?? 0) + output;
+  } else return null;
+  const cost = e.total_cost_usd;
+  return {
+    tokens,
+    cachedTokens,
+    estimatedCost: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null,
+  };
+}
 type Entry = {
   session: RuntimeSession;
   worker: ChildProcess;
@@ -253,39 +306,9 @@ export class CliRuntime implements RuntimeAdapter {
     return entry.session;
   }
   private parseUsage(entry: Entry, line: string) {
-    try {
-      const e = JSON.parse(line) as {
-        type?: string;
-        usage?: {
-          input_tokens?: number;
-          output_tokens?: number;
-          cache_creation_input_tokens?: number;
-          cache_read_input_tokens?: number;
-        };
-        total_cost_usd?: number;
-      };
-      if (!e.usage || !["turn.completed", "result"].includes(e.type ?? "")) return;
-      const u = e.usage;
-      if (typeof u.input_tokens !== "number" || typeof u.output_tokens !== "number") return;
-      const tokens =
-        u.input_tokens +
-        u.output_tokens +
-        (e.type === "result"
-          ? (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
-          : 0);
-      if (!Number.isFinite(tokens) || tokens < 0) return;
-      entry.usage = {
-        tokens,
-        estimatedCost:
-          typeof e.total_cost_usd === "number" &&
-          Number.isFinite(e.total_cost_usd) &&
-          e.total_cost_usd >= 0
-            ? e.total_cost_usd
-            : null,
-      };
-    } catch {
-      /* terminal output is not necessarily a JSON event */
-    }
+    // Both CLIs report running totals: the last event is the session's usage.
+    const usage = usageOfEvent(line);
+    if (usage) entry.usage = usage;
   }
   private emit(event: RuntimeEvent) {
     for (const listener of this.listeners) listener(event);

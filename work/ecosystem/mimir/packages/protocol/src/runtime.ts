@@ -82,7 +82,12 @@ export type RuntimeEvent =
       sessionId: string;
       exitCode?: number;
       observedAt: string;
-      usage?: { tokens: number; estimatedCost: number | null };
+      /**
+       * `tokens` is what the session consumed against a token budget: fresh input (cache writes
+       * included) plus output. `cachedTokens` is input served from the provider's prompt cache,
+       * reported separately and never counted against a budget.
+       */
+      usage?: { tokens: number; estimatedCost: number | null; cachedTokens?: number };
     }
   | { kind: "session.lost"; sessionId: string; reason: string; observedAt: string }
   | { kind: "runtime.gap"; reason: "events_lost" | "reconnect" | "restart"; observedAt: string };
@@ -180,6 +185,7 @@ export const RuntimeEventSchema = z.discriminatedUnion("kind", [
       .object({
         tokens: z.number().nonnegative(),
         estimatedCost: z.number().nonnegative().nullable(),
+        cachedTokens: z.number().int().nonnegative().exactOptional(),
       })
       .exactOptional(),
     observedAt: TimestampSchema,

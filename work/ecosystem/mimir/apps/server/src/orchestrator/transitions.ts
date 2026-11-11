@@ -15,7 +15,7 @@ export interface TaskEventContext {
   agentId?: string | undefined;
   /** Required for `task.started`. */
   sessionId?: string | undefined;
-  /** `task.failed` reason (defaults to the machine event type). */
+  /** `task.failed` (or deferred `task.retried`) reason (defaults to the machine event type). */
   reason?: string;
   /** `task.cancelled` reason. */
   cancelReason?: string;
@@ -32,6 +32,9 @@ type TaskEmit = EmitInput<
   | "task.cancelled"
   | "task.retried"
 >;
+
+/** `task.retried.deferred` of a next attempt queued because the runtime was full. */
+export const AWAITING_CAPACITY = "awaiting_capacity";
 
 const need = (value: string | undefined, what: string, event: string): string => {
   if (value === undefined) throw new MimirError("internal", `${event} needs ${what}`);
@@ -55,12 +58,19 @@ export function taskTransition(
     ({ ...base, ...crew, ...e }) as TaskEmit;
   switch (next.status) {
     case "ready":
-      if (event.type === "retry") {
+      if (event.type === "retry" || event.type === "verification_deferred") {
         return {
           next,
           emit: emitOf({
             type: "task.retried",
-            payload: { from, to: "ready", attempt: next.attempt },
+            payload: {
+              from,
+              to: "ready",
+              attempt: next.attempt,
+              ...(event.type === "verification_deferred"
+                ? { reason: ctx.reason ?? event.type, deferred: AWAITING_CAPACITY }
+                : {}),
+            },
           }),
         };
       }

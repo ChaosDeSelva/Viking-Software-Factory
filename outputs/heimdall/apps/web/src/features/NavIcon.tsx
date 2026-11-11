@@ -9,6 +9,7 @@ const iconPaths = [
   "M12 4v16 M4 12h16",
   "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
   "M8 3v5 M16 16v5 M3 8h18 M3 16h18 M8 8v13 M16 3v13",
+  "M12 3a9 9 0 1 0 9 9 M12 7v5l3 3 M17 3h4v4 M21 3l-6 6",
 ];
 export function NavIcon({ index }: { index: number }) {
   return (

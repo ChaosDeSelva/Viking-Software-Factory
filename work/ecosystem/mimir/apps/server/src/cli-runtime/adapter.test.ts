@@ -67,7 +67,7 @@ it("records measured usage before completion and deduplicates launches", async (
   await until(async () => (await runtime.getSession("s1"))?.state === "completed");
   expect(await runtime.listSessions()).toHaveLength(1);
   expect(events.find((e) => e.kind === "session.exited")).toMatchObject({
-    usage: { tokens: 120, estimatedCost: null },
+    usage: { tokens: 120, estimatedCost: null, cachedTokens: 0 },
     exitCode: 0,
   });
   expect(events.at(-1)).toMatchObject({ kind: "session.state_changed", state: "completed" });
@@ -130,7 +130,7 @@ it("terminates excessive output instead of growing an unbounded transcript", asy
   await until(async () => (await runtime.getSession("s1"))?.state === "failed");
   expect(events.at(-1)).toMatchObject({ runtimeStatus: "output_limit" });
 });
-it("counts Claude cache tokens and reports nonzero exits as failures", async () => {
+it("counts Claude cache writes, reports cache reads apart and reports nonzero exits as failures", async () => {
   const { runtime, spec } = fixture(
     'console.log(JSON.stringify({type:"result",usage:{input_tokens:2,output_tokens:3,cache_read_input_tokens:4,cache_creation_input_tokens:5},total_cost_usd:0.02}));process.exitCode=1;',
   );
@@ -139,7 +139,7 @@ it("counts Claude cache tokens and reports nonzero exits as failures", async () 
   await runtime.createSession({ ...spec, agentKind: "claude" });
   await until(async () => (await runtime.getSession("s1"))?.state === "failed");
   expect(events.find((e) => e.kind === "session.exited")).toMatchObject({
-    usage: { tokens: 14, estimatedCost: 0.02 },
+    usage: { tokens: 10, estimatedCost: 0.02, cachedTokens: 4 },
   });
 });
 it("enforces the wall-clock deadline and kills the process", async () => {

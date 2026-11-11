@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PlanValidationError } from "./dag.js";
 import { openPlanner, PlanStateError, SKELETON_MARKER, type Planner } from "./planner.js";
 import type { PlanTask } from "./schema.js";
+import { FAREWELL_ACS, GREET_FIX_ACS } from "./live-plans.test-helpers.js";
 
 const UI_SKILLS = ["react-architecture", "accessibility", "tailwind", "component-design"];
 
@@ -204,6 +205,106 @@ describe("planner", () => {
         acceptanceCriteria: ["AC-2"],
       });
       expect(plan.tasks.find((t) => t.id === "qa")?.dependsOn).toContain("security-review");
+    });
+
+    it("orders implement-frontend after implement-backend when its criteria call the new endpoint (live farewell plan)", async () => {
+      const plan = await propose(approvedSpec(FAREWELL_ACS));
+      const deps = Object.fromEntries(plan.tasks.map((t) => [t.id, t.dependsOn]));
+      expect(deps).toEqual({
+        "implement-backend": [],
+        "implement-frontend": ["implement-backend"],
+        "review-backend": ["implement-backend"],
+        "review-frontend": ["implement-frontend"],
+        docs: ["implement-backend", "implement-frontend", "review-backend", "review-frontend"],
+        qa: [
+          "implement-backend",
+          "implement-frontend",
+          "review-backend",
+          "review-frontend",
+          "docs",
+        ],
+      });
+      expect(planner.dryRun(plan).steps[0]?.tasks.map((t) => t.id)).toEqual(["implement-backend"]);
+      // The model sees the order it fills, and is told when it may add one.
+      const provider = new FakeProvider(filler());
+      await propose(approvedSpec(FAREWELL_ACS), provider);
+      const req = provider.calls[0] as CompleteRequest;
+      expect(req.system).toMatch(/dependsOn \(optional, implementer tasks only\)/);
+      const content = req.messages[0]?.content ?? "";
+      const skeleton = JSON.parse(
+        content.slice(content.indexOf(SKELETON_MARKER) + SKELETON_MARKER.length),
+      ) as { tasks: { id: string; dependsOn: string[] }[] };
+      expect(skeleton.tasks.find((t) => t.id === "implement-frontend")?.dependsOn).toEqual([
+        "implement-backend",
+      ]);
+    });
+
+    it("keeps implementation tasks parallel when neither needs the other (live greet fix)", async () => {
+      const plan = await propose(approvedSpec(GREET_FIX_ACS));
+      const impl = plan.tasks.filter((t) => t.role === "implementer");
+      expect(impl.map((t) => [t.id, t.dependsOn])).toEqual([
+        ["implement-backend", []],
+        ["implement-frontend", []],
+      ]);
+    });
+
+    it("lets the model order one implementer task after another", async () => {
+      const provider = new FakeProvider(
+        filler((tasks) => ({
+          tasks: tasks.map((t) =>
+            t.id === "implement-frontend" ? { ...t, dependsOn: ["implement-backend"] } : t,
+          ),
+        })),
+      );
+      const plan = await propose(fullstack(), provider);
+      expect(plan.tasks.find((t) => t.id === "implement-frontend")?.dependsOn).toEqual([
+        "implement-backend",
+      ]);
+      expect(plan.tasks.find((t) => t.id === "implement-backend")?.dependsOn).toEqual([]);
+      expect(plan.estimates.criticalPathMinutes).toBe(90 + 90 + 30 + 20 + 45);
+      expect(listRuns(db, projectId).at(-1)?.outcome).toBe("ok");
+    });
+
+    it("drops model dependencies outside implementer tasks or that would form a cycle, keeping the rest", async () => {
+      const withDeps = (deps: Record<string, string[]>) =>
+        new FakeProvider(
+          filler((tasks) => ({
+            tasks: tasks.map((t) => (deps[t.id] ? { ...t, dependsOn: deps[t.id] } : t)),
+          })),
+        );
+      const depsOf = (plan: { tasks: PlanTask[] }) =>
+        Object.fromEntries(plan.tasks.map((t) => [t.id, t.dependsOn]));
+      const plain = depsOf(await propose(fullstack()));
+      // The deterministic rule already orders frontend after backend for this spec.
+      const farewell = depsOf(await propose(approvedSpec(FAREWELL_ACS)));
+      expect(
+        depsOf(
+          await propose(
+            approvedSpec(FAREWELL_ACS),
+            withDeps({ "implement-backend": ["implement-frontend"] }),
+          ),
+        ),
+      ).toEqual(farewell);
+      for (const bad of [["review-backend"], ["implement-frontend"], ["nope"]])
+        expect(depsOf(await propose(fullstack(), withDeps({ "implement-frontend": bad })))).toEqual(
+          plain,
+        );
+      expect(depsOf(await propose(fullstack(), withDeps({ qa: ["implement-backend"] })))).toEqual(
+        plain,
+      );
+      // Mutual hints: the first (in skeleton order) is kept, the one closing the cycle dropped.
+      const mutual = depsOf(
+        await propose(
+          fullstack(),
+          withDeps({
+            "implement-backend": ["implement-frontend"],
+            "implement-frontend": ["nope", "implement-backend"],
+          }),
+        ),
+      );
+      expect(mutual["implement-backend"]).toEqual(["implement-frontend"]);
+      expect(mutual["implement-frontend"]).toEqual([]);
+      expect(listRuns(db, projectId).at(-1)?.outcome).toBe("ok");
     });
 
     it("rejects model output that adds or drops tasks, storing nothing", async () => {

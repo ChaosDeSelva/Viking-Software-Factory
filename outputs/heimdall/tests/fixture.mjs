@@ -154,6 +154,17 @@ export async function fixture() {
       flow?.authoring &&
       (flow.runs ?? []).find((r) => req.url === "/v1/executions/" + r.view.execution.id);
     if (tracked && req.method === "GET") return res.end(JSON.stringify(tracked.view));
+    // Steward and Feedback Graph routes are opt-in: tests assign `steward` / `feedbackGraph`.
+    if (
+      (api.steward && req.url.startsWith("/v1/steward/")) ||
+      (api.feedbackGraph && /^\/v1\/(feedback-graph\/status|projects\/[\w-]+\/feedback-graph)$/.test(req.url))
+    ) {
+      let b = "";
+      for await (const chunk of req) b += chunk;
+      seen.body = b;
+      if (await api.intercept?.(req, res, b)) return;
+      return autonomy(req, res, b ? JSON.parse(b) : {});
+    }
     const profile = /^\/v1\/projects\/([\w-]+)\/profile$/.exec(req.url);
     if (profile && req.method === "GET")
       return res.end(JSON.stringify({ profile: api.profiles[profile[1]] ?? {} }));
@@ -446,8 +457,125 @@ export async function fixture() {
     res.writeHead(404);
     res.end("{}");
   });
+  // Answers like Sindri's steward and Feedback Graph routes, from `api.steward` and `api.feedbackGraph`.
+  function autonomy(req, res, input) {
+    const send = (status, value) => {
+      res.writeHead(status);
+      res.end(JSON.stringify(value));
+    };
+    const refuse = (status, code, message) => send(status, { error: { code, message } });
+    const approved = req.headers["x-sindri-approval"] === "sindri-human-secret";
+    const url = new URL(req.url, "http://fixture");
+    const fg = api.feedbackGraph;
+    const fgStatus = () =>
+      fg?.status ?? { configured: false, enabled: false, url: null, reachable: null, error: null };
+    if (url.pathname === "/v1/feedback-graph/status") return send(200, fgStatus());
+    const fgProject = /^\/v1\/projects\/([\w-]+)\/feedback-graph$/.exec(url.pathname);
+    if (fgProject) {
+      const entry = (fg.projects[fgProject[1]] ??= {
+        auto: null,
+        link: { projectKey: null, source: "none" },
+        lessons: [],
+        error: null,
+      });
+      if (req.method === "PUT") {
+        const key = input.projectKey;
+        entry.link =
+          key === null
+            ? { projectKey: entry.auto, source: entry.auto ? "auto" : "none" }
+            : { projectKey: key, source: "override" };
+      }
+      const { auto: _auto, ...shown } = entry;
+      return send(200, shown);
+    }
+    const st = api.steward;
+    const status = () => ({ running: st.running, types: st.types, feedbackGraph: fgStatus() });
+    if (url.pathname === "/v1/steward/status") return send(200, status());
+    if (url.pathname === "/v1/steward/modes" && req.method === "PUT") {
+      if (!approved) return refuse(403, "approval_required", "approvals need a valid approval secret");
+      const row = st.types.find((t) => t.type === input.type);
+      if (!row) return refuse(404, "not_found", "unknown decision type");
+      if (input.mode === "auto" && !row.autoAllowed)
+        return refuse(422, "validation_failed", "approvals are never automatic");
+      row.mode = input.mode;
+      return send(200, { types: st.types });
+    }
+    if (/^\/v1\/steward\/(pause|resume)$/.test(url.pathname)) {
+      st.running = url.pathname.endsWith("resume");
+      return send(200, status());
+    }
+    if (url.pathname === "/v1/steward/decisions") {
+      const q = url.searchParams;
+      return send(200, {
+        decisions: st.decisions
+          .filter(
+            (d) =>
+              (!q.get("projectId") || d.projectId === q.get("projectId")) &&
+              (!q.get("type") || d.type === q.get("type")) &&
+              (!q.get("status") || d.status === q.get("status")),
+          )
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      });
+    }
+    if (url.pathname === "/v1/steward/notes") {
+      if (req.method === "POST") {
+        const note = {
+          id: "note_" + (st.notes.length + 1),
+          projectId: input.projectId ?? null,
+          decisionId: null,
+          author: "operator",
+          text: input.text,
+          createdAt: new Date().toISOString(),
+        };
+        st.notes.unshift(note);
+        return send(201, { note });
+      }
+      const projectId = url.searchParams.get("projectId");
+      return send(200, {
+        notes: st.notes.filter((n) => !projectId || n.projectId === projectId || n.projectId === null),
+      });
+    }
+    const act = /^\/v1\/steward\/decisions\/([\w-]+)(?:\/(accept|reject|rollback|notes))?$/.exec(url.pathname);
+    const decision = act && st.decisions.find((d) => d.id === act[1]);
+    if (!decision) return refuse(404, "not_found", "decision not found");
+    const verb = act[2];
+    if (!verb && req.method === "GET") return send(200, { decision });
+    const now = new Date().toISOString();
+    if (verb === "accept" || verb === "reject") {
+      if (verb === "accept" && ["spec.approve", "plan.approve"].includes(decision.type) && !approved)
+        return refuse(403, "approval_required", "approvals need a valid approval secret");
+      if (decision.status !== "pending")
+        return refuse(409, "invalid_state", "only a pending decision can be decided");
+      decision.status =
+        verb === "reject"
+          ? "rejected"
+          : input.value !== undefined && input.value !== decision.recommendation.value
+            ? "changed"
+            : "accepted";
+      if (input.value !== undefined) decision.recommendation = { ...decision.recommendation, value: input.value };
+      decision.decidedAt = now;
+    } else if (verb === "rollback") {
+      if (!decision.reversible || decision.status !== "applied")
+        return refuse(409, "invalid_state", "only an applied, reversible decision can be rolled back");
+      decision.status = "rolled_back";
+    } else if (verb === "notes") {
+      decision.notes.push({
+        id: "note_d" + (decision.notes.length + 1),
+        projectId: decision.projectId,
+        decisionId: decision.id,
+        author: "operator",
+        text: input.text,
+        createdAt: now,
+      });
+    } else return refuse(405, "method_not_allowed", "method not allowed");
+    return send(200, { decision });
+  }
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const api = {
+    // Steward state `{ running, types, decisions, notes }`; null leaves those routes unanswered.
+    steward: null,
+    // Feedback Graph `{ status, projects: { [projectId]: { auto, link, lessons, error } } }`.
+    feedbackGraph: null,
     intercept: null,
     workflow: null,
     // Execution profiles by Sindri project ID, as saved through PUT.

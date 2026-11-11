@@ -28,6 +28,8 @@ import {
   useCommandShortcut,
 } from "./components/CommandPalette";
 import { Fleet } from "./features/Fleet";
+import { Autonomy, FeedbackGraphSection, FeedbackGraphStatus } from "./features/Autonomy";
+import { stewardProjects } from "./features/autonomyState";
 import { ComponentCatalog } from "./components/ComponentCatalog";
 import {
   Disclosure,
@@ -72,6 +74,7 @@ const titles = [
   "Notifications",
   "Connections",
   "Fleet & supervisors",
+  "Autonomy",
 ];
 const defaultStages = [
   "Intake",
@@ -814,7 +817,8 @@ function App() {
                               : page === "Notifications"
                                 ? "Your decision queue. Inspect the evidence and keep work moving."
                                 : page === "Projects" ? "Start fresh, switch repositories, or restore archived work."
-                                : page === "Fleet & supervisors" ? "Inspect worker ownership, capacity, human holds and recovery evidence." : "Connect your local services and manage operator access."}
+                                : page === "Fleet & supervisors" ? "Inspect worker ownership, capacity, human holds and recovery evidence."
+                                : page === "Autonomy" ? "See what the steward decided and why, set how far it may act, and guide it with notes." : "Connect your local services and manage operator access."}
               </p>
             </div>
             <span className="updated">
@@ -847,7 +851,7 @@ function App() {
               </Button>
             </div>
           )}
-          {!["Connections", "New work", "Notifications", "Projects", "Fleet & supervisors"].includes(page) && (
+          {!["Connections", "New work", "Notifications", "Projects", "Fleet & supervisors", "Autonomy"].includes(page) && (
             <div className="searchbar">
               <span>⌕</span>
               <Input
@@ -1417,6 +1421,21 @@ function App() {
             </>
           )}
           {page === "Fleet & supervisors" && <Fleet api={api} enabled={!!session.operator} propose={propose} />}
+          {page === "Autonomy" && (
+            <Autonomy
+              api={api}
+              session={session}
+              propose={propose}
+              reloadKey={detailsNonce}
+              projectIds={stewardProjects(projectFilter, sindriProjects)}
+              projectName={
+                projectFilter === "all"
+                  ? "all projects"
+                  : (activeProjects.find((p) => projectKey(p) === projectFilter)?.name ?? projectFilter)
+              }
+              sindriProjects={sindriProjects}
+            />
+          )}
           {page === "New work" && (
             <>
               <p className="muted">
@@ -1484,6 +1503,9 @@ function App() {
                   />
                 </Card>
               ))}
+              {connectionSection === "Services" && state?.sources?.sindri?.status === "connected" && (
+                <FeedbackGraphStatus api={api} />
+              )}
               {connectionSection === "Access" && <>
               <Card className="panel">
                 <div className="section-title"><h2>Operator controls</h2>
@@ -1705,6 +1727,14 @@ function App() {
                 api={api}
                 reloadKey={detailsNonce}
                 saved={profileSaved}
+              />
+              <FeedbackGraphSection
+                key={"fg:" + projectKey(dataRow)}
+                sindriProject={sindriProjectOf(dataRow, sindriProjects)}
+                session={session}
+                propose={propose}
+                api={api}
+                reloadKey={detailsNonce}
               />
               {rows(
                 "missions",

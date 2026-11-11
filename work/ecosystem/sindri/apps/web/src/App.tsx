@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { createApiClient, type ApiClient } from "./api/client.js";
 import { Layout } from "./components/Layout.js";
 import { TokenPrompt } from "./components/TokenPrompt.js";
+import { AutonomyScreen } from "./screens/AutonomyScreen.js";
 import { DeliveriesScreen } from "./screens/DeliveriesScreen.js";
 import { DirectorScreen } from "./screens/DirectorScreen.js";
 import { HarnessesScreen } from "./screens/HarnessesScreen.js";
@@ -33,6 +34,7 @@ function Shell() {
     runs: <RunsScreen />,
     reviews: <ReviewsScreen />,
     deliveries: <DeliveriesScreen />,
+    autonomy: <AutonomyScreen key={project} />,
   }[state.view];
   return <Layout>{screen}</Layout>;
 }

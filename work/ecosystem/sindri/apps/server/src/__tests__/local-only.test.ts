@@ -35,6 +35,19 @@ describe("local-only mode (audit M8)", () => {
     ).toBe(200);
   });
 
+  it("rejects a non-loopback Feedback Graph URL only while it is enabled", async () => {
+    const hh = (h = await makeHarness());
+    const fg = (enabled: boolean) => ({
+      url: "https://fg.example.com",
+      tokenSecret: "sindri.feedback-graph-token",
+      enabled,
+    });
+    const res = await put(hh, { localOnly: true, feedbackGraph: fg(true) });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe("local_only");
+    expect((await put(hh, { localOnly: true, feedbackGraph: fg(false) })).statusCode).toBe(200);
+  });
+
   it("uses the null provider for stored remote settings while local-only is on (no egress)", async () => {
     const fetchSpy = vi.fn(() => Promise.reject(new Error("network must not be used")));
     vi.stubGlobal("fetch", fetchSpy);

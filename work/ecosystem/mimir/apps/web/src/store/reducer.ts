@@ -272,6 +272,15 @@ function foldEvent(state: State, e: EventEnvelope): State {
     return { ...state, budgetAlerts: { ...state.budgetAlerts, [pl.budgetId]: alert } };
   }
 
+  if (type === "budget.updated") {
+    // New limits: an earlier alert no longer applies (the server re-reports against them).
+    const id = (p as EventPayloadMap["budget.updated"]).budget.id;
+    if (!(id in state.budgetAlerts)) return state;
+    const budgetAlerts = { ...state.budgetAlerts };
+    delete budgetAlerts[id];
+    return { ...state, budgetAlerts };
+  }
+
   return state;
 }
 

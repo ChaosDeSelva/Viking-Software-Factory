@@ -5,6 +5,7 @@ import {
   UNKNOWN_AFTER_RESTART,
   attemptsLeft,
   budgetGuard,
+  budgetScope,
   classifyCommand,
   evaluate,
   isParked,
@@ -730,6 +731,8 @@ export class Orchestrator {
     expect: "leased" | "verifying";
     /** `session_started` (leased → running) or `verification_failed` (verifying → running). */
     event: TaskEvent;
+    /** Why the verification before this next attempt failed (`expect: "verifying"`). */
+    verificationFailure?: string;
   }): void {
     const stillOurs = (): Task | null => {
       const t = this.rm.tasks.get(input.taskId);
@@ -763,6 +766,18 @@ export class Orchestrator {
             return;
           }
         }
+      }
+      if (current.status === "verifying" && atCapacity(err)) {
+        // The runtime filled up between the capacity check and the launch: the next attempt
+        // waits in ready (the backoff above applies), like a deferred dispatch.
+        this.taskEvent(
+          now,
+          current,
+          { type: "verification_deferred" },
+          { reason: input.verificationFailure ?? reason },
+        );
+        this.renewals.delete(current.id);
+        return;
       }
       if (current.status === "verifying") {
         // The failed verification costs this attempt, once: the scheduler starts the next one.
@@ -1120,7 +1135,7 @@ export class Orchestrator {
   private recordUnavailableUsage(
     sessionId: string,
     now: Date,
-    usage?: { tokens: number; estimatedCost: number | null },
+    usage?: { tokens: number; estimatedCost: number | null; cachedTokens?: number },
   ): void {
     const agent = [...this.rm.agents.values()].find((a) => a.runtimeSessionId === sessionId);
     const view = this.rm.sessions.get(sessionId);
@@ -1139,7 +1154,10 @@ export class Orchestrator {
         sample: {
           id: newId("usg"),
           agentId,
-          tokens: usage?.tokens ?? null,
+          tokens: usage ? Math.round(usage.tokens) : null,
+          ...(usage?.cachedTokens !== undefined
+            ? { cachedTokens: Math.round(usage.cachedTokens) }
+            : {}),
           estimatedCost: usage?.estimatedCost ?? null,
           source: usage ? "measured" : "unavailable",
           createdAt: at,
@@ -1349,6 +1367,17 @@ export class Orchestrator {
       return;
     }
     const member = this.memberFor(crew);
+    if (
+      this.runtime &&
+      isCapacityAware(this.runtime) &&
+      this.runtime.atCapacity(member.agentKind)
+    ) {
+      // No free worker for the next attempt: it waits in ready and is dispatched like a new
+      // launch (see `dispatch`), instead of failing with `session_create_failed`.
+      this.taskEvent(now, task, { type: "verification_deferred" }, { reason });
+      this.renewals.delete(task.id);
+      return;
+    }
     const { argv, classify } = this.commandFor(task, member, project);
     if (
       classify !== null &&
@@ -1378,6 +1407,7 @@ export class Orchestrator {
       argv,
       expect: "verifying",
       event: { type: "verification_failed" },
+      verificationFailure: reason,
     });
   }
 
@@ -2195,14 +2225,27 @@ export class Orchestrator {
         ...(budget.missionId ? { missionId: budget.missionId } : {}),
         ...(budget.crewId ? { crewId: budget.crewId } : {}),
       };
+      const payload = {
+        budgetId: budget.id,
+        unit,
+        used,
+        limit,
+        scope: budgetScope(budget),
+        overBy: used - limit,
+        budgetVersion: budget.version,
+      };
+      // Once per budget version: an operator who changes the limits (`budget.updated`) is told
+      // again if the new limits are reached. Version 0 keeps the original id.
+      const once = (kind: string) =>
+        `${kind}:${budget.id}${budget.version > 0 ? `:v${budget.version}` : ""}`;
       // An exhausted budget reports budget.exceeded instead of a warning.
       if (r.warn && !r.exhausted) {
         this.emit(now, {
           type: "budget.warning",
           streamId: `budget:${budget.id}`,
           ...ids,
-          sourceEventId: `budget.warning:${budget.id}`,
-          payload: { budgetId: budget.id, unit, used, limit },
+          sourceEventId: once("budget.warning"),
+          payload,
         });
       }
       if (r.exhausted) {
@@ -2210,8 +2253,8 @@ export class Orchestrator {
           type: "budget.exceeded",
           streamId: `budget:${budget.id}`,
           ...ids,
-          sourceEventId: `budget.exceeded:${budget.id}`,
-          payload: { budgetId: budget.id, unit, used, limit },
+          sourceEventId: once("budget.exceeded"),
+          payload,
         });
       }
     }

@@ -733,6 +733,85 @@
           "name"
         ]
       },
+      "BudgetPolicy": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^bgt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missionId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "crewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^crw_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "limitTokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "limitCost": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "warnAtFraction": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "enforce": {
+            "type": "string",
+            "enum": [
+              "hard",
+              "soft"
+            ]
+          },
+          "onUnknown": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "updatedAt",
+          "version",
+          "missionId",
+          "crewId",
+          "limitTokens",
+          "limitCost",
+          "warnAtFraction"
+        ]
+      },
       "Artifact": {
         "type": "object",
         "properties": {
@@ -860,7 +939,8 @@
               "usage.recorded",
               "approval.consumed",
               "artifact.collection_skipped",
-              "artifact.collection_truncated"
+              "artifact.collection_truncated",
+              "budget.updated"
             ]
           },
           "source": {
@@ -941,6 +1021,10 @@
             ],
             "minimum": 0
           },
+          "cachedTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
           "estimatedCost": {
             "type": [
               "number",
@@ -964,6 +1048,7 @@
           "version",
           "agentId",
           "tokens",
+          "cachedTokens",
           "estimatedCost",
           "source"
         ]
@@ -1153,6 +1238,10 @@
                       "type": "object",
                       "properties": {
                         "tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "cachedTokens": {
                           "type": "integer",
                           "minimum": 0
                         },
@@ -2297,6 +2386,210 @@
                   "required": [
                     "crew",
                     "semantics"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/crews/{id}/budget": {
+      "patch": {
+        "summary": "Raise, lower or replace the crew's budget limits (tasks blocked only by it resume on the next tick)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limitTokens": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0,
+                    "maximum": 10000000000
+                  },
+                  "limitCost": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000
+                  },
+                  "warnAtFraction": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "enforce": {
+                    "type": "string",
+                    "enum": [
+                      "hard",
+                      "soft"
+                    ]
+                  },
+                  "onUnknown": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "block"
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "budget": {
+                      "$ref": "#/components/schemas/BudgetPolicy"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "budget",
+                    "changed"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}/budget": {
+      "patch": {
+        "summary": "Raise, lower or replace the mission's budget limits (tasks blocked only by it resume on the next tick)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limitTokens": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0,
+                    "maximum": 10000000000
+                  },
+                  "limitCost": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0,
+                    "maximum": 1000000
+                  },
+                  "warnAtFraction": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
+                  },
+                  "enforce": {
+                    "type": "string",
+                    "enum": [
+                      "hard",
+                      "soft"
+                    ]
+                  },
+                  "onUnknown": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "block"
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "budget": {
+                      "$ref": "#/components/schemas/BudgetPolicy"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "budget",
+                    "changed"
                   ]
                 }
               }
@@ -3654,6 +3947,10 @@
                       "type": "object",
                       "properties": {
                         "tokens": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "cachedTokens": {
                           "type": "integer",
                           "minimum": 0
                         },

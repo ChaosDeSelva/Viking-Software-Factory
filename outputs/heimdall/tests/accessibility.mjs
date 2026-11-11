@@ -30,7 +30,7 @@ try {
     if (theme === "dark") await page.getByRole("button", { name: /Dark theme/ }).click();
     for (const width of [390, 768, 1440]) {
       await page.setViewportSize({ width, height: 1050 });
-      for (const title of ["Overview", "Projects", "Pipeline", "Crews & agents", "Execution graph", "Activity", "Quality & approvals", "New work", "Notifications", "Connections", "Fleet & supervisors"]) {
+      for (const title of ["Overview", "Projects", "Pipeline", "Crews & agents", "Execution graph", "Activity", "Quality & approvals", "New work", "Notifications", "Connections", "Fleet & supervisors", "Autonomy"]) {
         if (width <= 800) await page.getByRole("button", { name: "Menu", exact: true }).click();
         await page.getByRole("navigation", { name: "Main navigation" }).getByRole("button", { name: title, exact: true }).click();
         const sections = title === "Connections" ? ["Services", "Access", "Display", "Audit history"] : [null];
@@ -45,7 +45,7 @@ try {
   }
   assert.deepEqual(findings, []);
   assert.deepEqual(errors, []);
-  console.log("PASS: automated accessibility across 11 pages and all settings sections, both themes, 390/768/1440 widths");
+  console.log("PASS: automated accessibility across 12 pages and all settings sections, both themes, 390/768/1440 widths");
 } finally {
   await browser.close();
   await app.close();

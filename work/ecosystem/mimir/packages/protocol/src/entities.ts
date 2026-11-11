@@ -289,7 +289,10 @@ export type BudgetPolicy = z.infer<typeof BudgetPolicySchema>;
 
 export const UsageSampleSchema = entity(UsageSampleIdSchema, {
   agentId: AgentIdSchema,
+  /** Tokens counted against budgets: fresh input (prompt-cache writes included) plus output. */
   tokens: z.number().int().min(0).nullable(),
+  /** Input tokens read from the provider's prompt cache: recorded, not counted against budgets. */
+  cachedTokens: z.number().int().min(0).exactOptional(),
   estimatedCost: z.number().min(0).nullable(),
   source: UsageSourceSchema,
 }).meta({ id: "UsageSample" });

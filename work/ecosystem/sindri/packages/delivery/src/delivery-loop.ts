@@ -185,6 +185,42 @@ export interface VerificationFailureHandler {
 
 const isVerificationFailure = (reason: string) => reason.startsWith("verification_");
 
+/**
+ * Mimir's `blockedReason`s for a task parked on a hard budget: exhausted, or not measurable with
+ * `onUnknown: block`. Only Mimir releases such a task (to `ready`, once the budget has room); its
+ * retry endpoint refuses it.
+ */
+const BUDGET_BLOCKS = ["budget_exceeded", "budget_uncertain"] as const;
+type BudgetBlock = (typeof BUDGET_BLOCKS)[number];
+const budgetBlockOf = (reason: string | null | undefined): BudgetBlock | undefined =>
+  BUDGET_BLOCKS.find((b) => reason === b || reason?.startsWith(`${b}:`));
+
+/** A `budget.exceeded` payload. */
+interface BudgetUse {
+  budgetId: string;
+  unit: string;
+  used: number;
+  limit: number;
+  mimirEventId: string;
+}
+
+/** `blocked_reason` and escalation reason of a task parked on a budget. */
+function budgetReasons(block: BudgetBlock, use: BudgetUse | undefined) {
+  // Unmeasured usage has no numbers; an older `budget.exceeded` would show stale ones.
+  if (block === "budget_uncertain") use = undefined;
+  const blockedReason = use ? `${block}: ${use.unit} ${use.used}/${use.limit}` : block;
+  const what =
+    block === "budget_uncertain"
+      ? "Mimir cannot measure the crew's usage against its hard budget"
+      : use
+        ? `the crew budget is used up (${use.unit} ${use.used} of ${use.limit}, budget ${use.budgetId})`
+        : "the crew budget is used up";
+  return {
+    blockedReason,
+    escalationReason: `${blockedReason}: blocked in Mimir because ${what}. Raise the crew budget in Mimir, then retry; or skip, replan or abort.`,
+  };
+}
+
 interface ExecutionRow {
   id: string;
   plan_id: string;
@@ -443,21 +479,35 @@ export class DeliveryLoop {
     // Mimir fails the mission right after the task that exhausted its attempts, usually once the
     // loop has stopped reading on the escalation. A retry therefore looks at the unread events
     // first (without handling them: the next run does) instead of asking for a doomed attempt.
-    const ended =
-      this.missionEnded(executionId) ||
-      (decision === "retry" &&
-        (
-          await this.mimir.catchUp(
-            row.mimir_mission_id,
-            input.signal ? { signal: input.signal } : {},
-          )
-        ).events.some((e) => e.type === "mission.failed"));
+    const unread =
+      decision === "retry" && !this.missionEnded(executionId)
+        ? (
+            await this.mimir.catchUp(
+              row.mimir_mission_id,
+              input.signal ? { signal: input.signal } : {},
+            )
+          ).events
+        : [];
+    const ended = this.missionEnded(executionId) || unread.some((e) => e.type === "mission.failed");
     if (decision === "retry" && ended)
       throw new SindriError(
         "invalid_state",
         "the Mimir mission has ended, so this task cannot be retried; skip it, request a replan or abort, then run the plan again",
       );
-    if (decision === "retry") {
+    // A task parked on its budget is not retried in Mimir: Mimir itself returns it to `ready` once
+    // the operator has raised the budget there. Retry continues the run after that has happened.
+    const budgetBlock = task.status === "blocked" ? budgetBlockOf(task.blocked_reason) : undefined;
+    if (decision === "retry" && budgetBlock) {
+      const released = unread.some((e) => {
+        const to = (e.payload as { to?: unknown }).to;
+        return e.taskId === task.mimir_task_id && typeof to === "string" && to !== "blocked";
+      });
+      if (!released)
+        throw new SindriError(
+          "invalid_state",
+          `Mimir still holds ${planTaskId} on its budget (${task.blocked_reason}). Raise the crew budget in Mimir first; once Mimir returns the task to ready, retry continues the run. Or skip, replan or abort.`,
+        );
+    } else if (decision === "retry") {
       await this.mimir.retry(task.mimir_task_id, {
         attempt: task.attempts + 1,
         reason: `human retry by ${actor}: ${reason}`,
@@ -485,13 +535,14 @@ export class DeliveryLoop {
       switch (decision) {
         case "retry":
           // The human's attempt number is spent: a later automatic retry (here or by the gate
-          // runner) must not reuse its `sindri:retry:<task>:<attempt>` key.
+          // runner) must not reuse its `sindri:retry:<task>:<attempt>` key. A budget release
+          // asks Mimir for no attempt, so it spends none.
           this.db
             .prepare(
               `UPDATE execution_tasks SET escalation = NULL, escalation_reason = NULL,
                  blocked_reason = NULL, attempts = ? WHERE id = ?`,
             )
-            .run(task.attempts + 1, task.id);
+            .run(budgetBlock ? task.attempts : task.attempts + 1, task.id);
           this.setStatusIn(executionId, "running", notices);
           break;
         case "skip": {
@@ -849,6 +900,8 @@ export class DeliveryLoop {
       const to = (event.payload as { to?: string }).to;
       if (to)
         this.db.prepare("UPDATE execution_tasks SET status = ? WHERE id = ?").run(to, task.id);
+      if (to && to !== "blocked" && budgetBlockOf(task.blocked_reason))
+        this.budgetReleased(executionId, task, notices);
     }
     if (task && decision.retry) {
       this.db
@@ -943,29 +996,44 @@ export class DeliveryLoop {
       }
       // `mission.failed` is acted on in `settle`: Mimir emits it exactly when a task is escalated
       // to a human, whose skip/replan/abort must still work, so the stored event is the record.
+      // Mimir parks a ready task whose crew budget is used up (`task.blocked`, reason
+      // `budget_exceeded`) and reports the budget itself (`budget.exceeded`, crew-scoped, no task)
+      // in either order. Each parked task becomes an `ask` escalation, whatever the plan's
+      // escalation, since only a human can raise a budget; it carries the numbers once known.
+      case "task.blocked": {
+        const block = budgetBlockOf(event.payload.reason);
+        if (!task || !block) break;
+        const crewId = event.crewId ?? null;
+        const use =
+          crewId && block === "budget_exceeded"
+            ? this.crewBudgetUse(executionId, crewId)
+            : undefined;
+        this.escalateBudget(executionId, task.id, block, crewId, use, notices);
+        break;
+      }
       case "budget.exceeded": {
         const { unit, used, limit, budgetId } = event.payload;
-        const blockedReason = `budget_exceeded: ${unit} ${used}/${limit}`;
+        const use: BudgetUse = { budgetId, unit, used, limit, mimirEventId: event.id };
         if (task) {
           this.db
-            .prepare(
-              `UPDATE execution_tasks SET status = 'blocked', blocked_reason = ?,
-                 escalation = COALESCE(escalation, 'ask'),
-                 escalation_reason = COALESCE(escalation_reason, ?) WHERE id = ?`,
-            )
-            .run(blockedReason, blockedReason, task.id);
-          notices.push({
-            type: "escalated",
-            executionId,
-            planTaskId: task.plan_task_id,
-            escalation: "ask",
-            reason: blockedReason,
-          });
+            .prepare("UPDATE execution_tasks SET status = 'blocked' WHERE id = ?")
+            .run(task.id);
+          this.escalateBudget(executionId, task.id, "budget_exceeded", null, use, notices);
+          break;
         }
+        const crewId = event.crewId ?? this.crewOfBudget(executionId, budgetId);
+        if (crewId) {
+          // Tasks already parked on this crew's budget learn the numbers; tasks parked later look
+          // them up. A crew whose tasks are all done has nothing for a human to decide.
+          for (const { id, block } of this.budgetEscalations(executionId, crewId))
+            this.escalateBudget(executionId, id, block, crewId, use, notices);
+          break;
+        }
+        // A budget Sindri cannot attribute to a crew (for example a mission budget).
         this.openInbox(
           executionId,
           "budget_exceeded",
-          task?.plan_task_id ?? null,
+          null,
           { budgetId, unit, used, limit, mimirEventId: event.id },
           notices,
         );
@@ -982,6 +1050,162 @@ export class DeliveryLoop {
     ) {
       this.setStatusIn(executionId, "running", notices);
     }
+  }
+
+  /**
+   * Escalates a task parked on its budget (`ask`) with an open `budget_exceeded` inbox item, or
+   * updates both once the budget's numbers arrive. Call inside a transaction.
+   */
+  private escalateBudget(
+    executionId: string,
+    taskRowId: string,
+    block: BudgetBlock,
+    crewId: string | null,
+    use: BudgetUse | undefined,
+    notices: DeliveryNotice[],
+  ): void {
+    const task = this.db.prepare("SELECT * FROM execution_tasks WHERE id = ?").get(taskRowId) as
+      TaskRow | undefined;
+    if (!task) return;
+    const { blockedReason, escalationReason } = budgetReasons(block, use);
+    this.db
+      .prepare(
+        `UPDATE execution_tasks SET blocked_reason = ?, escalation = 'ask', escalation_reason = ?
+         WHERE id = ?`,
+      )
+      .run(blockedReason, escalationReason, task.id);
+    if (task.escalation !== "ask" || task.escalation_reason !== escalationReason)
+      notices.push({
+        type: "escalated",
+        executionId,
+        planTaskId: task.plan_task_id,
+        escalation: "ask",
+        reason: escalationReason,
+      });
+    const open = this.db
+      .prepare(
+        `SELECT id, detail_json FROM execution_inbox WHERE execution_id = ? AND plan_task_id = ?
+         AND kind = 'budget_exceeded' AND status = 'open' ORDER BY rowid LIMIT 1`,
+      )
+      .get(executionId, task.plan_task_id) as { id: string; detail_json: string } | undefined;
+    const before = open ? (JSON.parse(open.detail_json) as { crewId?: string | null }) : {};
+    const detail = {
+      reason: block,
+      crewId: crewId ?? before.crewId ?? null,
+      ...(block === "budget_exceeded" ? (use ?? {}) : {}),
+      escalationReason,
+    };
+    if (open)
+      this.db
+        .prepare("UPDATE execution_inbox SET detail_json = ? WHERE id = ?")
+        .run(JSON.stringify(detail), open.id);
+    else this.openInbox(executionId, "budget_exceeded", task.plan_task_id, detail, notices);
+  }
+
+  /**
+   * Mimir released a task parked on its budget (the operator raised the budget in Mimir): its
+   * budget escalation is answered, as if a human had retried it. Call inside a transaction.
+   */
+  private budgetReleased(executionId: string, task: TaskRow, notices: DeliveryNotice[]): void {
+    this.db.prepare("UPDATE execution_tasks SET blocked_reason = NULL WHERE id = ?").run(task.id);
+    if (task.escalation !== "ask" || !budgetBlockOf(task.escalation_reason)) return;
+    this.recordSindriEvent(executionId, "escalation_resolved", {
+      planTaskId: task.plan_task_id,
+      decision: "retry",
+      actor: "mimir",
+      reason: "Mimir released the task: its budget has room again",
+      previous: { escalation: task.escalation, reason: task.escalation_reason },
+    });
+    this.db
+      .prepare(
+        "UPDATE execution_tasks SET escalation = NULL, escalation_reason = NULL WHERE id = ?",
+      )
+      .run(task.id);
+    this.db
+      .prepare(
+        `UPDATE execution_inbox SET status = 'resolved', resolved_at = ?
+         WHERE execution_id = ? AND plan_task_id = ? AND kind = 'budget_exceeded' AND status = 'open'`,
+      )
+      .run(this.now().toISOString(), executionId, task.plan_task_id);
+    if (
+      this.row(executionId).status === "awaiting_human" &&
+      this.pendingApprovals(executionId) === 0 &&
+      this.openInboxItems(executionId) === 0 &&
+      !this.hasEscalation(executionId, "ask")
+    )
+      this.setStatusIn(executionId, "running", notices);
+  }
+
+  /** The Mimir crew a crew budget belongs to, from the stored `crew.created` events. */
+  private crewOfBudget(executionId: string, budgetId: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT json_extract(payload_json, '$.crew.id') AS crew FROM execution_events
+         WHERE execution_id = ? AND type = 'crew.created'
+         AND json_extract(payload_json, '$.budget.id') = ?`,
+      )
+      .get(executionId, budgetId) as { crew: string | null } | undefined;
+    return row?.crew ?? undefined;
+  }
+
+  /**
+   * The latest `budget.exceeded` for the crew's budget at its current version (raised by
+   * `budget.updated`), if any: one measured against an older limit is stale.
+   */
+  private crewBudgetUse(executionId: string, crewId: string): BudgetUse | undefined {
+    const crew = this.db
+      .prepare(
+        `SELECT json_extract(payload_json, '$.budget.id') AS id,
+           json_extract(payload_json, '$.budget.version') AS version FROM execution_events
+         WHERE execution_id = ? AND type = 'crew.created' AND json_extract(payload_json, '$.crew.id') = ?`,
+      )
+      .get(executionId, crewId) as { id: string | null; version: number | null } | undefined;
+    if (!crew?.id) return undefined;
+    const updated = this.db
+      .prepare(
+        `SELECT json_extract(payload_json, '$.budget.version') AS version FROM execution_events
+         WHERE execution_id = ? AND type = 'budget.updated' AND json_extract(payload_json, '$.budget.id') = ?
+         ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(executionId, crew.id) as { version: number | null } | undefined;
+    const version = updated?.version ?? crew.version ?? 0;
+    const row = this.db
+      .prepare(
+        `SELECT mimir_event_id, payload_json FROM execution_events
+         WHERE execution_id = ? AND type = 'budget.exceeded' AND json_extract(payload_json, '$.budgetId') = ?
+         AND COALESCE(json_extract(payload_json, '$.budgetVersion'), 0) = ?
+         ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get(executionId, crew.id, version) as
+      { mimir_event_id: string; payload_json: string } | undefined;
+    if (!row) return undefined;
+    const p = JSON.parse(row.payload_json) as Omit<BudgetUse, "mimirEventId">;
+    return {
+      budgetId: p.budgetId,
+      unit: p.unit,
+      used: p.used,
+      limit: p.limit,
+      mimirEventId: row.mimir_event_id,
+    };
+  }
+
+  /** Execution task ids with an open budget escalation on the crew's budget. */
+  private budgetEscalations(
+    executionId: string,
+    crewId: string,
+  ): { id: string; block: BudgetBlock }[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.blocked_reason FROM execution_inbox i
+         JOIN execution_tasks t ON t.execution_id = i.execution_id AND t.plan_task_id = i.plan_task_id
+         WHERE i.execution_id = ? AND i.kind = 'budget_exceeded' AND i.status = 'open'
+         AND json_extract(i.detail_json, '$.crewId') = ? AND t.escalation = 'ask'`,
+      )
+      .all(executionId, crewId) as { id: string; blocked_reason: string | null }[];
+    return rows.flatMap((r) => {
+      const block = budgetBlockOf(r.blocked_reason);
+      return block ? [{ id: r.id, block }] : [];
+    });
   }
 
   private openInbox(

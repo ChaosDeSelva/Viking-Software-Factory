@@ -41,6 +41,7 @@ const ALL: Record<EventType, true> = {
   "approval.expired": true,
   "budget.warning": true,
   "budget.exceeded": true,
+  "budget.updated": true,
   "policy.denied": true,
   "recovery.reconciled": true,
   "recovery.unknown_marked": true,

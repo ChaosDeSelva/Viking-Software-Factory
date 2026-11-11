@@ -17,7 +17,13 @@ import { openSpecs, type SpecBody, type Specification, type Specs } from "@sindr
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PlanValidationError } from "./dag.js";
 import type { ProjectCaps } from "./schema.js";
-import { openPlanner, PlanStateError, SKELETON_MARKER, type Planner } from "./planner.js";
+import {
+  openPlanner,
+  PlanStateError,
+  ROLE_TOKEN_BUDGETS,
+  SKELETON_MARKER,
+  type Planner,
+} from "./planner.js";
 
 /** Scripted model: fills every skeleton task it is shown. */
 const fill = (req: CompleteRequest) => {
@@ -201,7 +207,10 @@ describe("planner paths", () => {
       const plan = await propose(apiSpec(), {
         caps: { maxTaskTokens: undefined } as unknown as ProjectCaps,
       });
-      expect(plan.tasks[0]?.budget).toEqual({ wallClockMinutes: 90, tokens: 400_000 });
+      expect(plan.tasks[0]?.budget).toEqual({
+        wallClockMinutes: 90,
+        tokens: ROLE_TOKEN_BUDGETS.implementer,
+      });
       const capped = await propose(apiSpec(), { caps: { maxTaskTokens: 1000 } });
       expect(capped.tasks[0]?.budget.tokens).toBe(1000);
     });

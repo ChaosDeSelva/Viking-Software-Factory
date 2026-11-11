@@ -23,6 +23,11 @@ export type TaskEvent =
    */
   | { type: "verification_errored" }
   /**
+   * A failed verification with attempts left whose next attempt finds the runtime full: the next
+   * attempt waits in `ready` for a worker (as a deferred launch does) instead of failing.
+   */
+  | { type: "verification_deferred" }
+  /**
    * The runtime had no free capacity for a leased task's session: the lease is given back and
    * the task waits in `ready` without using an attempt.
    */
@@ -166,6 +171,11 @@ const EDGES: Record<TaskEventType, Edge> = {
   },
   verification_gated: { from: ["verifying"], to: "blocked" },
   verification_errored: { from: ["verifying"], to: "failed" },
+  verification_deferred: {
+    from: ["verifying"],
+    to: "ready",
+    guard: (task) => (attemptsLeft(task) ? null : "no attempts left"),
+  },
   launch_deferred: { from: ["leased"], to: "ready" },
   runtime_blocked: { from: ["running"], to: "blocked" },
   approval_needed: { from: ["running"], to: "blocked" },
@@ -226,6 +236,7 @@ function transition(task: Task, event: TaskEvent): Task {
       if (to === "running") next.attempt = task.attempt + 1;
       break;
     case "retry":
+    case "verification_deferred":
       next.attempt = task.attempt + 1;
       next.agentId = null;
       break;

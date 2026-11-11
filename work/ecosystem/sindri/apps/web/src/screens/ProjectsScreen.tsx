@@ -3,6 +3,7 @@ import type { BootstrapResult, SearchHit } from "../api/types.js";
 import { Badge, Button, Card, Empty, Field, inputClass } from "../components/ui.js";
 import { useApi, useReportError, useStore } from "../store/context.js";
 import { ExecutionProfileCard } from "./ExecutionProfileCard.js";
+import { FeedbackGraphCard } from "./FeedbackGraphCard.js";
 
 export function ProjectsScreen() {
   const api = useApi();
@@ -230,6 +231,11 @@ export function ProjectsScreen() {
       {selected ? (
         <div className="lg:col-span-2">
           <ExecutionProfileCard key={selected.id} project={selected} />
+        </div>
+      ) : null}
+      {selected ? (
+        <div className="lg:col-span-2">
+          <FeedbackGraphCard key={selected.id} project={selected} />
         </div>
       ) : null}
     </div>

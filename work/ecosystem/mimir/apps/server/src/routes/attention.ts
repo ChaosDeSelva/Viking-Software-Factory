@@ -36,10 +36,16 @@ export type AttentionEntry =
   | {
       kind: "budget_warning" | "budget_exceeded";
       budgetId: string;
+      scope: "crew" | "mission" | "project";
       missionId: string | null;
       crewId: string | null;
       spentTokens: number;
       spentCost: number;
+      /** The limits spend is measured against (null: unlimited in that dimension). */
+      limitTokens: number | null;
+      limitCost: number | null;
+      /** Bumped by each operator change (`PATCH /v1/crews/:id/budget`, `.../missions/:id/budget`). */
+      budgetVersion: number;
       uncertain: boolean;
     };
 
@@ -97,10 +103,14 @@ export function attentionRoutes(
       items.push({
         kind: r.exhausted ? "budget_exceeded" : "budget_warning",
         budgetId: b.id,
+        scope: r.scope,
         missionId: b.missionId,
         crewId: b.crewId,
         spentTokens: r.spentTokens,
         spentCost: r.spentCost,
+        limitTokens: b.limitTokens,
+        limitCost: b.limitCost,
+        budgetVersion: b.version,
         uncertain: r.uncertain,
       });
     }

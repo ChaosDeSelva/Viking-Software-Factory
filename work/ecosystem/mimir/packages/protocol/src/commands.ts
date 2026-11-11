@@ -13,7 +13,12 @@ import {
   UsageSampleSchema,
   WorktreeSchema,
 } from "./entities.js";
-import { BudgetEnforceSchema, BudgetOnUnknownSchema, ProjectSettingsSchema } from "./entities.js";
+import {
+  BudgetEnforceSchema,
+  BudgetOnUnknownSchema,
+  BudgetPolicySchema,
+  ProjectSettingsSchema,
+} from "./entities.js";
 import {
   ApprovalDecisionSchema,
   ApprovalStatusSchema,
@@ -115,6 +120,42 @@ export const BudgetInputSchema = z.strictObject({
   onUnknown: BudgetOnUnknownSchema.optional(),
 });
 export type BudgetInput = z.infer<typeof BudgetInputSchema>;
+
+/** Upper bounds an operator may set on a budget (a typo guard, not a policy). */
+export const MAX_BUDGET_TOKENS = 10_000_000_000;
+export const MAX_BUDGET_COST = 1_000_000;
+
+/**
+ * `PATCH /v1/crews/:id/budget` and `PATCH /v1/missions/:id/budget`: changes the fields given on
+ * the scope's budget (creating it when the scope has none). A limit is positive and bounded;
+ * `null` removes that limit. Values equal to the stored ones change nothing.
+ */
+export const UpdateBudgetRequestSchema = z
+  .strictObject({
+    limitTokens: z.number().int().positive().max(MAX_BUDGET_TOKENS).nullable().optional(),
+    limitCost: z.number().positive().max(MAX_BUDGET_COST).nullable().optional(),
+    warnAtFraction: z.number().min(0).max(1).optional(),
+    enforce: BudgetEnforceSchema.optional(),
+    onUnknown: BudgetOnUnknownSchema.optional(),
+    /** Refuse (409) when the budget's version differs (0 for a scope with no budget yet). */
+    expectedVersion: z.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (b) =>
+      b.limitTokens !== undefined ||
+      b.limitCost !== undefined ||
+      b.warnAtFraction !== undefined ||
+      b.enforce !== undefined ||
+      b.onUnknown !== undefined,
+    { message: "nothing to change" },
+  );
+export type UpdateBudgetRequest = z.infer<typeof UpdateBudgetRequestSchema>;
+export const UpdateBudgetResponseSchema = z.object({
+  budget: BudgetPolicySchema,
+  /** False when the request matched the stored budget (no event appended). */
+  changed: z.boolean(),
+});
+export type UpdateBudgetResponse = z.infer<typeof UpdateBudgetResponseSchema>;
 
 /** One task of a mission's DAG. */
 export const TaskInputSchema = z.strictObject({
@@ -373,7 +414,10 @@ export const GetArtifactResponseSchema = z.object({ artifact: ArtifactSchema });
 export type GetArtifactResponse = z.infer<typeof GetArtifactResponseSchema>;
 
 export const UsageTotalsSchema = z.object({
+  /** Tokens counted against budgets (fresh input plus output). */
   tokens: z.number().int().min(0),
+  /** Prompt-cache reads, reported apart from `tokens` and not counted against budgets. */
+  cachedTokens: z.number().int().min(0).optional(),
   estimatedCost: z.number().min(0),
   /** Number of samples aggregated. */
   samples: z.number().int().min(0),

@@ -39,6 +39,40 @@ async function body(req) {
     throw Error("The request body must be a JSON object");
   return value;
 }
+const QUERY_ID = /^[\w-]{1,200}$/;
+const QUERY_PARAMS = {
+  projectId: QUERY_ID,
+  type: /^[\w.-]{1,100}$/,
+  status: /^[\w.-]{1,100}$/,
+  limit: /^(?:[1-9]\d?|1\d\d|200)$/,
+  before: /^[\w:.+-]{1,100}$/,
+};
+/** Sindri path for a steward or Feedback Graph read, or null when the path is not one. */
+export function stewardDetail(path, params) {
+  const query = (names) => {
+    const out = new URLSearchParams();
+    for (const name of names) {
+      const value = params.get(name);
+      if (value === null || value === "") continue;
+      if (!QUERY_PARAMS[name].test(value))
+        throw Object.assign(Error(`Invalid ${name}`), { status: 400 });
+      out.set(name, value);
+    }
+    const text = out.toString();
+    return text ? "?" + text : "";
+  };
+  if (path === "/api/details/steward/status") return "/v1/steward/status";
+  if (path === "/api/details/steward/decisions")
+    return "/v1/steward/decisions" + query(["projectId", "type", "status", "limit", "before"]);
+  if (path === "/api/details/steward/notes")
+    return "/v1/steward/notes" + query(["projectId"]);
+  if (path === "/api/details/feedback-graph") return "/v1/feedback-graph/status";
+  const decision = /^\/api\/details\/steward\/decisions\/([\w-]{1,200})$/.exec(path);
+  if (decision) return `/v1/steward/decisions/${decision[1]}`;
+  const project = /^\/api\/details\/feedback-graph\/([\w-]{1,200})$/.exec(path);
+  if (project) return `/v1/projects/${project[1]}/feedback-graph`;
+  return null;
+}
 export async function startHeimdall(options = {}) {
   const env = options.env ?? process.env,
     port = Number(env.HEIMDALL_PORT ?? 4320);
@@ -460,6 +494,11 @@ export async function startHeimdall(options = {}) {
       const artifact = /^\/api\/artifacts\/([\w-]+)$/.exec(path);
       if (artifact && req.method === "GET")
         return json(res, 200, await hub.artifact(artifact[1]));
+      if (path.startsWith("/api/details/") && req.method === "GET") {
+        const upstream = stewardDetail(path, url.searchParams);
+        if (upstream)
+          return json(res, 200, hub.clean(await request(connections.sindri, upstream)));
+      }
       const detail =
         /^\/api\/details\/(specs|plans|intakes|deliveries|questions|local|profile)\/([\w-]+)$/.exec(
           path,
@@ -540,6 +579,7 @@ export async function startHeimdall(options = {}) {
           );
           if (owner) {
             route.source = "sindri";
+            route.approval = true;
             route.path = `/v1/executions/${owner.execution.id}/approvals/${c.id}`;
           } else if (
             connections.sindri &&
@@ -561,6 +601,19 @@ export async function startHeimdall(options = {}) {
           );
         // Only final outcomes get a receipt. A resend after a timeout or source error is
         // forwarded with the same key, and the source's own idempotency answers it.
+        // The browser says which type it accepts; Sindri's own record decides, so an approval
+        // can never be sent without the approval factor under a mislabelled type.
+        if (c.action === "steward.accept") {
+          const { decision } = await request(
+            connections.sindri,
+            `/v1/steward/decisions/${encodeURIComponent(c.id)}`,
+          );
+          if (decision?.type !== c.decisionType)
+            throw Object.assign(
+              Error("This decision is not the type shown. Refresh the Autonomy page and review it again."),
+              { status: 409 },
+            );
+        }
         if (inFlight.has(key))
           throw Object.assign(
             Error(
@@ -585,7 +638,7 @@ export async function startHeimdall(options = {}) {
             headers: {
               "idempotency-key": key,
               "x-heimdall-audit": key,
-              ...(route.source === "sindri"
+              ...(route.source === "sindri" && route.approval
                 ? { "x-sindri-approval": session.approvalSecret }
                 : {}),
             },

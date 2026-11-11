@@ -320,6 +320,7 @@ describe("mutation requests", () => {
     expect(UsageQuerySchema.parse(q)).toEqual(q);
     const totals = {
       tokens: 0,
+      cachedTokens: 0,
       estimatedCost: 0,
       samples: 1,
       bySource: { measured: 0, estimated: 0, unavailable: 1 },
@@ -417,6 +418,7 @@ describe("read models", () => {
       worktrees: [],
       usage: {
         tokens: 0,
+        cachedTokens: 0,
         estimatedCost: 0,
         samples: 0,
         bySource: { measured: 0, estimated: 0, unavailable: 0 },

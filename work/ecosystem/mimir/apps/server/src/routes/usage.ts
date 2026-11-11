@@ -1,30 +1,8 @@
-import {
-  UsageQuerySchema,
-  type UsageResponse,
-  type UsageSample,
-  type UsageTotals,
-} from "@mimir/protocol";
+import { UsageQuerySchema, type UsageResponse } from "@mimir/protocol";
 import type { FastifyInstance } from "fastify";
 import { parseWith } from "../errors.js";
-import type { ReadModel } from "../readmodel.js";
+import { totalsOf, type ReadModel } from "../readmodel.js";
 import { byCreated } from "./common.js";
-
-/** Sums samples with a per-source breakdown. Null values count as zero (see `uncertain`). */
-export function totalsOf(samples: readonly UsageSample[]): UsageTotals {
-  const totals: UsageTotals = {
-    tokens: 0,
-    estimatedCost: 0,
-    samples: 0,
-    bySource: { measured: 0, estimated: 0, unavailable: 0 },
-  };
-  for (const s of samples) {
-    totals.samples += 1;
-    totals.bySource[s.source] += 1;
-    totals.tokens += s.tokens ?? 0;
-    totals.estimatedCost += s.estimatedCost ?? 0;
-  }
-  return totals;
-}
 
 /** Samples attributed agent → crew → mission → project, filtered by any of those ids. */
 export function usageFor(

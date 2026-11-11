@@ -81,6 +81,7 @@ export const EVENT_TYPES = [
   "approval.consumed",
   "artifact.collection_skipped",
   "artifact.collection_truncated",
+  "budget.updated",
 ] as const;
 
 export const EventTypeSchema = z.enum(EVENT_TYPES);
@@ -132,6 +133,12 @@ const budgetPayload = () =>
     unit: z.enum(["tokens", "cost"]),
     used: z.number().min(0),
     limit: z.number().min(0),
+    /** Which budget: a crew's, a mission's or the project-wide one (envelope carries the ids). */
+    scope: z.enum(["crew", "mission", "project"]).optional(),
+    /** `used - limit` (0 or less for a warning). */
+    overBy: z.number().optional(),
+    /** The budget's version this was measured against: raising the limit starts a new one. */
+    budgetVersion: z.number().int().min(0).optional(),
   });
 
 export const EVENT_PAYLOAD_SCHEMAS = {
@@ -183,6 +190,8 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     to: TaskStatusSchema.extract(["pending", "ready"]),
     attempt: z.number().int().min(1),
     reason: z.string().optional(),
+    /** The next attempt waits in `ready` for a free worker; `reason` is why the last one failed. */
+    deferred: z.literal("awaiting_capacity").optional(),
   }),
   "session.requested": z.object({
     agentKind: z.string(),
@@ -333,6 +342,14 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     budget: BudgetPolicySchema.optional(),
   }),
   "usage.recorded": z.object({ sample: UsageSampleSchema }),
+  /**
+   * An operator changed a budget's limits (`PATCH /v1/crews/:id/budget`, `.../missions/:id/budget`).
+   * `budget` replaces the stored one; `previous` is null when the scope had no budget.
+   */
+  "budget.updated": z.object({
+    budget: BudgetPolicySchema,
+    previous: BudgetPolicySchema.nullable(),
+  }),
   /** An approved approval was used for its action instance; it cannot be used again. */
   "approval.consumed": z.object({
     approvalId: ApprovalIdSchema,

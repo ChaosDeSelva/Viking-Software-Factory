@@ -2,6 +2,8 @@ import {
   CrewSchedulingRequestSchema,
   CrewSchedulingResponseSchema,
   SessionObservationResponseSchema,
+  UpdateBudgetRequestSchema,
+  UpdateBudgetResponseSchema,
   VerifyTaskResponseSchema,
 } from "./commands.js";
 import {
@@ -58,6 +60,7 @@ import {
   AgentSchema,
   ApprovalSchema,
   ArtifactSchema,
+  BudgetPolicySchema,
   CrewMemberSchema,
   CrewSchema,
   MissionSchema,
@@ -212,6 +215,15 @@ const ENDPOINTS: Endpoint[] = [
     body: CrewSchedulingRequestSchema,
     status: 200 as const,
     response: CrewSchedulingResponseSchema,
+  })),
+  ...(["crews", "missions"] as const).map((scope) => ({
+    method: "patch" as const,
+    path: `/v1/${scope}/{id}/budget`,
+    summary: `Raise, lower or replace the ${scope === "crews" ? "crew" : "mission"}'s budget limits (tasks blocked only by it resume on the next tick)`,
+    params: z.object({ id: z.string().min(1) }),
+    body: UpdateBudgetRequestSchema,
+    status: 200 as const,
+    response: UpdateBudgetResponseSchema,
   })),
   {
     method: "get",
@@ -379,6 +391,7 @@ export const OPENAPI_COMPONENTS: Record<string, z.ZodType> = {
   Artifact: ArtifactSchema,
   Approval: ApprovalSchema,
   UsageSample: UsageSampleSchema,
+  BudgetPolicy: BudgetPolicySchema,
   EventEnvelope: EventEnvelopeSchema,
   RuntimeCapabilities: RuntimeCapabilitiesSchema,
   OperationAccepted: OperationAcceptedSchema,

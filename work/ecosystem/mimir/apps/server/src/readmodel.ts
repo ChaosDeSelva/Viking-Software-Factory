@@ -104,6 +104,25 @@ const MAX_FAILED_CHECKS = 3;
 const FAILED_CHECK_COMMAND_CHARS = 200;
 const FAILED_CHECK_TAIL_CHARS = 1200;
 
+/** Sums samples with a per-source breakdown. Null values count as zero (see `uncertain`). */
+export function totalsOf(samples: Iterable<UsageSample>): UsageTotals {
+  const totals: UsageTotals = {
+    tokens: 0,
+    cachedTokens: 0,
+    estimatedCost: 0,
+    samples: 0,
+    bySource: { measured: 0, estimated: 0, unavailable: 0 },
+  };
+  for (const s of samples) {
+    totals.samples += 1;
+    totals.bySource[s.source] += 1;
+    totals.tokens += s.tokens ?? 0;
+    totals.cachedTokens = (totals.cachedTokens ?? 0) + (s.cachedTokens ?? 0);
+    totals.estimatedCost += s.estimatedCost ?? 0;
+  }
+  return totals;
+}
+
 /**
  * In-memory projection of the event log: missions, tasks (+ dependencies), crews, agents,
  * sessions, approvals, worktrees and usage. Built by folding events; `GET /v1/snapshot` reads it.
@@ -217,19 +236,7 @@ export class ReadModel {
   }
 
   usageTotals(): UsageTotals {
-    const totals: UsageTotals = {
-      tokens: 0,
-      estimatedCost: 0,
-      samples: 0,
-      bySource: { measured: 0, estimated: 0, unavailable: 0 },
-    };
-    for (const s of this.usageSamples.values()) {
-      totals.samples += 1;
-      totals.bySource[s.source] += 1;
-      totals.tokens += s.tokens ?? 0;
-      totals.estimatedCost += s.estimatedCost ?? 0;
-    }
-    return totals;
+    return totalsOf(this.usageSamples.values());
   }
 
   // -------------------------------------------------------------------------
@@ -280,6 +287,11 @@ export class ReadModel {
         this.crews.set(pl.crew.id, pl.crew as Crew);
         for (const m of pl.members) this.crewMembers.set(m.id, m as CrewMember);
         if (pl.budget) this.budgets.set(pl.budget.id, pl.budget as BudgetPolicy);
+        return;
+      }
+      case "budget.updated": {
+        const pl = p as EventPayloadMap["budget.updated"];
+        this.budgets.set(pl.budget.id, pl.budget as BudgetPolicy);
         return;
       }
       case "usage.recorded": {

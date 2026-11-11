@@ -22,6 +22,11 @@ describe("hash routes (audit S-I1)", () => {
     });
   });
 
+  it("routes to the Autonomy view", () => {
+    expect(parseHash("#/autonomy?project=p1")).toMatchObject({ view: "autonomy", projectId: "p1" });
+    expect(routeHash({ ...initialState({}), view: "autonomy" })).toBe("#/autonomy");
+  });
+
   it("ignores unknown views and empty hashes", () => {
     expect(parseHash("#/nope?project=p1")).toEqual({});
     expect(parseHash("")).toEqual({});

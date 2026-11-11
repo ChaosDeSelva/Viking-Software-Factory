@@ -19,6 +19,7 @@ const agentId = newId("agt");
 const sessionId = newId("ses");
 const approvalId = newId("apr");
 const worktreeId = newId("wtr");
+const budgetId = newId("bgt");
 const sha = "b".repeat(40);
 
 const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
@@ -67,7 +68,15 @@ const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
   "approval.decided": { approvalId, decision: "approved", actor: "user:local" },
   "approval.expired": { approvalId },
   "budget.warning": { budgetId: newId("bgt"), unit: "tokens", used: 800, limit: 1000 },
-  "budget.exceeded": { budgetId: newId("bgt"), unit: "cost", used: 26, limit: 25 },
+  "budget.exceeded": {
+    budgetId: newId("bgt"),
+    unit: "cost",
+    used: 26,
+    limit: 25,
+    scope: "crew",
+    overBy: 1,
+    budgetVersion: 0,
+  },
   "policy.denied": { action: "git.push", reason: "protected branch", policyId: newId("pol") },
   "recovery.reconciled": { sessions: 3, lostSessionIds: [sessionId], gap: false },
   "recovery.unknown_marked": { entityType: "session", entityId: sessionId, reason: "not found" },
@@ -149,6 +158,21 @@ const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
     },
   },
   "approval.consumed": { approvalId, subject: "pr:tsk_x" },
+  "budget.updated": {
+    budget: {
+      id: budgetId,
+      missionId,
+      crewId: null,
+      limitTokens: 2_000_000,
+      limitCost: null,
+      warnAtFraction: 0.8,
+      enforce: "hard",
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    },
+    previous: null,
+  },
 };
 
 function envelope(type: EventType, payload: unknown, extra: Record<string, unknown> = {}) {
@@ -220,6 +244,7 @@ describe("event types", () => {
       "approval.consumed",
       "artifact.collection_skipped",
       "artifact.collection_truncated",
+      "budget.updated",
     ]);
     expect(EventTypeSchema.safeParse("mission.exploded").success).toBe(false);
   });

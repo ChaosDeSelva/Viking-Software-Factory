@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveWorkAreas } from "./areas.js";
+import { deriveWorkAreas, implementationDependencies, urlPaths } from "./areas.js";
+import { FAREWELL_ACS, GREET_FIX_ACS } from "./live-plans.test-helpers.js";
 
 const ac = (id: string, text: string) => ({ id, text, verification: "test" as const });
 
@@ -161,5 +162,67 @@ describe("deriveWorkAreas", () => {
       },
     );
     expect(areas.map((a) => [a.kind, a.paths])).toEqual([["backend", ["src/server/x.ts"]]]);
+  });
+});
+
+describe("urlPaths", () => {
+  it("finds endpoint paths without query strings, and ignores file paths and full URLs", () => {
+    expect(urlPaths(FAREWELL_ACS[0]!.text)).toEqual(["/farewell"]);
+    expect(urlPaths(FAREWELL_ACS[1]!.text)).toEqual(["/api/greeter/farewell"]);
+    expect(urlPaths(FAREWELL_ACS[4]!.text)).toEqual([]);
+    expect(urlPaths("The page served at / has a button")).toEqual([]);
+    expect(urlPaths("see `/docs/guide.md` and services/greeter/server.mjs")).toEqual([]);
+    expect(urlPaths('POST "/Users/{id}/" and GET /api/greeter/...')).toEqual(["/users/{id}"]);
+    expect(urlPaths("GET /login?next=/health redirects")).toEqual(["/login"]);
+  });
+});
+
+describe("implementationDependencies", () => {
+  it("orders frontend after backend when a frontend criterion calls an endpoint the backend adds (live farewell plan)", () => {
+    const spec = { acceptanceCriteria: FAREWELL_ACS };
+    const areas = deriveWorkAreas(spec);
+    expect(areas.map((a) => [a.kind, a.acceptanceCriteria])).toEqual([
+      ["backend", ["AC1", "AC2", "AC5", "AC6"]],
+      ["frontend", ["AC2", "AC3", "AC4", "AC5"]],
+    ]);
+    const deps = implementationDependencies(spec, areas);
+    expect(deps).toEqual([{ area: "frontend", dependsOn: "backend", reasons: expect.any(Array) }]);
+    expect(deps[0]!.reasons).toContain(
+      "AC2 (frontend) calls /api/greeter/farewell, which AC1 (backend) names as /farewell",
+    );
+  });
+
+  it("keeps implementation tasks parallel when the frontend calls no endpoint the backend names (live greet fix)", () => {
+    const spec = { acceptanceCriteria: GREET_FIX_ACS };
+    const areas = deriveWorkAreas(spec);
+    expect(areas.find((a) => a.kind === "frontend")?.acceptanceCriteria).toEqual(["AC5"]);
+    expect(implementationDependencies(spec, areas)).toEqual([]);
+  });
+
+  it("matches whole segments of another criterion only, and needs both implementation areas", () => {
+    const spec = {
+      acceptanceCriteria: [
+        ac("AC-1", "GET /farewell endpoint returns 200"),
+        ac("AC-2", "The page button calls /api/xfarewell"),
+      ],
+    };
+    expect(implementationDependencies(spec, deriveWorkAreas(spec))).toEqual([]);
+    // One criterion in both areas does not order the tasks against itself.
+    const shared = { acceptanceCriteria: [ac("AC-1", "The form saves via POST /api/settings")] };
+    expect(deriveWorkAreas(shared).map((a) => a.kind)).toEqual(["backend", "frontend"]);
+    expect(implementationDependencies(shared, deriveWorkAreas(shared))).toEqual([]);
+    // Generic probe endpoints and query values name nothing a backend task adds for the page.
+    const generic = {
+      acceptanceCriteria: [
+        ac("AC-1", "GET /health endpoint returns 200"),
+        ac("AC-2", "The page status badge polls /api/health"),
+        ac("AC-3", "The page button links to /login?next=/farewell"),
+        ac("AC-4", "GET /farewell endpoint returns 200"),
+      ],
+    };
+    expect(deriveWorkAreas(generic).map((a) => a.kind)).toEqual(["backend", "frontend"]);
+    expect(implementationDependencies(generic, deriveWorkAreas(generic))).toEqual([]);
+    const backendOnly = { acceptanceCriteria: [ac("AC-1", "GET /farewell returns 200")] };
+    expect(implementationDependencies(backendOnly, deriveWorkAreas(backendOnly))).toEqual([]);
   });
 });

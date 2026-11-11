@@ -49,6 +49,15 @@ export const SettingsSchema = z.strictObject({
       linear: z.strictObject({ apiKeySecret: SecretKey }).optional(),
     })
     .optional(),
+  /** Read-only lessons from a local Feedback Graph (docs/feedback-graph.md). */
+  feedbackGraph: z
+    .strictObject({
+      url: HttpUrl,
+      /** SecretStore key holding the Feedback Graph API token. */
+      tokenSecret: SecretKey,
+      enabled: z.boolean(),
+    })
+    .optional(),
 });
 
 export type Settings = z.infer<typeof SettingsSchema>;
@@ -64,7 +73,8 @@ export const LOCAL_PROVIDERS: ReadonlySet<Settings["provider"]> = new Set(["null
 
 /**
  * Why `settings` break local-only mode (docs/security.md, ADR-007), or null. Local-only allows
- * only a local LLM provider and a loopback Mimir; connectors are blocked where they are used.
+ * only a local LLM provider, a loopback Mimir and a loopback Feedback Graph; connectors are
+ * blocked where they are used.
  */
 export function localOnlyViolation(st: Settings): string | null {
   if (!st.localOnly) return null;
@@ -72,6 +82,14 @@ export function localOnlyViolation(st: Settings): string | null {
     return `local-only mode allows only a local LLM provider (null or fake); turn local-only off to use ${st.provider}`;
   if (st.mimirUrl && !isLoopbackHostHeader(new URL(st.mimirUrl).host))
     return "local-only mode allows Mimir only on a loopback address";
+  return feedbackGraphLocalOnlyViolation(st);
+}
+
+/** Why an enabled Feedback Graph's URL breaks local-only mode (it must be loopback), or null. */
+export function feedbackGraphLocalOnlyViolation(st: Settings): string | null {
+  const fg = st.feedbackGraph;
+  if (st.localOnly && fg?.enabled && !isLoopbackHostHeader(new URL(fg.url).host))
+    return "local-only mode allows Feedback Graph only on a loopback address";
   return null;
 }
 

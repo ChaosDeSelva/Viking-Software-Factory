@@ -11,7 +11,8 @@ export type View =
   | "harnesses"
   | "runs"
   | "reviews"
-  | "deliveries";
+  | "deliveries"
+  | "autonomy";
 export type Theme = "light" | "dark";
 export interface Notice {
   kind: "info" | "error";

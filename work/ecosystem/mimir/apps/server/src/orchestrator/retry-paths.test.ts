@@ -361,6 +361,116 @@ describe("a session that cannot be created for a verification retry (A5)", () =>
   });
 });
 
+describe("the next attempt after a failed verification when the fleet is full", () => {
+  const retried = (h: Harness, taskId: string) =>
+    h
+      .events(["task.retried"])
+      .filter((e) => e.taskId === taskId)
+      .map(
+        (e) => e.payload as { from: string; attempt: number; reason?: string; deferred?: string },
+      );
+
+  // The live sequence: verification fails with attempts left, the relaunch finds every worker
+  // busy (`create_failed: No reachable, compatible fleet worker has capacity`).
+  it("waits for a worker instead of failing when the launch is refused for capacity", async () => {
+    let full = false;
+    let launches = 0;
+    const verifier = new ScriptedVerifier(["fail", "pass"]);
+    const h = await track({
+      overrides: { verifier },
+      wrapRuntime: (fake) =>
+        launching(fake, () => {
+          launches += 1;
+          if (full)
+            throw new MimirError(
+              "runtime_unavailable",
+              "No reachable, compatible fleet worker has capacity",
+              { reason: "capacity" },
+            );
+        }),
+    });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 2 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    expect(launches).toBe(1);
+    full = true;
+    await h.advance(1000);
+    // The refused relaunch: a failed session, but no failed task and no extra attempt.
+    expect(launches).toBe(2);
+    expect(failures(h, t)).toEqual([]);
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 1, agentId: null });
+    expect(retried(h, t)).toEqual([
+      expect.objectContaining({
+        from: "verifying",
+        attempt: 1,
+        reason: "verification_failed",
+        deferred: "awaiting_capacity",
+      }),
+    ]);
+    // Waits like any deferred launch (backoff, no hot loop, attempts kept).
+    for (let i = 0; i < 4; i++) {
+      await h.advance(CAPACITY_RETRY_MS * 2 ** i);
+      await h.tick();
+    }
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 1 });
+    expect(failures(h, t)).toEqual([]);
+
+    full = false;
+    await h.advance(60_000);
+    await until(h, t, "completed");
+    expect(h.task(t).attempt).toBe(1);
+    expect(failures(h, t)).toEqual([]);
+    await h.restart();
+    expect(h.task(t)).toMatchObject({ status: "completed", attempt: 1 });
+  });
+
+  it("does not even try a launch when the runtime says it is full", async () => {
+    const state = { full: false, launches: 0 };
+    const verifier = new ScriptedVerifier(["fail", "pass"]);
+    const h = await track({
+      overrides: { verifier },
+      wrapRuntime: (fake) => ({
+        ...launching(fake, () => {
+          state.launches += 1;
+        }),
+        atCapacity: () => state.full,
+      }),
+    });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 2 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    expect(state.launches).toBe(1);
+    const sessions = h.app.mimir.readModel.sessions.size;
+    state.full = true;
+    await h.advance(1000);
+    for (let i = 0; i < 5; i++) {
+      await h.advance(30_000);
+      await h.tick();
+    }
+    expect(state.launches).toBe(1);
+    expect(h.app.mimir.readModel.sessions.size).toBe(sessions);
+    expect(failures(h, t)).toEqual([]);
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 1 });
+    expect(h.app.mimir.orchestrator.capacityWaiting()).toEqual([t]);
+    expect(retried(h, t)).toEqual([
+      expect.objectContaining({
+        from: "verifying",
+        attempt: 1,
+        reason: "verification_failed",
+        deferred: "awaiting_capacity",
+      }),
+    ]);
+
+    state.full = false;
+    await until(h, t, "completed");
+    expect(state.launches).toBe(2);
+    expect(h.task(t).attempt).toBe(1);
+    expect(failures(h, t)).toEqual([]);
+  });
+});
+
 describe("the brief of an attempt after a failed verification (A7)", () => {
   it("tells an agent what failed, bounded and redacted; shell commands are left alone", async () => {
     const specs: RuntimeSessionSpec[] = [];

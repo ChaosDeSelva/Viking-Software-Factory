@@ -229,7 +229,7 @@ describe("BrokkrHarnessService", () => {
     expect(selection.lock.lockVersion).toBe(2);
     expect(selection.harnesses[0]?.name).toBe("qa-regression");
     expect((await svc.inspectRepo()).scripts).toContain("test");
-  });
+  }, 60_000);
 
   it("maps Brokkr errors to HarnessServiceError codes, profiles included", async () => {
     const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });

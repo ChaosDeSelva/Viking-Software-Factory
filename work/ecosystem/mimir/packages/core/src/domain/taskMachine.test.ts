@@ -29,6 +29,7 @@ const EVENTS: Record<TaskEvent["type"], TaskEvent> = {
   verification_gated: { type: "verification_gated" },
   verification_errored: { type: "verification_errored" },
   launch_deferred: { type: "launch_deferred" },
+  verification_deferred: { type: "verification_deferred" },
   runtime_blocked: { type: "runtime_blocked", reason: "needs input" },
   approval_needed: { type: "approval_needed", reason: "push" },
   input_received: { type: "input_received" },
@@ -134,6 +135,8 @@ const ALLOWED: ReadonlyArray<[State, TaskEvent["type"], TaskStatus]> = [
   // a verifying attempt that cannot go on fails once; a launch without runtime capacity waits
   ["verifying", "verification_errored", "failed"],
   ["leased", "launch_deferred", "ready"],
+  // the next attempt after a failed verification waits for a worker instead of failing
+  ["verifying", "verification_deferred", "ready"],
 ];
 
 it("launch_deferred gives the lease back without using an attempt", () => {
@@ -152,6 +155,20 @@ it("verification_errored fails the attempt without starting the next one", () =>
   const next = taskMachine.transition(verifying, { type: "verification_errored" });
   expect(next).toMatchObject({ status: "failed", attempt: 0 });
   expect(taskMachine.transition(next, { type: "retry" })).toMatchObject({ attempt: 1 });
+});
+
+it("verification_deferred queues the next attempt (no failure) and needs attempts left", () => {
+  const verifying = makeTask({
+    status: "verifying",
+    attempt: 0,
+    maxAttempts: 2,
+    agentId: "agt_01HZZZZZZZZZZZZZZZZZZZZZZZ" as never,
+    leaseExpiresAt: LEASE_AT,
+  });
+  const next = taskMachine.transition(verifying, { type: "verification_deferred" });
+  expect(next).toMatchObject({ status: "ready", attempt: 1, agentId: null, leaseExpiresAt: null });
+  const last = makeTask({ status: "verifying", attempt: 1, maxAttempts: 2 });
+  expect(taskMachine.can(last, "verification_deferred")).toBe(false);
 });
 
 const allowedKey = new Set(ALLOWED.map(([f, e]) => `${f}|${e}`));

@@ -241,6 +241,8 @@ export interface Settings {
     jira?: { baseUrl: string; email: string; apiTokenSecret: string };
     linear?: { apiKeySecret: string };
   };
+  /** `tokenSecret` names a SecretStore entry; it is never the token itself. */
+  feedbackGraph?: { url: string; tokenSecret: string; enabled: boolean };
 }
 
 export interface Capabilities {

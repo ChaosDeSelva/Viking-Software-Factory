@@ -80,7 +80,8 @@
         "usage.recorded",
         "approval.consumed",
         "artifact.collection_skipped",
-        "artifact.collection_truncated"
+        "artifact.collection_truncated",
+        "budget.updated"
       ]
     },
     "source": {

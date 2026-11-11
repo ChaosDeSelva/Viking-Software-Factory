@@ -34,6 +34,8 @@ The server serves every route in the contract below, plus the extra routes liste
 | `GET /v1/crews` | served |
 | `POST /v1/crews/{id}/pause` | served |
 | `POST /v1/crews/{id}/resume` | served |
+| `PATCH /v1/crews/{id}/budget` | served |
+| `PATCH /v1/missions/{id}/budget` | served |
 | `GET /v1/sessions/{id}` | served |
 | `GET /v1/tasks/{id}` | served |
 | `POST /v1/tasks/{id}/verify` | served |
@@ -396,6 +398,70 @@ Responses:
 |---|---|---|---|
 | `crew` | [Crew](#crew) | yes |  |
 | `semantics` | string | yes |  |
+
+- `default` Error (application/json): [ApiErrorBody](#apierrorbody)
+
+### PATCH /v1/crews/{id}/budget
+
+Raise, lower or replace the crew's budget limits (tasks blocked only by it resume on the next tick)
+
+Status: served
+
+| Parameter | In | Type | Required | Notes |
+|---|---|---|---|---|
+| `id` | path | string, min 1 | yes |  |
+
+Request body:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `limitTokens` | integer \| null | no |  |
+| `limitCost` | number \| null | no |  |
+| `warnAtFraction` | number, min 0, max 1 | no |  |
+| `enforce` | `hard` \| `soft` | no |  |
+| `onUnknown` | `allow` \| `block` | no |  |
+| `expectedVersion` | integer, min 0 | no |  |
+
+Responses:
+
+- `200` OK (application/json)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `budget` | [BudgetPolicy](#budgetpolicy) | yes |  |
+| `changed` | boolean | yes |  |
+
+- `default` Error (application/json): [ApiErrorBody](#apierrorbody)
+
+### PATCH /v1/missions/{id}/budget
+
+Raise, lower or replace the mission's budget limits (tasks blocked only by it resume on the next tick)
+
+Status: served
+
+| Parameter | In | Type | Required | Notes |
+|---|---|---|---|---|
+| `id` | path | string, min 1 | yes |  |
+
+Request body:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `limitTokens` | integer \| null | no |  |
+| `limitCost` | number \| null | no |  |
+| `warnAtFraction` | number, min 0, max 1 | no |  |
+| `enforce` | `hard` \| `soft` | no |  |
+| `onUnknown` | `allow` \| `block` | no |  |
+| `expectedVersion` | integer, min 0 | no |  |
+
+Responses:
+
+- `200` OK (application/json)
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `budget` | [BudgetPolicy](#budgetpolicy) | yes |  |
+| `changed` | boolean | yes |  |
 
 - `default` Error (application/json): [ApiErrorBody](#apierrorbody)
 
@@ -930,6 +996,22 @@ Responses:
 | `agentKind` | string, min 1 | yes |  |
 | `name` | string, min 1 | yes |  |
 
+### BudgetPolicy
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | yes |  |
+| `createdAt` | string | yes |  |
+| `updatedAt` | string | yes |  |
+| `version` | integer, min 0 | yes |  |
+| `missionId` | string \| null | yes |  |
+| `crewId` | string \| null | yes |  |
+| `limitTokens` | integer \| null | yes |  |
+| `limitCost` | number \| null | yes |  |
+| `warnAtFraction` | number, min 0, max 1 | yes |  |
+| `enforce` | `hard` \| `soft` | no |  |
+| `onUnknown` | `allow` \| `block` | no |  |
+
 ### Artifact
 
 | Field | Type | Required | Notes |
@@ -953,7 +1035,7 @@ Responses:
 | `sequence` | integer, min 0 | yes |  |
 | `occurredAt` | string | yes |  |
 | `observedAt` | string | yes |  |
-| `type` | `mission.created` \| `mission.started` \| `mission.paused` \| `mission.resumed` \| `mission.cancelled` \| `mission.completed` \| `task.created` \| `task.ready` \| `task.leased` \| `task.started` \| `task.blocked` \| `task.verifying` \| `task.completed` \| `task.failed` \| `task.cancelled` \| `task.retried` \| `session.requested` \| `session.started` \| `session.state_changed` \| `session.output` \| `session.exited` \| `session.lost` \| `tool.invoked` \| `tool.completed` \| `git.worktree_created` \| `git.worktree_removed` \| `git.commit_observed` \| `git.conflict_detected` \| `test.run_completed` \| `approval.requested` \| `approval.decided` \| `approval.expired` \| `budget.warning` \| `budget.exceeded` \| `policy.denied` \| `recovery.reconciled` \| `recovery.unknown_marked` \| `summary.created` \| `artifact.recorded` \| `mission.failed` \| `session.input` \| `project.created` \| `project.updated` \| `crew.created` \| `crew.scheduling_changed` \| `usage.recorded` \| `approval.consumed` \| `artifact.collection_skipped` \| `artifact.collection_truncated` | yes |  |
+| `type` | `mission.created` \| `mission.started` \| `mission.paused` \| `mission.resumed` \| `mission.cancelled` \| `mission.completed` \| `task.created` \| `task.ready` \| `task.leased` \| `task.started` \| `task.blocked` \| `task.verifying` \| `task.completed` \| `task.failed` \| `task.cancelled` \| `task.retried` \| `session.requested` \| `session.started` \| `session.state_changed` \| `session.output` \| `session.exited` \| `session.lost` \| `tool.invoked` \| `tool.completed` \| `git.worktree_created` \| `git.worktree_removed` \| `git.commit_observed` \| `git.conflict_detected` \| `test.run_completed` \| `approval.requested` \| `approval.decided` \| `approval.expired` \| `budget.warning` \| `budget.exceeded` \| `policy.denied` \| `recovery.reconciled` \| `recovery.unknown_marked` \| `summary.created` \| `artifact.recorded` \| `mission.failed` \| `session.input` \| `project.created` \| `project.updated` \| `crew.created` \| `crew.scheduling_changed` \| `usage.recorded` \| `approval.consumed` \| `artifact.collection_skipped` \| `artifact.collection_truncated` \| `budget.updated` | yes |  |
 | `source` | string, min 1 | yes |  |
 | `sourceEventId` | string | no |  |
 | `provenance` | `observed` \| `derived` \| `summarized` | yes |  |
@@ -974,5 +1056,6 @@ Responses:
 | `version` | integer, min 0 | yes |  |
 | `agentId` | string | yes |  |
 | `tokens` | integer \| null | yes |  |
+| `cachedTokens` | integer, min 0 | yes |  |
 | `estimatedCost` | number \| null | yes |  |
 | `source` | `measured` \| `estimated` \| `unavailable` | yes |  |
