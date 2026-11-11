@@ -48,6 +48,8 @@ Inline mission requests are limited to 4500 bytes, and returned evidence must fi
 
 The cloud schedule terminates expired instances bearing this fleet's exact ownership tag. Root volumes are encrypted and deleted on termination. The cleanup function does not delete the infrastructure stack or interface endpoints.
 
+Locally, an expired worker frees its slot only when AWS shows its instance is gone: its known instance ID is missing from a complete fleet listing, or no live instance carries its launch token. Otherwise the worker stays `unknown` and keeps its slot, and its history says to check EC2. Reconciliation keeps retrying.
+
 For test teardown, first terminate and verify every instance belonging to the unique test fleet. Then delete its exact stack ID, wait for `DELETE_COMPLETE`, and verify that its tagged volumes and VPC are absent. Keep the expiration infrastructure until all workers are terminated. Never delete resources by a shared name prefix or account wide inventory.
 
 ## Acceptance evidence

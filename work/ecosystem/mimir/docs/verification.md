@@ -49,6 +49,14 @@ user harnesses and organization policy, which can only strengthen the contract. 
 checks need the worktree's dependencies installed (`node_modules`); installing them stays a
 Mimir privileged action (`package.install`).
 
+Mimir passes Brokkr the task's base commit as `baseCommit`: the `baseSha` of the task's
+`git.worktree_created` event (Mimir's own record of where the worktree started), never a ref
+resolved inside the worktree, whose refs the agent can move. Only a full 40- or 64-hex commit id
+is passed. In `workspace-untrusted` mode a required check skipped because its `when` guard does
+not hold counts as not applicable only when the guard did not hold at the base commit either;
+without a base commit Brokkr makes such a verdict `incomplete`. A Brokkr build that predates
+`baseCommit` ignores the field.
+
 The task passes only when Brokkr's verdict is `passed` and the report is bound to the task
 (`report.taskId` is the Mimir task id) and to the head Mimir observed
 (`report.repository.commitSha` equals the manifest's `headSha`). The report is stored as the

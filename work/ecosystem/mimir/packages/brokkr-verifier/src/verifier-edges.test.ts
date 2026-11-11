@@ -93,6 +93,19 @@ describe("BrokkrVerifier with a stand-in SDK", () => {
     expect(seen.verify).not.toHaveProperty("env");
   });
 
+  it("passes the base commit as baseCommit only when it is a full commit id", async () => {
+    for (const base of ["b".repeat(40), "c".repeat(64)]) {
+      const { sdk, seen } = fakeSdk(report());
+      await new BrokkrVerifier({ sdk, dataDir: tmp() }).verify(input(tmp(), { baseRef: base }));
+      expect(seen.verify?.["baseCommit"]).toBe(base);
+    }
+    for (const base of ["main", "HEAD~1", "b".repeat(12), "B".repeat(40), "b".repeat(41), ""]) {
+      const { sdk, seen } = fakeSdk(report());
+      await new BrokkrVerifier({ sdk, dataDir: tmp() }).verify(input(tmp(), { baseRef: base }));
+      expect(seen.verify).not.toHaveProperty("baseCommit");
+    }
+  });
+
   it("passes builtinDir through", async () => {
     const { sdk, seen } = fakeSdk(report());
     await new BrokkrVerifier({ sdk, dataDir: tmp(), builtinDir: "/b" }).verify(input(tmp()));

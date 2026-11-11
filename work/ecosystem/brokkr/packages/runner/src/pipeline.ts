@@ -9,7 +9,7 @@ import {
   computeVerdict,
   exitCodeForVerdict,
   summarizeChecks,
-  treeDigest,
+  treeManifest,
   type AppliedException,
   type ApprovedException,
   type CheckResult,
@@ -187,18 +187,49 @@ async function scrubArtifacts(dir: string): Promise<Array<{ file: string; findin
   return found;
 }
 
+/** Tree digest of a harness (the lock's definition) plus each file's hash, or why it cannot be read. */
+interface HarnessSnapshot {
+  digest: string;
+  files: Map<string, string>;
+}
+
 /**
- * Tree digest of every harness directory in the set, keyed by `name@version`.
+ * Snapshot of every harness directory in the set, keyed by `name@version`.
  * Checks run as the same user as Brokkr, so one check can rewrite a script a
  * later check executes; comparing this before and after the checks detects it.
  */
-async function harnessDigests(set: ResolvedHarnessSet): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+async function harnessSnapshots(set: ResolvedHarnessSet): Promise<Map<string, HarnessSnapshot>> {
+  const out = new Map<string, HarnessSnapshot>();
   for (const h of set.harnesses) {
     const ref = `${h.manifest.metadata.name}@${h.manifest.metadata.version}`;
-    out.set(ref, await treeDigest(h.dir).catch((error: Error) => `unreadable: ${error.message}`));
+    try {
+      const m = await treeManifest(h.dir);
+      out.set(ref, {
+        digest: m.digest,
+        files: new Map(m.files.map((f, i) => [f, m.fileDigests[i]!])),
+      });
+    } catch (error) {
+      out.set(ref, { digest: `unreadable: ${(error as Error).message}`, files: new Map() });
+    }
   }
   return out;
+}
+
+const MAX_NAMED_CHANGES = 10;
+
+/** Which files differ between two snapshots, sorted by path, e.g. "added a; modified b". */
+function describeHarnessChanges(before: HarnessSnapshot, after: HarnessSnapshot): string {
+  const paths = [...new Set([...before.files.keys(), ...after.files.keys()])].sort();
+  const changes: string[] = [];
+  for (const path of paths) {
+    const a = before.files.get(path);
+    const b = after.files.get(path);
+    if (a === b) continue;
+    changes.push(`${a === undefined ? "added" : b === undefined ? "removed" : "modified"} ${path}`);
+  }
+  const shown = changes.slice(0, MAX_NAMED_CHANGES).join("; ");
+  const more = changes.length - MAX_NAMED_CHANGES;
+  return more > 0 ? `${shown}; and ${more} more` : shown;
 }
 
 function toResult(
@@ -351,7 +382,7 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
     });
   }
 
-  const harnessesBefore = await harnessDigests(options.set);
+  const harnessesBefore = await harnessSnapshots(options.set);
   options.onEvent?.({ type: "run-start", runId: run.id, runDir: run.dir, checks: planned.length });
   const results = new Map<string, CheckResult>();
   /** Check id → why its not-applicable skip is not trusted (workspace-untrusted mode). */
@@ -565,10 +596,16 @@ export async function runVerification(options: VerifyOptions): Promise<VerifyOut
     }
   }
 
-  for (const [ref, after] of await harnessDigests(options.set)) {
+  // The lock pins every file in the harness directory (no ignore list), so any write there,
+  // a new cache file included, is a change: new files can alter what locked scripts load.
+  for (const [ref, after] of await harnessSnapshots(options.set)) {
     const before = harnessesBefore.get(ref)!;
-    if (after === before) continue;
-    const message = `harness ${ref} changed during the run (${before} before the checks, ${after} after): later checks may not have run what the lock pins`;
+    if (after.digest === before.digest) continue;
+    const changes =
+      before.digest.startsWith("unreadable:") || after.digest.startsWith("unreadable:")
+        ? ""
+        : describeHarnessChanges(before, after);
+    const message = `harness ${ref} changed during the run (${before.digest} before the checks, ${after.digest} after${changes ? `; ${changes}` : ""}): later checks may not have run what the lock pins, and the lock covers every file in the harness directory, so checks must not write there`;
     blocked.push(`harness_tampered: ${message}`);
     decisions.push({
       policy: "lock-integrity",

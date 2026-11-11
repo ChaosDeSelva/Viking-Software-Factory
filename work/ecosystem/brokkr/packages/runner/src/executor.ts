@@ -4,7 +4,7 @@ import { mkdir, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
-import type { CheckReason } from "@brokkr/core";
+import { escapesBase, type CheckReason } from "@brokkr/core";
 import { ProcessTracker, outputPipeHolders } from "./tracker.js";
 
 /** Streaming output filter (e.g. secret redaction) applied before output is stored anywhere. */
@@ -107,8 +107,7 @@ export async function resolveWorkingDirectory(
   }
   const target = resolve(root, cwd);
   const lexical = relative(root, target);
-  if (lexical.startsWith("..") || isAbsolute(lexical))
-    return { ok: false, error: `cwd '${cwd}' is outside the workspace` };
+  if (escapesBase(lexical)) return { ok: false, error: `cwd '${cwd}' is outside the workspace` };
   let real: string;
   try {
     real = await realpath(target);
@@ -116,7 +115,7 @@ export async function resolveWorkingDirectory(
     return { ok: false, error: `cwd '${cwd}' does not exist` };
   }
   const rel = relative(root, real);
-  if (rel.startsWith("..") || isAbsolute(rel))
+  if (escapesBase(rel))
     return { ok: false, error: `cwd '${cwd}' resolves to ${real}, outside the workspace` };
   return { ok: true, dir: real };
 }

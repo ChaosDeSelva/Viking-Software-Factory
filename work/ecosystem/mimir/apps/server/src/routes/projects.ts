@@ -20,6 +20,7 @@ import {
   findCredentialShapes,
   redactPayload,
   type CredentialShape,
+  type PayloadRedactor,
 } from "@mimir/core";
 import type { FastifyInstance } from "fastify";
 import { emitProjected } from "../emit.js";
@@ -131,9 +132,14 @@ export function credentialFields(name: string, settings: unknown): CredentialFie
 /**
  * Fields the event log's redactor would rewrite (a secret-looking key such as `NPM_TOKEN`, or
  * text such as `password=…`) although they have no credential shape. Stored, they would be
- * served and handed to agents as `[REDACTED:…]` instead of what the operator sent.
+ * served and handed to agents as `[REDACTED:…]` instead of what the operator sent. `redactor` must
+ * be the event store's own (its `payloadRedactor`, with any extra patterns).
  */
-export function redactedFields(name: string, settings: unknown): CredentialField[] {
+export function redactedFields(
+  name: string,
+  settings: unknown,
+  redactor: PayloadRedactor = (p) => redactPayload(p),
+): CredentialField[] {
   const out: CredentialField[] = [];
   const diff = (value: unknown, stored: unknown, path: string) => {
     if (typeof value === "string") {
@@ -151,7 +157,7 @@ export function redactedFields(name: string, settings: unknown): CredentialField
     }
   };
   const value = JSON.parse(JSON.stringify({ name, settings })) as Record<string, unknown>;
-  const stored = redactPayload(value) as Record<string, unknown>;
+  const stored = redactor(value) as Record<string, unknown>;
   diff(value["name"], stored["name"], "name");
   diff(value["settings"], stored["settings"], "settings");
   return out;
@@ -161,9 +167,9 @@ export function redactedFields(name: string, settings: unknown): CredentialField
  * Project name and settings are stored verbatim (the event log) and returned by the API, so
  * credentials are refused (422) rather than silently rewritten. Values are never echoed.
  */
-function assertNoCredentials(name: string, settings: unknown): void {
+function assertNoCredentials(name: string, settings: unknown, redactor: PayloadRedactor): void {
   const fields = credentialFields(name, settings);
-  if (fields.length === 0) fields.push(...redactedFields(name, settings));
+  if (fields.length === 0) fields.push(...redactedFields(name, settings, redactor));
   if (fields.length === 0) return;
   throw new MimirError(
     "validation_failed",
@@ -208,7 +214,7 @@ export function projectRoutes(app: FastifyInstance): void {
     "/v1/projects",
     idempotent(ctx, "project.create", async (request) => {
       const body = parseWith(CreateProjectRequestSchema, request.body);
-      assertNoCredentials(body.name, body.settings ?? {});
+      assertNoCredentials(body.name, body.settings ?? {}, ctx.payloadRedactor);
       const repoPath = await resolveRepoPath(body.repoPath, ctx.allowedRoots);
       assertTestCommandAllowed(body.settings ?? {}, repoPath);
       if ([...ctx.readModel.projects.values()].some((p) => p.repoPath === repoPath)) {
@@ -248,7 +254,7 @@ export function projectRoutes(app: FastifyInstance): void {
       const body = parseWith(UpdateProjectRequestSchema, request.body);
       const current = ctx.readModel.projects.get(id);
       if (!current) throw new MimirError("not_found", `project ${id} not found`, { projectId: id });
-      assertNoCredentials(current.name, body.settings);
+      assertNoCredentials(current.name, body.settings, ctx.payloadRedactor);
       assertTestCommandAllowed(body.settings, current.repoPath);
       if (isDeepStrictEqual(current.settings, body.settings)) {
         const same: UpdateProjectResponse = { project: current };

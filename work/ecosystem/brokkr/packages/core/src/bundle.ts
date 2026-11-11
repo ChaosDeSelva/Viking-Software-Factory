@@ -1,10 +1,11 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { mkdir, readFile, readdir, rmdir, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { PreparedContext, PreparedFile } from "./domain.js";
 import { z } from "zod";
 import { fileDigest, sha256Digest } from "./digest.js";
 import { Sha256DigestSchema } from "./schemas.js";
+import { escapesBase } from "./contained.js";
 import { BrokkrError } from "./errors.js";
 
 export const LEDGER_FILE = ".brokkr-ledger.json";
@@ -37,7 +38,7 @@ function toPosix(p: string): string {
 
 function isInside(parent: string, child: string): boolean {
   const rel = relative(parent, child);
-  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  return rel !== "" && !escapesBase(rel);
 }
 
 /**

@@ -185,6 +185,25 @@ test('an expired worker whose instance is no longer listed is settled as termina
  const {provider,calls}=fixture();await assert.rejects(provider.transition(expired,'terminate'),/ownership/);assert.equal(calls.some(c=>c.key==='ec2/terminate-instances'),false);
 });
 
+test('an expired worker is settled as terminated only on positive evidence that its instance is gone',async()=>{
+ const past=new Date(Date.now()-60000).toISOString();
+ const unlaunched={...worker,instanceId:undefined,state:'unknown',expiresAt:past};
+ // Answers the fleet (tag) listing and the launch-token listing separately.
+ const split=(fleet,token)=>{const calls=[];const base=fixture();const request=async(service,operation,input)=>{if(operation==='describe-instances'){calls.push(input.Filters[0].Name);return structuredClone(input.Filters[0].Name==='client-token'?token:fleet);}return base.provider.request(service,operation,input);};return {provider:new AwsProvider(config,request),calls};};
+ const gone=await fixture().provider.inspect({...worker,expiresAt:past});assert.equal(gone.state,'terminated');assert.equal(gone.attention,undefined);
+ const reported=await fixture(inventory(tagged('i-123','worker','terminated'))).provider.inspect({...worker,expiresAt:past});assert.equal(reported.state,'terminated');assert.equal(reported.ownershipConfirmed,true);
+ const neverLaunched=split({Reservations:[]},{Reservations:[]});const settled=await neverLaunched.provider.inspect(unlaunched);
+ assert.equal(settled.state,'terminated');assert.deepEqual(neverLaunched.calls,['tag:skidbladnir:fleet','client-token']);
+ const endedLaunch=await split({Reservations:[]},{Reservations:[{Instances:[{InstanceId:'i-5',State:{Name:'terminated'}}]}]}).provider.inspect(unlaunched);assert.equal(endedLaunch.state,'terminated');
+ for(const [label,seen] of [
+  ['untagged instance still running',await split({Reservations:[]},{Reservations:[{Instances:[{InstanceId:'i-5',State:{Name:'running'}}]}]}).provider.inspect(unlaunched)],
+  ['no launch token to look up',await split({Reservations:[]},{Reservations:[]}).provider.inspect({...unlaunched,requestId:undefined})],
+  ['incomplete launch-token listing',await split({Reservations:[]},{Reservations:[],NextToken:'more'}).provider.inspect(unlaunched)],
+  ['incomplete fleet listing',await split({Reservations:[],NextToken:'more'},{Reservations:[]}).provider.inspect({...worker,expiresAt:past})],
+ ]){assert.equal(seen.state,'unknown',label);assert.equal(seen.ownershipConfirmed,false,label);assert.match(seen.attention,/not confirmed the instance is gone/,label);}
+ const found=await fixture(inventory(tagged('i-123','worker'))).provider.inspect({...worker,attention:'stale'});assert.equal(found.state,'running');assert.equal('attention' in found,false);
+});
+
 test('lifecycle actions use the confirmed instance and only from an allowed state',async()=>{
  for(const [action,from,operation,to] of [['start','stopped','start-instances','starting'],['stop','running','stop-instances','stopping'],['reboot','running','reboot-instances','running'],['terminate','stopped','terminate-instances','terminating'],['terminate','pending','terminate-instances','terminating']]){
   const {provider,calls}=fixture(inventory(tagged('i-other','someone-else'),tagged('i-123','worker',from)));

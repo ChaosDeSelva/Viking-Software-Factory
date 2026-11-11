@@ -792,19 +792,49 @@ function declaration(table: OptTable): Handler {
 
 // Secrets -------------------------------------------------------------------------------------
 
-function subcommandIs(args: readonly ShellWord[], table: Record<string, readonly string[] | true>) {
-  const positional = args.filter((w) => !w.text.startsWith("-")).map((w) => w.text);
-  // Global options can take a separate value (`aws --region us-east-1 ssm ...`), so the
-  // subcommand may follow other positional words: match it anywhere (the strict direction).
-  return positional.some((word, i) => {
-    const seconds = Object.hasOwn(table, word) ? table[word] : undefined;
-    return seconds === true || (seconds !== undefined && seconds.includes(positional[i + 1] ?? ""));
-  });
+/**
+ * Whether the command's subcommand path (its first one or two positional words) is in `table`.
+ * `globals` are the tool's global options, skipped with their values before and between the
+ * path words; any other option there (unknown, so its arity is too) or an unresolved word makes
+ * the answer "no", which leaves the command unclassified (approval).
+ */
+function subcommandIs(
+  args: readonly ShellWord[],
+  globals: OptTable,
+  table: Record<string, readonly string[] | true>,
+) {
+  const lead = getopt(globals, args);
+  if (!lead.ok) return false;
+  const [first, ...rest] = lead.operands;
+  if (!first || first.unresolved || !Object.hasOwn(table, first.text)) return false;
+  const seconds = table[first.text] as readonly string[] | true;
+  if (seconds === true) return true;
+  const after = getopt(globals, rest);
+  const second = after.ok ? after.operands[0] : undefined;
+  return second !== undefined && !second.unresolved && seconds.includes(second.text);
 }
+
+/** Each tool's global options; anything else before the subcommand path fails closed. */
+const globalOpts = (dsl: string) => opts(dsl, { permute: false });
+const NO_GLOBALS = globalOpts("");
+// `security -i` reads commands from stdin.
+const SECURITY_GLOBALS = globalOpts("h,i!,l,p=,q,v");
+const AWS_GLOBALS = globalOpts(
+  "region=,profile=,output=,endpoint-url=,query=,color=,ca-bundle=,cli-read-timeout=," +
+    "cli-connect-timeout=,cli-binary-format=,debug,no-paginate,no-cli-pager,no-verify-ssl," +
+    "no-sign-request",
+);
+const GCLOUD_GLOBALS = globalOpts(
+  "project=,account=,configuration=,billing-project=,impersonate-service-account=,format=," +
+    "verbosity=,q|quiet,log-http",
+);
+const OP_GLOBALS = globalOpts(
+  "account=,config=,session=,format=,encoding=,cache,debug,iso-timestamps,no-color",
+);
 
 const SECRET_TOOLS: Record<string, Handler> = {
   security: (args) =>
-    subcommandIs(args, {
+    subcommandIs(args, SECURITY_GLOBALS, {
       "find-generic-password": true,
       "find-internet-password": true,
       "find-certificate": true,
@@ -815,26 +845,26 @@ const SECRET_TOOLS: Record<string, Handler> = {
       ? SECRET_READ
       : UNCLASSIFIED,
   "secret-tool": (args) =>
-    subcommandIs(args, { lookup: true, search: true }) ? SECRET_READ : UNCLASSIFIED,
+    subcommandIs(args, NO_GLOBALS, { lookup: true, search: true }) ? SECRET_READ : UNCLASSIFIED,
   pass: () => SECRET_READ,
   op: (args) =>
-    subcommandIs(args, { read: true, inject: true, run: true, item: ["get"] })
+    subcommandIs(args, OP_GLOBALS, { read: true, inject: true, run: true, item: ["get"] })
       ? SECRET_READ
       : UNCLASSIFIED,
   gh: (args) => {
-    if (subcommandIs(args, { auth: ["token"] })) return SECRET_READ;
+    if (subcommandIs(args, NO_GLOBALS, { auth: ["token"] })) return SECRET_READ;
     if (
-      subcommandIs(args, { auth: ["status"] }) &&
+      subcommandIs(args, NO_GLOBALS, { auth: ["status"] }) &&
       args.some((w) => ["-t", "--show-token"].includes(w.text))
     ) {
       return SECRET_READ;
     }
-    if (subcommandIs(args, { pr: ["create"] })) return "pr.create";
-    if (subcommandIs(args, { pr: ["merge"] })) return "git.merge_protected";
+    if (subcommandIs(args, NO_GLOBALS, { pr: ["create"] })) return "pr.create";
+    if (subcommandIs(args, NO_GLOBALS, { pr: ["merge"] })) return "git.merge_protected";
     return UNCLASSIFIED;
   },
   aws: (args) =>
-    subcommandIs(args, {
+    subcommandIs(args, AWS_GLOBALS, {
       configure: ["get", "export-credentials"],
       sts: ["get-session-token", "assume-role"],
       secretsmanager: ["get-secret-value"],
@@ -843,7 +873,7 @@ const SECRET_TOOLS: Record<string, Handler> = {
       ? SECRET_READ
       : UNCLASSIFIED,
   gcloud: (args) =>
-    subcommandIs(args, { auth: ["print-access-token", "print-identity-token"] })
+    subcommandIs(args, GCLOUD_GLOBALS, { auth: ["print-access-token", "print-identity-token"] })
       ? SECRET_READ
       : UNCLASSIFIED,
 };

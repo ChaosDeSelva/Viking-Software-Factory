@@ -262,6 +262,15 @@ test('AWS reconciliation runs on the timer and surfaces then clears provider err
  const refused=await app.get(`/api/workers/${app.snapshot().workers[0].id}/readiness`);assert.equal(refused.status,400);assert.deepEqual(await refused.json(),{error:'credentials expired'});
 });
 
+test('an AWS worker that reconciliation cannot settle keeps its slot and records why it needs attention',async t=>{
+ const {provider}=cloud();const app=await start(t,{provider});
+ provider.inspect=async w=>({...w,state:'unknown',ownershipConfirmed:false,attention:'Check EC2 for this worker.'});
+ app.store.save({id:'aws-lost',name:'lost',provider:'aws',state:'unknown',expiresAt:new Date(Date.now()-60000).toISOString()},'AWS launch outcome unknown. Reconcile before launching again.');
+ await app.expire();
+ assert.equal(app.store.get('aws-lost').state,'unknown');assert.equal(app.store.get('aws-lost').attention,'Check EC2 for this worker.');
+ assert.equal(app.store.events()[0].message,'Check EC2 for this worker.');
+});
+
 test('an event stream whose first snapshot fails still receives later updates',async t=>{
  const {provider}=cloud();let broken=false,thrown=0;const templates=provider.config.templates;
  Object.defineProperty(provider.config,'templates',{get(){if(broken){thrown++;throw Error('snapshot unavailable');}return templates;}});

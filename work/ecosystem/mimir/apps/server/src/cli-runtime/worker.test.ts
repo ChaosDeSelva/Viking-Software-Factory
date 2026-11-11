@@ -160,3 +160,29 @@ it("forwards characters split across output chunks intact, per stream", async ()
     h.restore();
   }
 });
+
+it("flushes a character cut off at the end of a stream before reporting exit", async () => {
+  const h = await harness();
+  try {
+    h.message({ kind: "start", executable: "agent", args: [], cwd: "/tmp", env: {} });
+    h.child.stdout.emit(
+      "data",
+      Buffer.concat([Buffer.from("ok "), Buffer.from("ü").subarray(0, 1)]),
+    );
+    h.child.stderr.emit("data", Buffer.from("€").subarray(0, 2));
+    h.child.emit("close", 0);
+    const messages = h.send.mock.calls.map(
+      ([m]) => m as { kind: string; text?: string; stderr?: boolean },
+    );
+    const text = (stderr: boolean) =>
+      messages
+        .filter((m) => m.kind === "output" && m.stderr === stderr)
+        .map((m) => m.text)
+        .join("");
+    expect(text(false)).toBe("ok \uFFFD");
+    expect(text(true)).toBe("\uFFFD");
+    expect(messages.at(-1)).toEqual({ kind: "exit", code: 0 });
+  } finally {
+    h.restore();
+  }
+});

@@ -4,6 +4,14 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { BrokkrError } from "./errors.js";
 
 /**
+ * True when `rel`, a `path.relative(base, target)` result, leaves `base`: `..`, a
+ * leading `..` segment, or absolute (another drive). A name like `..generated` stays inside.
+ */
+export function escapesBase(rel: string): boolean {
+  return rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel);
+}
+
+/**
  * Check that `rel` names a regular file inside `base`: lexically contained,
  * not a symlink, and with a realpath inside the realpath of `base` (so no
  * symlinked directory on the way). Returns a problem description, or
@@ -12,7 +20,7 @@ import { BrokkrError } from "./errors.js";
 export function checkContainedFile(base: string, rel: string): string | undefined {
   const abs = resolve(base, rel);
   const lexical = relative(resolve(base), abs);
-  if (lexical === "" || lexical === ".." || lexical.startsWith(`..${sep}`) || isAbsolute(lexical)) {
+  if (lexical === "" || escapesBase(lexical)) {
     return `'${rel}' resolves outside ${base}`;
   }
   const stat = lstatSync(abs, { throwIfNoEntry: false });
@@ -26,7 +34,7 @@ export function checkContainedFile(base: string, rel: string): string | undefine
     return `'${rel}' cannot be resolved`;
   }
   const realRel = relative(realpathSync(base), real);
-  if (realRel === "" || realRel === ".." || realRel.startsWith(`..${sep}`) || isAbsolute(realRel)) {
+  if (realRel === "" || escapesBase(realRel)) {
     return `'${rel}' resolves outside ${base} through a symlinked directory`;
   }
   if (!stat.isFile()) return `'${rel}' is not a regular file`;

@@ -67,10 +67,17 @@ export class AwsProvider {
     if(tags[OWN]!==this.config.fleetId || (worker && tags['skidbladnir:worker']!==worker.id))throw Error('Instance ownership does not match this fleet and worker.');
     return tags;
   }
-  async inventory() {
+  async listing() {
     await this.identity();
     const data=await this.request('ec2','describe-instances',{Filters:[{Name:'tag:'+OWN,Values:[this.config.fleetId]}]});
-    return (data.Reservations??[]).flatMap(r=>r.Instances??[]).filter(i=>{this.owned(i);return true;});
+    return {instances:(data.Reservations??[]).flatMap(r=>r.Instances??[]).filter(i=>{this.owned(i);return true;}),complete:!data.NextToken};
+  }
+  async inventory() { return (await this.listing()).instances; }
+  // The client-token filter does not depend on tags, so it also sees an instance whose tags are not yet visible.
+  async launchGone(worker) {
+    if(!worker.requestId)return false;
+    const data=await this.request('ec2','describe-instances',{Filters:[{Name:'client-token',Values:[worker.requestId]}]});
+    return !data.NextToken && (data.Reservations??[]).flatMap(r=>r.Instances??[]).every(i=>i.State?.Name==='terminated');
   }
   async create(input,worker=this.prepare(input)) {
     let submitted=false;
@@ -100,14 +107,22 @@ export class AwsProvider {
   }
   async inspect(worker) {
     if(worker.fleetId!==this.config.fleetId || worker.accountId!==this.config.accountId || worker.region!==this.config.region)throw Error('Worker belongs to another AWS configuration.');
-    const instances=await this.inventory();
+    const {instances,complete}=await this.listing();
     const instance=instances.find(i=>i.InstanceId===worker.instanceId || (worker.requestId && i.ClientToken===worker.requestId) || (i.Tags??[]).some(t=>t.Key==='skidbladnir:worker'&&t.Value===worker.id));
-    // Past its lifetime and absent from the fleet inventory, the instance is gone (AWS stops listing
-    // terminated instances); settling it frees the local slot. Launch capacity is still checked against AWS.
-    if(!instance)return {...worker,ownershipConfirmed:false,state:worker.state==='terminated'||Date.parse(worker.expiresAt)<=Date.now()?'terminated':'unknown'};
+    const {attention,...base}=worker;
+    if(!instance){
+      const missing={...base,ownershipConfirmed:false};
+      if(worker.state==='terminated')return {...missing,state:'terminated'};
+      if(!(Date.parse(worker.expiresAt)<=Date.now()))return {...missing,state:'unknown'};
+      // Settling an expired worker frees its slot, so it needs positive evidence the instance is gone: its known ID
+      // is absent from a complete fleet listing (AWS stops listing terminated instances), or no live instance
+      // carries its launch token. Otherwise it may still be running unmatched, so keep the slot and keep looking.
+      if(complete && (worker.instanceId || await this.launchGone(worker)))return {...missing,state:'terminated'};
+      return {...missing,state:'unknown',attention:'Expired, but AWS has not confirmed the instance is gone. Check EC2 for this worker and terminate it if it is still running.'};
+    }
     this.owned(instance,worker);
     const state=({'pending':'starting','shutting-down':'terminating'})[instance.State?.Name]??instance.State?.Name??'unknown';
-    return {...worker,instanceId:instance.InstanceId,ownershipConfirmed:true,state};
+    return {...base,instanceId:instance.InstanceId,ownershipConfirmed:true,state};
   }
   async transition(worker,action) {
     const current=await this.inspect(worker);

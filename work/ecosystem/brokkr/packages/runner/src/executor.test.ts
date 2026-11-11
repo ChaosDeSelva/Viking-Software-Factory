@@ -5,6 +5,7 @@ import {
   CANCEL_GRACE_MS,
   CLEANUP_STEP_MS,
   LocalProcessExecutor,
+  resolveWorkingDirectory,
   type CheckExecutionRequest,
 } from "./index.js";
 import {
@@ -491,5 +492,34 @@ describe("LocalProcessExecutor: requests that cannot start", () => {
     );
     expect(result).toMatchObject({ state: "errored", exitCode: null, signal: "SIGKILL" });
     expect(result.error).toBe("terminated by signal SIGKILL");
+  });
+});
+
+describe("resolveWorkingDirectory", () => {
+  it("accepts a child directory whose name starts with '..' and rejects real escapes", async () => {
+    const ws = tmp();
+    mkdirSync(join(ws, "..generated", "app"), { recursive: true });
+    expect(await resolveWorkingDirectory(ws, "..generated/app")).toEqual({
+      ok: true,
+      dir: join(ws, "..generated", "app"),
+    });
+    expect(await resolveWorkingDirectory(ws, "../x")).toEqual({
+      ok: false,
+      error: "cwd '../x' is outside the workspace",
+    });
+    expect(await resolveWorkingDirectory(ws, "..")).toMatchObject({ ok: false });
+    expect(await resolveWorkingDirectory(ws, tmp())).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/must be relative/),
+    });
+  });
+
+  it("rejects a cwd whose realpath leaves the workspace", async () => {
+    const ws = tmp();
+    symlinkSync(tmp(), join(ws, "..link"));
+    expect(await resolveWorkingDirectory(ws, "..link")).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/^cwd '\.\.link' resolves to .*, outside the workspace$/),
+    });
   });
 });

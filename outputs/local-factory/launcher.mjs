@@ -39,6 +39,17 @@ export function launcherSettings(saved, { firstRun, mimirPort }) {
 export const defaultsMarker = sindriDataDir => join(sindriDataDir, '.launcher-defaults-applied');
 
 /**
+ * First run means no marker and no saved settings row. Sindri saves settings only when the operator or a
+ * launcher writes them, so a data directory from a launcher that predates the marker already has a row:
+ * its settings, including a deliberate `null` provider, are kept and only the marker is written.
+ */
+export function launcherDefaults(db, sindriDataDir, fs = { existsSync, writeFileSync }) {
+  const marker = defaultsMarker(sindriDataDir), marked = fs.existsSync(marker);
+  const saved = !marked && Boolean(db.prepare('SELECT 1 FROM server_settings WHERE id = 1').get());
+  return { firstRun: !marked && !saved, markApplied: () => { if (!marked) fs.writeFileSync(marker, new Date().toISOString() + '\n', { mode: 0o600 }); } };
+}
+
+/**
  * One shutdown shared by every signal and by a failed start: a second call waits for the first.
  * The access file goes first, then Heimdall, Sindri and Mimir; one step failing never skips the rest.
  */

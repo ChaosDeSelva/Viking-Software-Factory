@@ -35,6 +35,8 @@ export interface TreeManifest {
   digest: string;
   /** Every file covered by the digest (sorted). Nothing is ever excluded. */
   files: string[];
+  /** Hex SHA-256 of each file's bytes, index-aligned with `files`. */
+  fileDigests: string[];
 }
 
 /**
@@ -46,14 +48,17 @@ export interface TreeManifest {
 export async function treeManifest(dir: string): Promise<TreeManifest> {
   const files = await listTreeFiles(dir);
   const hash = createHash("sha256");
+  const fileDigests: string[] = [];
   for (const rel of files) {
     const bytes = await readFile(join(dir, ...rel.split("/")));
+    const fileHash = createHash("sha256").update(bytes).digest("hex");
+    fileDigests.push(fileHash);
     hash.update(rel);
     hash.update("\0");
-    hash.update(createHash("sha256").update(bytes).digest("hex"));
+    hash.update(fileHash);
     hash.update("\n");
   }
-  return { digest: `sha256:${hash.digest("hex")}`, files };
+  return { digest: `sha256:${hash.digest("hex")}`, files, fileDigests };
 }
 
 export async function treeDigest(dir: string): Promise<string> {

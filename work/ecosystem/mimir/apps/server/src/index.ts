@@ -1,7 +1,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import type { AuditLog, CommandLedger, EventStore, PolicyRule } from "@mimir/core";
+import {
+  redactPayload,
+  type AuditLog,
+  type CommandLedger,
+  type EventStore,
+  type PayloadRedactor,
+  type PolicyRule,
+} from "@mimir/core";
 import { GitManager } from "@mimir/git";
 import type { RuntimeAdapter } from "@mimir/protocol";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
@@ -54,6 +61,11 @@ export const DEFAULT_SSE_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
 
 export interface BuildServerOptions {
   store: EventStore;
+  /**
+   * The `payloadRedactor` `store` was opened with (default: `redactPayload`, no extra patterns).
+   * Project fields it would rewrite are refused instead of being stored rewritten.
+   */
+  payloadRedactor?: PayloadRedactor;
   ledger: CommandLedger;
   audit: AuditLog;
   runtime: RuntimeAdapter | null;
@@ -191,6 +203,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     runtimeReportsUsage: opts.runtimeReportsUsage ?? false,
     artifacts,
     allowedRoots: opts.allowedRoots ?? [],
+    payloadRedactor: opts.payloadRedactor ?? ((p) => redactPayload(p)),
     sse: {
       heartbeatMs: opts.sseHeartbeatMs ?? DEFAULT_SSE_HEARTBEAT_MS,
       maxBufferBytes: opts.sseMaxBufferBytes ?? DEFAULT_SSE_MAX_BUFFER_BYTES,

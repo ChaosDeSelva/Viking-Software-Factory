@@ -1,3 +1,4 @@
+import { openEventStore, redactPayload, type PayloadRedactor } from "@mimir/core";
 import { afterEach, describe, expect, it } from "vitest";
 import { AUTH, makeServer, tempGitRepo, type TestServer } from "../../src/test-helpers.js";
 
@@ -115,6 +116,35 @@ describe("security: project fields the event log would rewrite are refused", () 
       payload: { settings: { agent: { env: { NPM_TOKEN: "abc123" } } } },
     });
     expect(res.statusCode).toBe(422);
+    expect(server.app.mimir.readModel.projects.get(id)?.settings).toEqual({});
+  });
+
+  it("uses the store's redactor: a value matching an extra pattern is refused, not stored rewritten", async () => {
+    const repo = tempGitRepo();
+    cleanups.push(repo.cleanup);
+    const payloadRedactor: PayloadRedactor = (p) => redactPayload(p, [/ACME-[0-9]{6}/]);
+    server = makeServer(
+      { runtime: null, payloadRedactor },
+      openEventStore(":memory:", { payloadRedactor }),
+    );
+    const settings = { agent: { env: { LICENSE_ID: "ACME-123456" } } };
+    const res = await post({ name: "p", repoPath: repo.repo, settings }, "x");
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.details).toMatchObject({
+      reason: "credential_in_project_field",
+      fields: [{ field: "settings.agent.env.LICENSE_ID", kind: "redacted" }],
+    });
+    expect(res.body).not.toContain("123456");
+    expect(server.app.mimir.readModel.snapshot().projects).toEqual([]);
+    const created = await post({ name: "p", repoPath: repo.repo }, "y");
+    const id = created.json().project.id as string;
+    const patched = await server.app.inject({
+      method: "PATCH",
+      url: `/v1/projects/${id}`,
+      headers: { ...AUTH, "idempotency-key": "z" },
+      payload: { settings },
+    });
+    expect(patched.statusCode).toBe(422);
     expect(server.app.mimir.readModel.projects.get(id)?.settings).toEqual({});
   });
 });

@@ -25,7 +25,7 @@ export function createApp({ database = ':memory:', provider = new Simulator() } 
       try {
         for(const worker of store.list().filter(w=>!['terminated','failed'].includes(w.state))) {
           const updated=await provider.inspect(worker);
-          if(JSON.stringify(updated)!==JSON.stringify(worker)){store.save(updated,'AWS state reconciled.');changed=true;}
+          if(JSON.stringify(updated)!==JSON.stringify(worker)){store.save(updated,updated.attention??'AWS state reconciled.');changed=true;}
         }
         if(providerError){providerError=null;changed=true;}
       } catch(error){providerError=error.message;changed=true;}

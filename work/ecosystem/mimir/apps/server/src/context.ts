@@ -1,4 +1,4 @@
-import type { AuditLog, CommandLedger, EventStore } from "@mimir/core";
+import type { AuditLog, CommandLedger, EventStore, PayloadRedactor } from "@mimir/core";
 import type { RuntimeAdapter } from "@mimir/protocol";
 import type { ArtifactStore } from "./orchestrator/artifacts.js";
 import type { Orchestrator } from "./orchestrator/orchestrator.js";
@@ -19,6 +19,8 @@ export interface ServerContext {
   runtimeReportsUsage: boolean;
   artifacts: ArtifactStore;
   allowedRoots: readonly string[];
+  /** The event store's payload redactor, to predict how a payload will be stored. */
+  payloadRedactor: PayloadRedactor;
   sse: SseOptions;
 }
 

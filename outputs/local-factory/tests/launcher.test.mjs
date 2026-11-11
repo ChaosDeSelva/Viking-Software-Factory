@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync, copyFileSy
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureFleetConfig, checkLogins, launcherSettings, defaultsMarker, createShutdown, DEFAULT_FLEET, FIRST_RUN_DEFAULTS } from '../launcher.mjs';
+import { DatabaseSync } from 'node:sqlite';
+import { ensureFleetConfig, checkLogins, launcherSettings, defaultsMarker, launcherDefaults, createShutdown, DEFAULT_FLEET, FIRST_RUN_DEFAULTS } from '../launcher.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repository = resolve(here, '../../..');
@@ -55,6 +56,25 @@ test('agent defaults replace Sindri\'s null provider on the first run only', () 
   const chosen = { provider: 'codex-cli', model: 'm', localOnly: false, workerAgent: 'claude', connectors: { linear: { apiKeySecret: 'k' } } };
   assert.deepEqual(launcherSettings(chosen, { firstRun: true, mimirPort: '7700' }), { ...chosen, mimirUrl: 'http://127.0.0.1:7700', mimirTokenSecret: 'local.mimir.token' });
   assert.equal(defaultsMarker('/data/sindri'), '/data/sindri/.launcher-defaults-applied');
+});
+
+test('defaults apply only when there is neither a marker nor a saved settings row', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'launcher-defaults-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Sindri's settings table, as its migration creates it.
+  const db = new DatabaseSync(':memory:'); t.after(() => db.close());
+  db.exec('CREATE TABLE server_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings_json TEXT NOT NULL, updated_at TEXT NOT NULL)');
+  const marker = defaultsMarker(dir);
+  const fresh = launcherDefaults(db, dir);
+  assert.equal(fresh.firstRun, true); assert.equal(existsSync(marker), false, 'marked only after the settings are saved');
+  fresh.markApplied(); assert.equal(existsSync(marker), true); assert.equal(statSync(marker).mode & 0o777, 0o600);
+  assert.equal(launcherDefaults(db, dir).firstRun, false);
+  // A data directory from the launcher before the marker existed: settings saved, no marker.
+  rmSync(marker);
+  db.prepare("INSERT INTO server_settings VALUES (1, ?, '2026-01-01')").run(JSON.stringify({ provider: 'null', model: 'm', localOnly: true }));
+  const upgraded = launcherDefaults(db, dir);
+  assert.equal(upgraded.firstRun, false, 'an existing operator\'s settings are not reset');
+  upgraded.markApplied(); assert.equal(existsSync(marker), true);
+  const before = readFileSync(marker, 'utf8'); launcherDefaults(db, dir).markApplied(); assert.equal(readFileSync(marker, 'utf8'), before, 'an existing marker is left alone');
 });
 
 test('shutdown removes the access file, closes every service in order once, and survives failures', async t => {

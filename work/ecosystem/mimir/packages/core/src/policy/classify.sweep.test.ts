@@ -63,6 +63,31 @@ describe("credential CLIs with global options before the subcommand", () => {
     [["gcloud", "--project", "p", "auth", "print-access-token"], SECRET],
     [["op", "--account", "me", "read", "op://vault/item/field"], SECRET],
     [["aws", "--region", "us-east-1", "s3", "ls"], U],
+    [["aws", "ssm", "--region", "x", "get-parameter", "--name", "x"], SECRET],
+    [["gcloud", "--account=a", "--configuration", "c", "auth", "print-identity-token"], SECRET],
+    [["op", "--config", "/c", "item", "get", "x"], SECRET],
+    [["security", "-q", "find-generic-password", "-s", "x"], SECRET],
+  ]);
+});
+
+describe("a subcommand word in an argument or option value is not the subcommand", () => {
+  run([
+    [["secret-tool", "store", "--label", "x", "service", "search"], U],
+    [["gh", "issue", "create", "--title", "pr", "--body", "create"], U],
+    [["aws", "s3", "cp", "secretsmanager", "get-secret-value"], U],
+    [["gcloud", "compute", "ssh", "auth", "print-access-token"], U],
+    [["op", "item", "list", "read"], U],
+  ]);
+});
+
+describe("an unmodelled global option before the subcommand fails closed (approval)", () => {
+  run([
+    // its arity is unknown, so the next word may be its value or the subcommand
+    [["aws", "--new-flag", "x", "secretsmanager", "get-secret-value"], U],
+    [["gh", "--unknown", "pr", "create"], U],
+    [["gcloud", "--new-flag", "p", "auth", "print-access-token"], U],
+    [["security", "-i", "find-generic-password"], U],
+    [["aws", "$OPT", "secretsmanager", "get-secret-value"], U],
   ]);
 });
 

@@ -59,6 +59,10 @@ describe("VerifyInput binding (T12b)", () => {
       worktreePath: worktree.path,
       baseRef: worktree.baseSha,
     });
+    // the base is Mimir's own record of the worktree's start, a full commit id (Brokkr's baseCommit)
+    const created = h.events(["git.worktree_created"]).find((e) => e.taskId === t)!;
+    expect(input.baseRef).toBe((created.payload as { baseSha: string }).baseSha);
+    expect(input.baseRef).toMatch(/^[0-9a-f]{40}$/);
     expect(input.headSha).toMatch(/^[0-9a-f]{40}$/);
     // the head is the one recorded in the same step's changed-files manifest
     const manifestEvent = h

@@ -874,7 +874,7 @@ describe("required checks made not applicable by the work under test (workspace-
 
 describe("a harness that changes while its checks run", () => {
   /** Two real checks: the first is the work under test, the second a gate script shipped by the harness. */
-  async function gated(firstScript: string) {
+  async function gated(firstScript: string, extra: Record<string, string> = {}) {
     const ws = workspace();
     writeFileSync(join(ws, "first.mjs"), firstScript);
     const h = harness([
@@ -883,6 +883,7 @@ describe("a harness that changes while its checks run", () => {
     ]);
     mkdirSync(join(h.dir, "scripts"));
     writeFileSync(join(h.dir, "scripts", "gate.mjs"), "process.exit(1);\n");
+    for (const [rel, text] of Object.entries(extra)) writeFileSync(join(h.dir, rel), text);
     h.set.harnesses[0]!.digest = await treeDigest(h.dir);
     return { ws, h };
   }
@@ -912,6 +913,35 @@ writeFileSync(${JSON.stringify(join(h.dir, "scripts", "gate.mjs"))}, "process.ex
     );
     expect(report.policyDecisions).toContainEqual(
       expect.objectContaining({ policy: "lock-integrity", stage: "after", outcome: "deny" }),
+    );
+  });
+
+  it("names each harness file a check added, modified or removed", async () => {
+    // A cache write (Python bytecode) is a new file the lock does not cover: it still blocks,
+    // because the lock pins the whole tree and a new file can change what locked scripts load.
+    const { ws, h } = await gated(
+      `import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const dir = process.env.HARNESS_DIR;
+mkdirSync(join(dir, "__pycache__"));
+writeFileSync(join(dir, "__pycache__", "gate.cpython-312.pyc"), "bytecode");
+writeFileSync(join(dir, "scripts", "gate.mjs"), "process.exit(0);\\n");
+rmSync(join(dir, "scripts", "extra.mjs"));
+`,
+      { "scripts/extra.mjs": "" },
+    );
+    const { report } = await verify(h, new LocalProcessExecutor(), {
+      workspace: ws,
+      env: { PATH, HARNESS_DIR: h.dir },
+      composed: {
+        ...h.composed,
+        checks: [{ ...h.composed.checks[0]!, env: ["HARNESS_DIR"] }, h.composed.checks[1]!],
+      },
+    });
+    expect(report.verdict).toBe("blocked");
+    const reason = report.reasons.find((r) => r.includes("harness_tampered"))!;
+    expect(reason).toContain(
+      "added __pycache__/gate.cpython-312.pyc; removed scripts/extra.mjs; modified scripts/gate.mjs",
     );
   });
 

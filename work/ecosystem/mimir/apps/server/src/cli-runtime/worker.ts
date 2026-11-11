@@ -61,6 +61,14 @@ process.on(
     child.on("error", () => send({ kind: "error" }));
     child.on("close", (code) => {
       clearTimeout(timer);
+      // Both streams have ended: bytes a decoder held back (output cut mid-character) are
+      // emitted (as U+FFFD), not dropped.
+      if (bytes <= 32 * 1024 * 1024) {
+        decoders.forEach((decoder, i) => {
+          const rest = decoder.end();
+          if (rest) send({ kind: "output", text: rest, stderr: i === 1 });
+        });
+      }
       // Flush queued output and the terminal event before closing IPC. Immediate disconnect
       // can discard the exit message under heavy output and misreport a lost watchdog.
       if (process.connected)
