@@ -21,6 +21,13 @@ type Placement = { node: string; key: string; fingerprint: string; session: Runt
 type NodeState = { identity: string; draining: boolean };
 /** `details.reason` of a `runtime_unavailable` that only means "no free slot right now". */
 export const RUNTIME_AT_CAPACITY = "capacity";
+/** A runtime that can tell, without asking a worker, that a launch would only find it full. */
+export interface CapacityAware {
+  /** True only when a compatible worker exists and every one of them is busy right now. */
+  atCapacity(agentKind: string): boolean;
+}
+export const isCapacityAware = (runtime: object): runtime is CapacityAware =>
+  typeof (runtime as Partial<CapacityAware>).atCapacity === "function";
 const terminal = new Set(["completed", "failed", "stopped", "lost"]);
 /**
  * Node runtimes whose sessions live only in this process (`CliRuntime`: a worker dies with the
@@ -30,8 +37,10 @@ const IN_PROCESS_RUNTIMES = new Set(["cli", "tmux"]);
 /** One controller (protected by Mimir's store lock), durable placement before dispatch.
  * An uncertain dispatch reserves capacity until the SAME worker confirms its outcome.
  */
-export class FleetRuntime implements RuntimeAdapter {
+export class FleetRuntime implements RuntimeAdapter, CapacityAware {
   private placements = new Map<string, Placement>();
+  /** Agent kinds each worker last reported (`atCapacity` answers from these, without a call). */
+  private kinds = new Map<string, readonly string[]>();
   private states = new Map<string, NodeState>();
   private listeners = new Set<(event: RuntimeEvent) => void>();
   private subscriptions: { close(): void }[] = [];
@@ -106,8 +115,38 @@ export class FleetRuntime implements RuntimeAdapter {
     })();
     await this.ready;
   }
+  private async capabilitiesOf(node: FleetNode): Promise<RuntimeCapabilities> {
+    const caps = await node.runtime.capabilities();
+    this.kinds.set(node.id, caps.agentKinds);
+    return caps;
+  }
+  private activeOn(node: FleetNode): number {
+    return [...this.placements.values()].filter(
+      (p) => p.node === node.id && !terminal.has(p.session.state),
+    ).length;
+  }
+  /**
+   * The answer `createSession` would give as `RUNTIME_AT_CAPACITY`, from placements and the kinds
+   * the workers last reported. False whenever that is not certain (a free slot, or a full worker
+   * whose kinds are not known yet): the launch then decides.
+   */
+  atCapacity(agentKind: string): boolean {
+    let full = false;
+    for (const node of this.nodes) {
+      if (
+        this.states.get(node.id)!.draining ||
+        (node.agentKinds && !node.agentKinds.includes(agentKind))
+      )
+        continue;
+      const kinds = this.kinds.get(node.id);
+      if (this.activeOn(node) < node.capacity) {
+        if (kinds === undefined || kinds.includes(agentKind)) return false;
+      } else if (kinds?.includes(agentKind)) full = true;
+    }
+    return full;
+  }
   async capabilities(): Promise<RuntimeCapabilities> {
-    const caps = await Promise.all(this.nodes.map((n) => n.runtime.capabilities()));
+    const caps = await Promise.all(this.nodes.map((n) => this.capabilitiesOf(n)));
     return {
       runtime: "fleet",
       version: "1",
@@ -201,19 +240,16 @@ export class FleetRuntime implements RuntimeAdapter {
           (node.agentKinds && !node.agentKinds.includes(spec.agentKind))
         )
           continue;
-        const active = [...this.placements.values()].filter(
-          (p) => p.node === node.id && !terminal.has(p.session.state),
-        ).length;
+        const active = this.activeOn(node);
         if (active >= node.capacity) {
-          full ||= await node.runtime
-            .capabilities()
+          full ||= await this.capabilitiesOf(node)
             .then((c) => c.agentKinds.includes(spec.agentKind))
             .catch(() => false);
           continue;
         }
         try {
           if (
-            (await node.runtime.capabilities()).agentKinds.includes(spec.agentKind) &&
+            (await this.capabilitiesOf(node)).agentKinds.includes(spec.agentKind) &&
             (await node.runtime.health()).ok
           )
             eligible.push({ node, load: active / node.capacity });

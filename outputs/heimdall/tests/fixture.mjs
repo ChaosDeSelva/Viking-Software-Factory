@@ -94,7 +94,8 @@ export async function fixture() {
   let disconnected = false,
     seq = 0;
   const server = createServer(async (req, res) => {
-    requests.push({ method: req.method, path: req.url, headers: req.headers });
+    const seen = { method: req.method, path: req.url, headers: req.headers };
+    requests.push(seen);
     if (disconnected) {
       res.writeHead(503);
       res.end('{"message":"Source offline"}');
@@ -144,6 +145,29 @@ export async function fixture() {
       );
     if (req.url === "/v1/executions/exe_demo")
       return res.end(JSON.stringify(api.execution));
+    const profile = /^\/v1\/projects\/([\w-]+)\/profile$/.exec(req.url);
+    if (profile && req.method === "GET")
+      return res.end(JSON.stringify({ profile: api.profiles[profile[1]] ?? {} }));
+    if (profile && req.method === "PUT") {
+      let b = "";
+      for await (const chunk of req) b += chunk;
+      seen.body = b;
+      if (req.headers["x-sindri-approval"] !== "sindri-human-secret") {
+        res.writeHead(403);
+        return res.end(
+          '{"error":{"code":"approval_required","message":"approvals need a valid approval secret"}}',
+        );
+      }
+      const saved = (api.profiles[profile[1]] = JSON.parse(b));
+      return res.end(
+        JSON.stringify({
+          profile: saved,
+          harness: saved.checks?.length
+            ? { name: "sindri-fixture-1a2b3c4d", version: "1.0.0" }
+            : null,
+        }),
+      );
+    }
     const record = /^\/v1\/(specs|plans|intakes|deliveries)\/([\w-]+)(\/local)?$/.exec(
       req.url,
     );
@@ -187,6 +211,7 @@ export async function fixture() {
     if (req.method === "POST") {
       let b = "";
       for await (const chunk of req) b += chunk;
+      seen.body = b;
       // Tests set `intercept` to answer a command themselves (slow, failing or refused).
       if (await api.intercept?.(req, res, b)) return;
       if (req.url === "/v1/approval-session") {
@@ -257,6 +282,22 @@ export async function fixture() {
           }),
         );
       }
+      if (req.url === "/v1/executions/exe_demo/cancel") {
+        const run = api.execution.execution;
+        if (["verified_pending_review", "cancelled", "failed"].includes(run.status)) {
+          res.writeHead(409);
+          return res.end(
+            JSON.stringify({
+              error: {
+                code: "invalid_state",
+                message: `the execution has finished (${run.status}); there is nothing to cancel`,
+              },
+            }),
+          );
+        }
+        run.status = "cancelled";
+        return res.end(JSON.stringify(api.execution));
+      }
       if (req.url === "/v1/executions/exe_demo/approvals/apr_demo") {
         if (req.headers["x-sindri-approval"] !== "sindri-human-secret") {
           res.writeHead(403);
@@ -282,6 +323,8 @@ export async function fixture() {
   const api = {
     intercept: null,
     workflow: null,
+    // Execution profiles by Sindri project ID, as saved through PUT.
+    profiles: {},
     execution: {
       execution: { id: "exe_demo", mimirMissionId: "msn_demo" },
       tasks: [],

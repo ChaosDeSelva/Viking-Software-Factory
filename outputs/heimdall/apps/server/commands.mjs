@@ -6,13 +6,15 @@ const TIMEOUTS = {
   "task.verify": 180000,
   "execution.create": 120000,
   "plan.revise": 120000,
+  // Sindri stops the background run and cancels the Mimir mission before it answers.
+  "execution.cancel": 120000,
 };
 export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
 export function commandRoute(c) {
   const id = String(c.id ?? "");
   if (!/^[\w-]{1,200}$/.test(id)) throw Error("Invalid resource ID");
   const body = { ...(c.body ?? {}) };
-  let source, path;
+  let source, path, method = "POST";
   if (
     ["mission.pause", "mission.resume", "mission.cancel"].includes(c.action)
   ) {
@@ -63,6 +65,14 @@ export function commandRoute(c) {
   } else if (["execution.assess", "execution.export"].includes(c.action)) {
     source = "sindri";
     path = `/v1/executions/${id}/${c.action.endsWith("export") ? "pr" : "assess"}`;
+  } else if (c.action === "execution.cancel") {
+    source = "sindri";
+    path = `/v1/executions/${id}/cancel`;
+  } else if (c.action === "project.profile") {
+    // The body is the whole profile; Sindri replaces the stored one with it.
+    source = "sindri";
+    method = "PUT";
+    path = `/v1/projects/${id}/profile`;
   } else if (c.action === "delivery.rework") {
     // Sindri drafts a follow-up specification that builds on the delivered results.
     source = "sindri";
@@ -100,5 +110,5 @@ export function commandRoute(c) {
   } else throw Error("Unsupported operator action");
   if (JSON.stringify(body).length > 500000)
     throw Error("Command body too large");
-  return { source, path, body };
+  return { source, path, body, method };
 }

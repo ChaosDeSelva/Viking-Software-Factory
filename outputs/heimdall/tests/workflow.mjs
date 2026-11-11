@@ -46,10 +46,11 @@ source.workflow = {
   local: {
     baseSha: "base000",
     resultCommit: "abc1234def",
-    patch: "diff --git a/total.js b/total.js",
+    patch: "diff --git a/total.js b/total.js\n+const key = 'sk-abcdefghijklmnop1234';\n",
     repoPath: "/example/invoice",
     apply: "git -C /example/invoice merge abc1234def",
     undo: "git -C /example/invoice reset --hard base000",
+    followUp: { baseSha: "mid1111", patch: "diff --git a/round.js b/round.js\n+Bearer abcdefghijklmnop1234\n" },
   },
 };
 source.execution.execution.status = "verified_pending_review";
@@ -60,6 +61,8 @@ source.data.tasks.push({
   title: "Abandoned spike",
   status: "cancelled",
 });
+// Known to Mimir only, so it has no Sindri record to hold a profile.
+source.data.projects.push({ id: "prj_solo", name: "Solo tools", repoPath: "/example/solo" });
 const app = await startHeimdall({
   env: {
     HEIMDALL_PORT: "0",
@@ -107,6 +110,21 @@ const pair = async () => {
   await page.getByRole("button", { name: "Pair approval session" }).click();
   await page.getByText("Paired", { exact: true }).waitFor();
 };
+const readDownload = async (button) => {
+  const [download] = await Promise.all([page.waitForEvent("download"), button.click()]);
+  const chunks = [];
+  for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+  return [download.suggestedFilename(), Buffer.concat(chunks).toString("utf8")];
+};
+const projectCard = (name) =>
+  page.locator(".project-card").filter({ has: page.getByRole("heading", { name }) });
+const openProfile = async (name) => {
+  await nav("Projects");
+  await projectCard(name).getByRole("button", { name: "Execution profile" }).click();
+  await inspector.getByRole("heading", { name: "Execution profile" }).waitFor();
+};
+const runs = page.locator("section").filter({ has: page.getByRole("heading", { name: "Runs", exact: true }) });
+const review = inspector.getByRole("button", { name: "Review profile change" });
 const posts = (path) =>
   source.requests.filter((r) => r.method === "POST" && r.path === path).length;
 try {
@@ -143,6 +161,16 @@ try {
   assert.doesNotMatch(await questions.nth(0).innerText(), /non-blocking/);
   assert.match(await questions.nth(1).innerText(), /non-blocking[\s\S]*currency symbol/);
   assert.equal(await page.getByRole("button", { name: "Load clarification questions" }).count(), 0);
+  await closeInspector();
+  await openProfile("Invoice library");
+  await inspector.getByText("No checks set: plans use the built-in checks, which assume a Node project.").first().waitFor();
+  await inspector.getByText("Edit execution profile").click();
+  assert.equal(await review.isDisabled(), true);
+  assert.match(await review.getAttribute("title"), /Unlock operator controls/);
+  await closeInspector();
+  await openProfile("Solo tools");
+  await inspector.getByText(/A profile needs the project registered in Sindri/).waitFor();
+  assert.equal(await review.count(), 0);
   await closeInspector();
 
   console.log("Gating");
@@ -247,8 +275,93 @@ try {
   await inspector.getByRole("button", { name: "View local delivery" }).click();
   await inspector.getByText("git -C /example/invoice merge abc1234def", { exact: true }).waitFor();
   await inspector.getByText("git -C /example/invoice reset --hard base000", { exact: true }).waitFor();
-  await inspector.getByText("Preview (may be shortened or altered for display)").waitFor();
-  assert.equal(await page.getByRole("button", { name: /Download/ }).count(), 0);
+  assert.deepEqual(await readDownload(inspector.getByRole("button", { name: "Download result.patch" })), [
+    "result.patch",
+    source.workflow.local.patch,
+  ]);
+  assert.deepEqual(await readDownload(inspector.getByRole("button", { name: "Download follow-up.patch" })), [
+    "follow-up.patch",
+    source.workflow.local.followUp.patch,
+  ]);
+  const delivered = await inspector.innerText();
+  const followUpAt = delivered.indexOf("Follow-up only — use this if you already applied the earlier delivery");
+  assert.ok(followUpAt > 0 && followUpAt < delivered.indexOf("Full patch"), "the follow-up comes first");
+  assert.doesNotMatch(delivered, /Preview/);
+  await closeInspector();
+
+  console.log("Execution profile");
+  await openProfile("Invoice library");
+  await inspector.getByText("Edit execution profile").click();
+  assert.match(await review.getAttribute("title"), /Change the profile first/);
+  await inspector.getByRole("button", { name: "Add check" }).click();
+  assert.equal(await review.isDisabled(), true);
+  await inspector.getByLabel("ID", { exact: true }).fill("test");
+  await inspector.getByLabel("Command", { exact: true }).fill("make test 'two words' | tee");
+  await inspector.getByText('["make","test","two words","|","tee"]').waitFor();
+  await inspector.getByText(/Run directly, not through a shell/).waitFor();
+  await inspector.getByLabel(/^Working directory/).fill("src/app");
+  await inspector.getByLabel(/^Timeout in seconds/).fill("900");
+  assert.equal(await inspector.getByLabel("Required: work does not pass").isChecked(), true);
+  await inspector.getByRole("button", { name: "Add variable" }).click();
+  await inspector.getByLabel("Name", { exact: true }).fill("GIT_DIR");
+  await inspector.getByLabel("Value", { exact: true }).fill("/cache/go-build");
+  await inspector.getByText("Environment variable GIT_DIR cannot be set from a profile.").first().waitFor();
+  assert.equal(await review.isDisabled(), true);
+  await inspector.getByLabel("Name", { exact: true }).fill("GOCACHE");
+  await inspector.getByLabel(/^PATH additions/).fill("/opt/shims\n/opt/go/bin");
+  await inspector.getByLabel(/^Writable directories/).fill("/cache/go-build");
+  await inspector.getByLabel("Allow network access").check();
+  await inspector.getByText(/lets commands run by the agent reach the network/).waitFor();
+  await inspector.getByLabel(/^Verification timeout in minutes/).fill("45");
+  await review.click();
+  await send("Go project checks");
+  await confirmed();
+  await inspector.getByText("Checks are installed as harness sindri-fixture-1a2b3c4d.").waitFor();
+  const savedProfile = {
+    checks: [{ id: "test", command: ["make", "test", "two words", "|", "tee"], cwd: "src/app", timeoutSeconds: 900 }],
+    env: { GOCACHE: "/cache/go-build" },
+    pathPrepend: ["/opt/shims", "/opt/go/bin"],
+    codexSandbox: { writableRoots: ["/cache/go-build"], networkAccess: true },
+    verificationTimeoutMs: 2700000,
+  };
+  assert.deepEqual(source.profiles.prj_demo, savedProfile);
+  const put = source.requests.find((r) => r.method === "PUT");
+  assert.equal(put.path, "/v1/projects/prj_demo/profile");
+  assert.equal(put.headers["x-sindri-approval"], "sindri-human-secret");
+  // The form now shows what Sindri stored, so there is nothing to send.
+  assert.equal(await inspector.getByLabel("Command", { exact: true }).inputValue(), "make test 'two words' | tee");
+  assert.match(await review.getAttribute("title"), /Change the profile first/);
+  await inspector.getByRole("button", { name: "Remove check 1" }).click();
+  await review.click();
+  await send("Back to the built-in checks");
+  await confirmed();
+  await inspector.getByText("No checks set: plans use the built-in checks, which assume a Node project.").first().waitFor();
+  const { checks: _removed, ...withoutChecks } = savedProfile;
+  assert.deepEqual(source.profiles.prj_demo, withoutChecks);
+  await closeInspector();
+
+  console.log("Cancel a run");
+  await nav("Pipeline");
+  await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
+  const cancelRun = inspector.getByRole("button", { name: "Cancel run" });
+  assert.equal(await cancelRun.isDisabled(), true);
+  assert.match(await cancelRun.getAttribute("title"), /This run has ended/);
+  source.execution.execution.status = "running";
+  await app.hub.refresh();
+  await inspector.getByText(/Cancelling stops the run for good/).waitFor();
+  assert.equal(await cancelRun.isEnabled(), true);
+  await cancelRun.click();
+  await send("Wrong plan");
+  await confirmed();
+  await inspector.waitFor({ state: "hidden" });
+  await runs.getByText("ended without a delivery").waitFor();
+  assert.match(await runs.innerText(), /cancelled/);
+  assert.match(await runs.innerText(), /0 in progress · 1 failed or cancelled/);
+  const cancelPost = source.requests.find((r) => r.path === "/v1/executions/exe_demo/cancel");
+  assert.deepEqual(JSON.parse(cancelPost.body), { reason: "Wrong plan" });
+  await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
+  assert.equal(await cancelRun.isDisabled(), true);
+  assert.match(await cancelRun.getAttribute("title"), /status is cancelled/);
   await closeInspector();
 
   console.log("Project filter survives the ID change");
@@ -276,7 +389,7 @@ try {
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, local delivery, stable project filter and session loss.",
+    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, run cancel, stable project filter and session loss.",
   );
 } finally {
   await browser.close();

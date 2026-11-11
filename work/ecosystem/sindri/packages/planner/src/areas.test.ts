@@ -110,4 +110,43 @@ describe("deriveWorkAreas", () => {
       }).map((a) => a.kind),
     ).toEqual(["frontend", "security"]);
   });
+
+  it("gives a security-only criterion in a mixed ticket an implementer too", () => {
+    const mixed = deriveWorkAreas({
+      acceptanceCriteria: [
+        ac("AC-1", "An Export button on the reports page downloads the file"),
+        ac("AC-2", "The session secret is rotated on every deploy"),
+        ac("AC-3", "README documents the export limits"),
+      ],
+    });
+    expect(mixed.map((a) => [a.kind, a.acceptanceCriteria])).toEqual([
+      ["backend", ["AC-2"]],
+      ["frontend", ["AC-1"]],
+      ["security", ["AC-2"]],
+      ["docs", ["AC-3"]],
+    ]);
+    expect(mixed[0]!.reasons).toEqual(["AC-2 matches no implementation area; assigned to backend"]);
+    // An existing implementation area takes it only when it already covers the criterion.
+    expect(
+      deriveWorkAreas({
+        acceptanceCriteria: [
+          ac("AC-1", "The API endpoint returns 200"),
+          ac("AC-2", "The session secret is rotated on every deploy"),
+        ],
+      }).map((a) => [a.kind, a.acceptanceCriteria]),
+    ).toEqual([
+      ["backend", ["AC-1", "AC-2"]],
+      ["security", ["AC-2"]],
+    ]);
+    // The repository says where the work is: the impacted implementation area gets it.
+    expect(
+      deriveWorkAreas(
+        { acceptanceCriteria: [ac("AC-1", "No XSS in rendered names")] },
+        { impactedSystems: [{ area: "apps/web", paths: ["apps/web/src/Names.tsx"] }] },
+      ).map((a) => [a.kind, a.acceptanceCriteria]),
+    ).toEqual([
+      ["frontend", ["AC-1"]],
+      ["security", ["AC-1"]],
+    ]);
+  });
 });

@@ -8,6 +8,30 @@ export interface Project {
   updatedAt?: string;
 }
 
+export interface ProfileCheck {
+  id: string;
+  /** A label for people; not part of the generated harness. */
+  title?: string;
+  /** argv, run without a shell. */
+  command: string[];
+  /** Relative to the repository root. */
+  cwd?: string;
+  timeoutSeconds?: number;
+  /** Default true. */
+  required?: boolean;
+}
+
+/** How a project's repository is checked and what its tools need. Every field is optional. */
+export interface ExecutionProfile {
+  checks?: ProfileCheck[];
+  /** Network policy for the checks. Default `deny`. */
+  network?: "deny" | "allow";
+  env?: Record<string, string>;
+  pathPrepend?: string[];
+  codexSandbox?: { writableRoots?: string[]; networkAccess?: boolean };
+  verificationTimeoutMs?: number;
+}
+
 export interface BootstrapResult {
   indexed: string[];
   unchanged: string[];

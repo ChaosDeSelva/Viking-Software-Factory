@@ -1405,6 +1405,8 @@
 .project-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 20px; }
 .project-card .actions { margin-bottom: 0; }
+.profile-row { align-items: end; }
+.profile-row > button { margin-bottom: 12px; }
 .project-card h2 { overflow-wrap: anywhere; }
 .project-manager > input { max-width: 640px; }
 .project-manager > p { line-height: 1.6; max-width: 850px; }

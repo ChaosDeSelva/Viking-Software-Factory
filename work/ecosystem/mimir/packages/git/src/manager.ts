@@ -103,6 +103,18 @@ export interface GitManagerOptions {
   isTaskLive?: (taskId: string) => boolean | Promise<boolean>;
 }
 
+/** What {@link GitManager.exportResult} returns. */
+export interface ExportedResult {
+  /** The commit `patch` applies to. */
+  baseSha: string;
+  resultCommit: string;
+  patch: string;
+  /** A rework only: the change since the verified results the work started from. */
+  followUp?: { baseSha: string; patch: string };
+  /** A rework only: why `patch` is the follow-up and not the whole change. */
+  followUpOnly?: string;
+}
+
 export interface RegisterProjectInput {
   projectId: ProjectId;
   repoPath: string;
@@ -661,41 +673,64 @@ export class GitManager {
     return base;
   }
 
-  /** A binary-safe patch of immutable verified results, never the current agent worktree. */
+  /**
+   * A binary-safe patch of immutable verified results, never the current agent worktree.
+   *
+   * With `fromDefaultBranch` (work that started from earlier verified results, a rework) `patch`
+   * is the whole change against the default branch, and `followUp` is the change since the
+   * results the work started from, for a checkout that already has the earlier delivery applied.
+   * When no base on the default branch can be determined, `patch` is that follow-up and
+   * `followUpOnly` says why. When the default branch already contains what the work started from,
+   * the two are the same patch and there is no `followUp`.
+   */
   async exportResult(
     projectId: string,
     repoPath: string,
     bases: readonly string[],
     results: readonly string[],
     opts: { fromDefaultBranch?: boolean } = {},
-  ): Promise<{ baseSha: string; resultCommit: string; patch: string }> {
+  ): Promise<ExportedResult> {
     if (!bases.length || !results.length)
       throw new MimirError("conflict", "no verified result to export");
     const resultCommit = (await this.dependencyBase(projectId, repoPath, results))!;
     const id = this.parseId(ProjectIdSchema, projectId, "projectId");
     const repo = await this.registerProject({ projectId: id, repoPath });
     const scratch = await ScratchRepo.open(join(await this.ensureRoot(), SCRATCH_DIR), id, repo);
-    const roots = [...new Set(bases)].map((sha) => GitShaSchema.parse(sha));
-    // Work that started from earlier verified results (a rework) is exported against the default
-    // branch, so the patch carries the whole change and not only the follow-up.
-    if (opts.fromDefaultBranch)
-      roots.push(await resolveCommit(repo, await this.defaultBranch(repo), "default branch"));
-    const baseSha =
-      roots.length === 1
-        ? roots[0]!
-        : (await scratch.run(["merge-base", "--octopus", ...roots])).stdout.trim();
-    const patch = (
-      await scratch.run([
-        "diff",
-        ...DIFF_FLAGS,
-        "--binary",
-        "--full-index",
-        baseSha,
+    const mergeBase = async (shas: string[]) =>
+      shas.length === 1
+        ? shas[0]!
+        : (await scratch.run(["merge-base", "--octopus", ...shas])).stdout.trim();
+    const patchFrom = async (base: string) =>
+      (
+        await scratch.run([
+          "diff",
+          ...DIFF_FLAGS,
+          "--binary",
+          "--full-index",
+          base,
+          resultCommit,
+          "--",
+        ])
+      ).stdout;
+    const ownBase = await mergeBase([...new Set(bases)].map((sha) => GitShaSchema.parse(sha)));
+    const own = { baseSha: ownBase, patch: await patchFrom(ownBase) };
+    if (!opts.fromDefaultBranch) return { ...own, resultCommit };
+    // Not a failed delivery: no default branch (detached HEAD without origin/HEAD), or one that
+    // shares no history with the work.
+    const tip = await this.defaultBranch(repo)
+      .then((branch) => resolveCommit(repo, branch, "default branch"))
+      .catch(() => undefined);
+    if (tip === undefined)
+      return { ...own, resultCommit, followUpOnly: "the default branch could not be determined" };
+    const baseSha = await mergeBase([ownBase, tip]).catch(() => undefined);
+    if (baseSha === undefined)
+      return {
+        ...own,
         resultCommit,
-        "--",
-      ])
-    ).stdout;
-    return { baseSha, resultCommit, patch };
+        followUpOnly: "the default branch shares no history with the delivered work",
+      };
+    if (baseSha === ownBase) return { ...own, resultCommit };
+    return { baseSha, resultCommit, patch: await patchFrom(baseSha), followUp: own };
   }
 
   private async resultCommit(

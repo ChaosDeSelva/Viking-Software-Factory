@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { BootstrapResult, SearchHit } from "../api/types.js";
 import { Badge, Button, Card, Empty, Field, inputClass } from "../components/ui.js";
 import { useApi, useReportError, useStore } from "../store/context.js";
+import { ExecutionProfileCard } from "./ExecutionProfileCard.js";
 
 export function ProjectsScreen() {
   const api = useApi();
@@ -82,6 +83,8 @@ export function ProjectsScreen() {
       setBusy(null);
     }
   };
+
+  const selected = state.projects.find((p) => p.id === state.projectId);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -216,6 +219,12 @@ export function ProjectsScreen() {
           </>
         )}
       </Card>
+
+      {selected ? (
+        <div className="lg:col-span-2">
+          <ExecutionProfileCard key={selected.id} project={selected} />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -155,9 +155,11 @@ describe("loadConfig", () => {
       tickMs: 1000,
       artifactRetentionDays: 30,
       approvalTtlMs: null,
+      capacityWaitMs: null,
       maxArtifactBytes: 64 * 1024 * 1024,
     });
     expect(loadConfig({ MIMIR_MAX_ARTIFACT_BYTES: "1024" }, "/h").maxArtifactBytes).toBe(1024);
+    expect(loadConfig({ MIMIR_CAPACITY_WAIT_MS: "600000" }, "/h").capacityWaitMs).toBe(600000);
     const c = loadConfig(
       {
         MIMIR_TICK_MS: "250",

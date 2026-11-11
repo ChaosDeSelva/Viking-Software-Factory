@@ -2,7 +2,7 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MAX_CHECK_OUTPUT, TestCommandVerifier } from "./verifier.js";
+import { MAX_CHECK_OUTPUT, TestCommandVerifier, headAndTail } from "./verifier.js";
 
 const dirs: string[] = [];
 const tmp = () => {
@@ -66,7 +66,21 @@ describe("TestCommandVerifier", () => {
       signal: signal(),
     });
     expect(r.checks[0]!.output.length).toBeLessThanOrEqual(MAX_CHECK_OUTPUT + 64);
-    expect(r.checks[0]!.output).toContain("[truncated]");
+    expect(r.checks[0]!.output).toMatch(/\n\[\.\.\. \d+ bytes omitted \.\.\.\]\n/);
+  });
+
+  it("keeps the start and the end of an output over the cap", () => {
+    expect(headAndTail("short", 100)).toBe("short");
+    const text = `START${"é".repeat(5000)}END`;
+    const kept = headAndTail(text, 1000);
+    expect(kept.length).toBeLessThanOrEqual(1000);
+    expect(kept.startsWith("START")).toBe(true);
+    expect(kept.endsWith("END")).toBe(true);
+    const [, omitted] = /\n\[\.\.\. (\d+) bytes omitted \.\.\.\]\n/.exec(kept)!;
+    const shown = kept.replace(/\n\[.*\]\n/, "");
+    expect(Number(omitted)).toBe(Buffer.byteLength(text) - Buffer.byteLength(shown));
+    // The end is at least what the read model quotes in the next attempt's brief.
+    expect(kept.slice(-400)).toBe(text.slice(-400));
   });
 
   it("requires a test command and refuses to start when already aborted", async () => {

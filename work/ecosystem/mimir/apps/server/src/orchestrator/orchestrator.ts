@@ -44,7 +44,7 @@ import {
   type Worktree,
 } from "@mimir/protocol";
 import { emit, type EmitInput } from "../emit.js";
-import { RUNTIME_AT_CAPACITY } from "../fleet-runtime/adapter.js";
+import { RUNTIME_AT_CAPACITY, isCapacityAware } from "../fleet-runtime/adapter.js";
 import type { FailedCheck, ReadModel } from "../readmodel.js";
 import { argvFor } from "../templates.js";
 import type { ArtifactStore } from "./artifacts.js";
@@ -53,7 +53,7 @@ import type { PrRunner } from "./pr.js";
 import { missionTransition, taskTransition, type TaskEventContext } from "./transitions.js";
 import { collectArtifactFiles, recordCollection } from "./collect.js";
 import {
-  MAX_CHECK_OUTPUT,
+  headAndTail,
   type VerificationResult,
   type Verifier,
   type VerifyBinding,
@@ -81,6 +81,9 @@ export const DEFAULT_RECONCILE_EVERY_TICKS = 30;
 /** First wait before a launch that found the runtime full is tried again; doubles per try. */
 export const CAPACITY_RETRY_MS = 2000;
 export const CAPACITY_RETRY_MAX_MS = 30_000;
+/** Longest a task waits for a free worker before its attempt fails (`FLEET_CAPACITY_TIMEOUT`). */
+export const DEFAULT_CAPACITY_WAIT_MS = 30 * 60 * 1000;
+export const FLEET_CAPACITY_TIMEOUT = "fleet_capacity_timeout";
 
 /** The system actor that requests approvals for actions an operator asked for. */
 export const SYSTEM_ACTOR: Actor = { kind: "system", id: "mimir" };
@@ -135,6 +138,8 @@ export interface OrchestratorOptions {
   approvalTtlMs?: number;
   /** Run `runtime.reconcile()` every N ticks to catch sessions lost without an event (I5). */
   reconcileEveryTicks?: number;
+  /** Total time a task may wait for a free worker (default `DEFAULT_CAPACITY_WAIT_MS`). */
+  capacityWaitMs?: number;
   log?: OrchestratorLogger;
 }
 
@@ -200,6 +205,37 @@ export function verificationFailureNote(checks: readonly FailedCheck[]): string 
   return `The previous attempt failed verification, fix what it reports. ${parts.join(" | ")}`;
 }
 
+const APPLY_PATCH = "git apply --check result.patch && git apply result.patch";
+const UNDO_PATCH = "git apply --reverse --check result.patch && git apply --reverse result.patch";
+
+/**
+ * The `apply` and `undo` text of a `local_delivery` artifact. A rework carries two patches (the
+ * whole change, and `followUp` for a checkout that already has the earlier delivery), or only
+ * the follow-up when the whole change could not be computed.
+ */
+export function localDeliveryInstructions(result: { followUp?: unknown; followUpOnly?: string }): {
+  apply: string;
+  undo: string;
+} {
+  if (result.followUpOnly !== undefined) {
+    const only = `"patch" holds only the follow-up to the earlier delivery (${result.followUpOnly}): `;
+    return {
+      apply: `${only}apply the earlier delivery first, then save "patch" as result.patch and run: ${APPLY_PATCH}`,
+      undo: `${only}save it as result.patch and run: ${UNDO_PATCH} (the earlier delivery stays applied)`,
+    };
+  }
+  if (result.followUp === undefined) return { apply: APPLY_PATCH, undo: UNDO_PATCH };
+  const followUp = (command: string) => command.replaceAll("result.patch", "followup.patch");
+  return {
+    apply:
+      `Already applied the earlier delivery? Save "followUp.patch" as followup.patch and run: ${followUp(APPLY_PATCH)} ` +
+      `Otherwise save "patch" (the complete change) as result.patch and run: ${APPLY_PATCH}`,
+    undo:
+      `Applied "followUp.patch"? Run: ${followUp(UNDO_PATCH)} (the earlier delivery stays applied). ` +
+      `Applied "patch"? Run: ${UNDO_PATCH}`,
+  };
+}
+
 /**
  * Joins scheduler, policy, git, runtime, store and read model. Every state change is appended to
  * the event store first; the read model then updates from the event (via `store.subscribe`).
@@ -218,6 +254,7 @@ export class Orchestrator {
   private readonly tickMs: number;
   private readonly approvalTtlMs: number;
   private readonly reconcileEveryTicks: number;
+  private readonly capacityWaitMs: number;
   private readonly log: OrchestratorLogger;
   /** Last runtime observation of each session (server clock ms): events and reconcile presence. */
   private readonly heartbeats = new Map<string, number>();
@@ -230,8 +267,14 @@ export class Orchestrator {
   private readonly renewals = new Map<string, string>();
   /** Expired leases already handled (`taskId@expiresAt`), so expire/release fire once per lease. */
   private readonly handledLeases = new Set<string>();
-  /** Tasks whose launch found the runtime full: when to try again, and how often it has. */
-  private readonly capacityWaits = new Map<string, { until: number; tries: number }>();
+  /**
+   * Tasks waiting for a free worker: since when, and for a launch the runtime refused as full,
+   * when to try again and how often it has. In memory: a restart starts the wait over.
+   */
+  private readonly capacityWaits = new Map<
+    string,
+    { since: number; until: number; tries: number }
+  >();
   private subscription: { close(): void } | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
@@ -251,6 +294,7 @@ export class Orchestrator {
     this.tickMs = options.tickMs ?? DEFAULT_TICK_MS;
     this.approvalTtlMs = options.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS;
     this.reconcileEveryTicks = options.reconcileEveryTicks ?? DEFAULT_RECONCILE_EVERY_TICKS;
+    this.capacityWaitMs = options.capacityWaitMs ?? DEFAULT_CAPACITY_WAIT_MS;
     this.log = options.log ?? NOOP_LOG;
   }
 
@@ -359,6 +403,7 @@ export class Orchestrator {
       await this.recover("periodic");
     }
     const now = this.now();
+    this.pruneCapacityWaits();
     this.expireApprovals(now);
     this.promoteReady(now);
     const decisions = schedule({
@@ -380,6 +425,59 @@ export class Orchestrator {
       }
     }
     this.checkBudgets(now);
+  }
+
+  /** Tasks currently waiting for a free worker (diagnostics and tests). */
+  capacityWaiting(): string[] {
+    return [...this.capacityWaits.keys()];
+  }
+
+  /** Forgets the wait of every task that is no longer waiting (cancelled, done, mission over). */
+  private pruneCapacityWaits(): void {
+    for (const id of this.capacityWaits.keys()) {
+      const task = this.rm.tasks.get(id);
+      const waiting =
+        task !== undefined &&
+        this.rm.missions.get(task.missionId)?.status === "active" &&
+        (["ready", "leased", "verifying"].includes(task.status) ||
+          (task.status === "failed" && attemptsLeft(task)));
+      if (!waiting) this.capacityWaits.delete(id);
+    }
+  }
+
+  /**
+   * A ready task found the runtime full before anything was leased or launched: it stays ready
+   * and nothing is appended. Once it has waited `capacityWaitMs` in total the attempt fails, so
+   * the task is retried or fails for good like after any other launch failure.
+   */
+  private awaitCapacity(task: Task, crew: Crew, now: Date): void {
+    const wait = this.capacityWaits.get(task.id);
+    if (!wait) {
+      this.capacityWaits.set(task.id, { since: now.getTime(), until: 0, tries: 0 });
+      this.log.info({ taskId: task.id }, "task waits for a free worker");
+      return;
+    }
+    if (now.getTime() - wait.since < this.capacityWaitMs) return;
+    this.capacityWaits.delete(task.id);
+    this.log.warn({ taskId: task.id, waitedMs: now.getTime() - wait.since }, "no free worker");
+    // The machine fails an attempt from `leased`: the lease is granted and given up at once.
+    const leased = this.taskEvent(
+      now,
+      task,
+      {
+        type: "lease_granted",
+        crewId: crew.id as Task["crewId"],
+        leaseExpiresAt: new Date(now.getTime() + leaseTtlMs(crew)).toISOString(),
+      },
+      { agentId: newId("agt") },
+    );
+    this.taskEvent(
+      now,
+      leased,
+      { type: "runtime_failed", reason: FLEET_CAPACITY_TIMEOUT },
+      { reason: FLEET_CAPACITY_TIMEOUT },
+    );
+    this.renewals.delete(task.id);
   }
 
   private promoteReady(now: Date): void {
@@ -506,23 +604,25 @@ export class Orchestrator {
   ): { argv: string[]; classify: string[] | null } {
     const spec = this.rm.taskSpec(task.id);
     const base = spec.brief ?? [task.title, task.acceptance].filter((s) => s !== "").join("\n\n");
+    // An agent member's explicit argv that is the plain template (all `POST /v1/tasks` accepts,
+    // and built there without project settings) is a template task like any other.
+    const explicit =
+      spec.argv !== undefined &&
+      (member.agentKind === "shell" ||
+        JSON.stringify(spec.argv) !== JSON.stringify(argvFor(member.agentKind, member.role, base)));
     // Only an agent's prompt gets the note: a shell member's brief is its command, and explicit
     // argv is run as given.
     const note =
-      spec.argv === undefined && member.agentKind !== "shell"
+      !explicit && member.agentKind !== "shell"
         ? verificationFailureNote(this.rm.verificationFailure(task.id))
         : undefined;
-    const template = argvFor(
-      member.agentKind,
-      member.role,
-      note === undefined ? base : `${base}\n\n${note}`,
-      { codexSandbox: projectSettings(project).agent?.codexSandbox },
-    );
-    const argv = spec.argv ?? template;
-    return {
-      argv,
-      classify: classifiedArgv(argv, spec.argv !== undefined, member.agentKind, template),
-    };
+    const argv =
+      explicit && spec.argv !== undefined
+        ? spec.argv
+        : argvFor(member.agentKind, member.role, note === undefined ? base : `${base}\n\n${note}`, {
+            codexSandbox: projectSettings(project).agent?.codexSandbox,
+          });
+    return { argv, classify: classifiedArgv(argv, explicit, member.agentKind) };
   }
 
   /** Path and branch of a task's worktree: the existing one, else where `create` will put it. */
@@ -549,6 +649,9 @@ export class Orchestrator {
       return;
     }
     const member = this.memberFor(crew);
+    // Before the gate and the lease: a task that only waits for a worker appends nothing.
+    if (this.runtime && isCapacityAware(this.runtime) && this.runtime.atCapacity(member.agentKind))
+      return this.awaitCapacity(task, crew, now);
     const { argv, classify } = this.commandFor(task, member, project);
 
     if (classify !== null) {
@@ -630,19 +733,28 @@ export class Orchestrator {
       if (input.expect === "leased" && t.agentId !== input.agentId) return null;
       return t;
     };
-    const failTask = (reason: string, err?: unknown) => {
+    const failTask = (failure: string, err?: unknown) => {
       const now = this.now();
       const current = stillOurs();
       if (!current) return;
+      let reason = failure;
       if (atCapacity(err)) {
-        const tries = (this.capacityWaits.get(current.id)?.tries ?? 0) + 1;
-        const wait = Math.min(CAPACITY_RETRY_MAX_MS, CAPACITY_RETRY_MS * 2 ** (tries - 1));
-        this.capacityWaits.set(current.id, { until: now.getTime() + wait, tries });
-        if (current.status === "leased") {
-          // No free worker is not a failure of the task: it waits, and keeps its attempts.
-          this.taskEvent(now, current, { type: "launch_deferred" });
-          this.renewals.delete(current.id);
-          return;
+        // Reached only when the runtime could not say so before the launch (see `dispatch`).
+        const prior = this.capacityWaits.get(current.id);
+        const since = prior?.since ?? now.getTime();
+        if (current.status === "leased" && now.getTime() - since >= this.capacityWaitMs) {
+          this.capacityWaits.delete(current.id);
+          reason = FLEET_CAPACITY_TIMEOUT;
+        } else {
+          const tries = (prior?.tries ?? 0) + 1;
+          const wait = Math.min(CAPACITY_RETRY_MAX_MS, CAPACITY_RETRY_MS * 2 ** (tries - 1));
+          this.capacityWaits.set(current.id, { since, until: now.getTime() + wait, tries });
+          if (current.status === "leased") {
+            // No free worker is not a failure of the task: it waits, and keeps its attempts.
+            this.taskEvent(now, current, { type: "launch_deferred" });
+            this.renewals.delete(current.id);
+            return;
+          }
         }
       }
       if (current.status === "verifying") {
@@ -1163,10 +1275,8 @@ export class Orchestrator {
       for (const check of result.checks) {
         this.recordArtifact(now, task, "test.output", check.output);
         const redacted = redact(check.output).text;
-        const output =
-          redacted.length > EVENT_OUTPUT_CAP
-            ? `${redacted.slice(0, EVENT_OUTPUT_CAP)}\n[truncated]`
-            : redacted;
+        // Start and end: the read model quotes the end in the next attempt's brief.
+        const output = headAndTail(redacted, EVENT_OUTPUT_CAP);
         this.emit(now, {
           type: "test.run_completed",
           streamId: `task:${task.id}`,
@@ -1178,7 +1288,7 @@ export class Orchestrator {
             passed: check.passed,
             durationMs: check.durationMs,
             exitCode: check.exitCode,
-            output: output.slice(0, MAX_CHECK_OUTPUT),
+            output,
           },
         });
       }
@@ -1777,6 +1887,7 @@ export class Orchestrator {
       for (const task of [...this.rm.tasks.values()]) {
         if (task.missionId !== missionId || !taskMachine.can(task, "cancel")) continue;
         this.verifications.get(task.id)?.abort();
+        this.capacityWaits.delete(task.id);
         const sessionId = this.currentSession(task.id);
         this.taskEvent(now, task, { type: "cancel" }, { cancelReason: "mission cancelled" });
         const session = sessionId ? this.rm.sessions.get(sessionId) : undefined;
@@ -2018,8 +2129,7 @@ export class Orchestrator {
           repoPath: project.repoPath,
           taskIds: tasks.map((t) => t.id),
           format: "git-patch",
-          apply: "git apply --check result.patch && git apply result.patch",
-          undo: "git apply --reverse --check result.patch && git apply --reverse result.patch",
+          ...localDeliveryInstructions(result),
         },
         null,
         2,

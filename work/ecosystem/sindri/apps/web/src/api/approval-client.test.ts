@@ -66,6 +66,17 @@ describe("approval session in the web client (audit M9)", () => {
     expect(plan!.body).toEqual({});
   });
 
+  it("sends the secret when saving an execution profile, not when reading it", async () => {
+    const { api, sent } = client();
+    await api.unlockApprovals("ABCDE-FGH23");
+    const profile = { checks: [{ id: "lint", command: ["make", "lint"] }] };
+    await api.getProfile("p 1");
+    await api.putProfile("p 1", profile);
+    const [, read, write] = sent();
+    expect(read).toMatchObject({ url: "/v1/projects/p%201/profile", approval: null });
+    expect(write).toEqual({ url: "/v1/projects/p%201/profile", approval: SECRET, body: profile });
+  });
+
   it("forgets the secret when the server no longer accepts it", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL) =>
       String(input).endsWith("/v1/approval-session")

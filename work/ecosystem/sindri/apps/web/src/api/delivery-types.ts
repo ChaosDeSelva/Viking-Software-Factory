@@ -297,10 +297,13 @@ export interface DeliveryDetail {
 export interface LocalDelivery {
   baseSha: string;
   resultCommit: string;
+  /** The whole change, byte for byte as it must be applied. */
   patch: string;
   repoPath: string;
   apply: string;
   undo: string;
+  /** For a rework: only what changed since the earlier delivery's result (`baseSha`). */
+  followUp?: { baseSha: string; patch: string };
 }
 
 interface TraceEvent {

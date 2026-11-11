@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ensureDeliverySchema } from "./schema.js";
-import type { SqliteDatabase } from "@sindri/knowledge";
+import { SindriError, type SqliteDatabase } from "@sindri/knowledge";
 import {
   isMimirError,
   type ApprovalDecision,
@@ -374,7 +374,7 @@ export class DeliveryLoop {
         .run(this.now().toISOString(), executionId);
     }
     if (row.status === "pending") this.setStatus(executionId, "running");
-    await this.mimir.start(row.mimir_mission_id);
+    if (!this.missionEnded(executionId)) await this.mimir.start(row.mimir_mission_id);
     return this.consume(executionId, options.signal);
   }
 
@@ -420,6 +420,9 @@ export class DeliveryLoop {
    * - `replan`: turns the escalation into `replan`, emitting `replan_requested`;
    * - `abort`: cancels the Mimir mission and ends the execution `cancelled`.
    * Every decision is recorded as a Sindri `escalation_resolved` event.
+   *
+   * Once Mimir has failed the mission no task can run again: `retry` is refused
+   * (`invalid_state`), `skip` finishes with what is verified, `replan` and `abort` work as usual.
    */
   async resolveEscalation(
     executionId: string,
@@ -437,13 +440,30 @@ export class DeliveryLoop {
     const { decision, actor, reason } = input;
     const at = this.now().toISOString();
 
+    // Mimir fails the mission right after the task that exhausted its attempts, usually once the
+    // loop has stopped reading on the escalation. A retry therefore looks at the unread events
+    // first (without handling them: the next run does) instead of asking for a doomed attempt.
+    const ended =
+      this.missionEnded(executionId) ||
+      (decision === "retry" &&
+        (
+          await this.mimir.catchUp(
+            row.mimir_mission_id,
+            input.signal ? { signal: input.signal } : {},
+          )
+        ).events.some((e) => e.type === "mission.failed"));
+    if (decision === "retry" && ended)
+      throw new SindriError(
+        "invalid_state",
+        "the Mimir mission has ended, so this task cannot be retried; skip it, request a replan or abort, then run the plan again",
+      );
     if (decision === "retry") {
       await this.mimir.retry(task.mimir_task_id, {
         attempt: task.attempts + 1,
         reason: `human retry by ${actor}: ${reason}`,
       });
     }
-    if (decision === "abort") {
+    if (decision === "abort" && !ended) {
       await this.cancelMission(row.mimir_mission_id, `aborted by ${actor}: ${reason}`);
     }
 
@@ -508,10 +528,7 @@ export class DeliveryLoop {
           this.setStatusIn(executionId, "replan_requested", notices);
           break;
         case "abort":
-          this.db
-            .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
-            .run(at, executionId);
-          this.setStatusIn(executionId, "cancelled", notices);
+          this.finish(executionId, "cancelled", notices);
           break;
       }
     })();
@@ -534,8 +551,8 @@ export class DeliveryLoop {
   ): Promise<Execution> {
     const row = this.row(executionId);
     if (FINAL.includes(row.status)) return toExecution(row);
-    await this.cancelMission(row.mimir_mission_id, `cancelled by ${actor}: ${reason}`);
-    const at = this.now().toISOString();
+    if (!this.missionEnded(executionId))
+      await this.cancelMission(row.mimir_mission_id, `cancelled by ${actor}: ${reason}`);
     const notices: DeliveryNotice[] = [];
     this.db.transaction(() => {
       // The run may have ended while Mimir was being asked.
@@ -545,20 +562,7 @@ export class DeliveryLoop {
         reason,
         previousStatus: row.status,
       });
-      this.db
-        .prepare(
-          `UPDATE execution_inbox SET status = 'resolved', resolved_at = ?
-           WHERE execution_id = ? AND status = 'open'`,
-        )
-        .run(at, executionId);
-      this.db
-        .prepare(
-          `UPDATE execution_approvals SET status = 'expired'
-           WHERE execution_id = ? AND status = 'pending'`,
-        )
-        .run(executionId);
-      this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
-      this.setStatusIn(executionId, "cancelled", notices);
+      this.finish(executionId, "cancelled", notices);
     })();
     for (const n of notices) this.notify(n);
     return this.get(executionId) as Execution;
@@ -935,13 +939,8 @@ export class DeliveryLoop {
         this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
         break;
       }
-      case "mission.failed": {
-        // Mimir gave up on the mission: no task will run again, so the execution ends here.
-        if (FINAL.includes(this.row(executionId).status)) break;
-        this.setStatusIn(executionId, "failed", notices);
-        this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
-        break;
-      }
+      // `mission.failed` is acted on in `settle`: Mimir emits it exactly when a task is escalated
+      // to a human, whose skip/replan/abort must still work, so the stored event is the record.
       case "budget.exceeded": {
         const { unit, used, limit, budgetId } = event.payload;
         const blockedReason = `budget_exceeded: ${unit} ${used}/${limit}`;
@@ -1053,18 +1052,27 @@ export class DeliveryLoop {
       this.setStatus(executionId, "verified_pending_review");
       return "verified_pending_review";
     }
-    // An execution that stored `mission.failed` before the loop acted on it ends here too.
-    const failed = this.db
-      .prepare("SELECT 1 FROM execution_events WHERE execution_id = ? AND type = 'mission.failed'")
-      .get(executionId);
-    if (failed) {
-      this.db
-        .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
-        .run(this.now().toISOString(), executionId);
-      this.setStatus(executionId, "failed");
-      return "failed";
-    }
     const tasks = this.tasks(executionId);
+    if (this.missionEnded(executionId)) {
+      // Mimir gave up on the mission: no task will run again. While a human still has an
+      // escalation to answer (or a replan is pending) the execution waits for them.
+      if (row.status === "replan_requested") return row.status;
+      if (tasks.some((t) => t.escalation)) {
+        const waiting = this.waitingStatus(executionId, tasks);
+        this.setStatus(executionId, waiting);
+        return waiting;
+      }
+      // Everything unfinished was skipped by a human: deliver the verified part.
+      const skipped =
+        tasks.some((t) => t.resolution) &&
+        tasks.every((t) => t.status === "completed" || t.resolution);
+      if (skipped) await this.collectArtifacts(executionId);
+      const status: ExecutionStatus = skipped ? "verified_pending_review" : "failed";
+      const notices: DeliveryNotice[] = [];
+      this.db.transaction(() => this.finish(executionId, status, notices))();
+      for (const n of notices) this.notify(n);
+      return status;
+    }
     const byPlanId = new Map(tasks.map((t) => [t.planTaskId, t]));
     const pendingApprovalTasks = new Set(
       this.approvals(executionId)
@@ -1104,18 +1112,55 @@ export class DeliveryLoop {
       return "verified_pending_review";
     }
     if (!open.every((t) => isStuck(t.planTaskId))) return null;
+    const status = this.waitingStatus(executionId, tasks);
+    this.setStatus(executionId, status);
+    return status;
+  }
+
+  /** The status of an execution in which nothing can progress without a human. */
+  private waitingStatus(executionId: string, tasks: ExecutionTask[]): ExecutionStatus {
     const escalations = tasks.map((t) => t.escalation).filter(Boolean);
-    let status: ExecutionStatus;
-    if (escalations.includes("replan")) status = "replan_requested";
-    else if (
+    if (escalations.includes("replan")) return "replan_requested";
+    if (
       escalations.includes("ask") ||
       this.pendingApprovals(executionId) > 0 ||
       this.openInboxItems(executionId) > 0
-    ) {
-      status = "awaiting_human";
-    } else status = "blocked";
-    this.setStatus(executionId, status);
-    return status;
+    )
+      return "awaiting_human";
+    return "blocked";
+  }
+
+  /** True once Mimir has failed the mission: nothing runs again and a cancel is unnecessary. */
+  private missionEnded(executionId: string): boolean {
+    return (
+      this.db
+        .prepare(
+          "SELECT 1 FROM execution_events WHERE execution_id = ? AND type = 'mission.failed'",
+        )
+        .get(executionId) !== undefined
+    );
+  }
+
+  /**
+   * Ends the execution: closes open inbox items, expires pending approvals (nobody can act on
+   * them any more) and sets the final status. Call inside a transaction.
+   */
+  private finish(executionId: string, status: ExecutionStatus, notices: DeliveryNotice[]): void {
+    const at = this.now().toISOString();
+    this.db
+      .prepare(
+        `UPDATE execution_inbox SET status = 'resolved', resolved_at = ?
+         WHERE execution_id = ? AND status = 'open'`,
+      )
+      .run(at, executionId);
+    this.db
+      .prepare(
+        `UPDATE execution_approvals SET status = 'expired'
+         WHERE execution_id = ? AND status = 'pending'`,
+      )
+      .run(executionId);
+    this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
+    this.setStatusIn(executionId, status, notices);
   }
 
   /**

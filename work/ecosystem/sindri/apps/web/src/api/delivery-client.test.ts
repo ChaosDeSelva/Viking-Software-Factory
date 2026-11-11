@@ -34,6 +34,23 @@ describe("delivery api client", () => {
     expect((fetch.mock.calls[2] as unknown as [string])[0]).toBe("/v1/plans/pl%2F1/dry-run");
   });
 
+  it("cancels an execution, with a reason only when one is given", async () => {
+    const fetch = vi.fn(async () => json(200, { execution: { id: "e1", status: "cancelled" } }));
+    const api = client(fetch);
+    await expect(api.cancelExecution("e/1")).resolves.toMatchObject({
+      execution: { status: "cancelled" },
+    });
+    await api.cancelExecution("e/1", "wrong plan");
+    const calls = fetch.mock.calls as unknown as [string, RequestInit][];
+    expect(calls.map((c) => [c[0], c[1].method, JSON.parse(String(c[1].body))])).toEqual([
+      ["/v1/executions/e%2F1/cancel", "POST", {}],
+      ["/v1/executions/e%2F1/cancel", "POST", { reason: "wrong plan" }],
+    ]);
+    // The bearer token is enough: no approval header on this route.
+    expect(new Headers(calls[0]![1].headers).get("x-sindri-approval")).toBeNull();
+    expect(new Headers(calls[0]![1].headers).get("idempotency-key")).toBe("k");
+  });
+
   it("creates executions and decides approvals with idempotency keys", async () => {
     const fetch = vi.fn(async () => json(201, { execution: { id: "e1" } }));
     const api = client(fetch);

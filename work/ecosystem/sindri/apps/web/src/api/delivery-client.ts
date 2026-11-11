@@ -113,6 +113,13 @@ export function deliveryMethods(call: Call, send: Send) {
         `/v1/executions/${enc(executionId)}/approvals/${enc(approvalId)}`,
         reason ? { decision, reason } : { decision },
       ),
+    /** Stops a run for good; the server answers 409 when it has already finished. */
+    cancelExecution: (executionId: string, reason?: string) =>
+      call<ExecutionDetail>(
+        "POST",
+        `/v1/executions/${enc(executionId)}/cancel`,
+        reason ? { reason } : {},
+      ),
     resolveEscalation: (
       executionId: string,
       planTaskId: string,
@@ -198,6 +205,7 @@ export const DELIVERY_METHOD_NAMES = [
   "listExecutions",
   "getExecution",
   "decideApproval",
+  "cancelExecution",
   "resolveEscalation",
   "requestPr",
   "assessExecution",

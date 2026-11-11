@@ -1,5 +1,7 @@
 import { Projects } from "./features/Projects";
 import { canControlMission } from "./features/missionState";
+import { ExecutionProfile } from "./features/ExecutionProfile";
+import { isFinalExecution, sindriProjectOf } from "./features/profileForm";
 import {
   latestVersions,
   orderedQuestions,
@@ -160,7 +162,8 @@ function App() {
     [code, setCode] = useState(""),
     [pair, setPair] = useState(""),
     [eventRows, setEventRows] = useState<R[]>([]),
-    [detailsNonce, setDetailsNonce] = useState(0);
+    [detailsNonce, setDetailsNonce] = useState(0),
+    [profileSaved, setProfileSaved] = useState<{ id: string; harness: R | null } | null>(null);
   const eventQuery = useRef("");
   useCommandShortcut(authenticated && !selected && !command, () =>
     setJumpOpen(true),
@@ -308,6 +311,7 @@ function App() {
     setSelected({ kind, id: row.id ?? row.eventId, row });
     setDetails(null);
     setAcknowledgeUntrusted(false);
+    setProfileSaved(null);
   };
   function propose(action: string, id: string, body: R = {}, extra: R = {}) {
     commandAttempt.current = null;
@@ -340,6 +344,8 @@ function App() {
       // The open record may have changed even when the command returns no record of its own.
       setDetailsNonce((n) => n + 1);
       const sourceResult = result.result;
+      if (command.action === "project.profile")
+        setProfileSaved({ id: command.id, harness: sourceResult?.harness ?? null });
       // A started run also returns its plan, so test for the run first.
       if (sourceResult?.execution) {
         setPage("Pipeline");
@@ -503,7 +509,10 @@ function App() {
         JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
     );
   const visibleTaskIds = new Set(tasks.map(task => task.id));
-  const visibleExecutions = executions.filter(e => missionIDs.has(e.execution.mimirMissionId));
+  // A run that failed before Mimir had a mission is still a run of the project.
+  const visibleExecutions = executions.filter(e => missionIDs.has(e.execution.mimirMissionId) || sindriIDs.has(e.execution.projectId));
+  const runTitle = (e: R) =>
+    (s.specs ?? []).find((spec: R) => spec.id === e.plan?.specId)?.title ?? e.plan?.title ?? "Run " + e.execution.id;
   const visibleExecutionIds = new Set(visibleExecutions.map(e => e.execution.id));
   const inProjectView = (row: R) => {
     if (row.projectId) return visibleProjectIds.has(row.projectId) || sindriIDs.has(row.projectId);
@@ -609,9 +618,11 @@ function App() {
       (row: R) => row.id === selected.id,
     );
   const dataRow = selected
-    ? ((m[selected.kind] ?? s[selected.kind] ?? []).find(
-        (r: R) => r.id === selected.id,
-      ) ?? selected.row)
+    ? ((selected.kind === "execution"
+        ? executions.find((e) => e.execution.id === selected.id)?.execution
+        : (m[selected.kind] ?? s[selected.kind] ?? []).find(
+            (r: R) => r.id === selected.id,
+          )) ?? selected.row)
     : null;
   const currentTask =
     selected?.kind === "tasks"
@@ -1001,7 +1012,7 @@ function App() {
               </div>
             </>
           )}
-          {page === "Projects" && <Projects projects={allProjects.map(p => ({ id: p.id, name: p.name, repoPath: p.repoPath }))} archived={allProjects.filter(isArchived).map(p => p.id)}
+          {page === "Projects" && <Projects onProfile={(id) => { const row = allProjects.find(p => p.id === id); if (row) open("projects", row); }} projects={allProjects.map(p => ({ id: p.id, name: p.name, repoPath: p.repoPath }))} archived={allProjects.filter(isArchived).map(p => p.id)}
             onCreate={() => setPage("New work")}
             onOpen={(id) => { setProject(projectKey(allProjects.find(p => p.id === id) ?? { id })); setPage("Overview"); }}
             onArchive={async (id, archive) => {
@@ -1012,6 +1023,36 @@ function App() {
               if (archive && aliases.some(alias => allProjects.some(p => p.id === alias && projectKey(p) === project))) setProject("all");
               setNotice(archive ? "Project archived. Files and history preserved." : "Project restored.");
             }} />}
+          {page === "Pipeline" && visibleExecutions.length > 0 && (
+            <Card className="panel">
+              <div className="section-title">
+                <h2>Runs</h2>
+                <span>
+                  {visibleExecutions.filter((e) => !isFinalExecution(e.execution.status)).length} in progress
+                  {" · "}
+                  {visibleExecutions.filter((e) => ["failed", "cancelled"].includes(e.execution.status)).length} failed or cancelled
+                </span>
+              </div>
+              <div className="rows">
+                {filtered(visibleExecutions).map((e) => (
+                  <RecordRow
+                    key={e.execution.id}
+                    title={runTitle(e)}
+                    description={
+                      <>
+                        {e.execution.id}
+                        {["failed", "cancelled"].includes(e.execution.status)
+                          ? " · ended without a delivery"
+                          : ""}
+                      </>
+                    }
+                    status={e.execution.status}
+                    onClick={() => open("execution", e.execution)}
+                  />
+                ))}
+              </div>
+            </Card>
+          )}
           {page === "Pipeline" && (
             <ScrollArea className="board" aria-label="Pipeline stages">
               {[
@@ -1322,7 +1363,7 @@ function App() {
                     <div className="quality-run" key={e.execution.id}>
                       <Button variant="unstyled" className="verification-heading" onClick={() => open("execution", e.execution)}>
                         <strong>
-                          {e.plan?.title ?? "Execution verification"}
+                          {runTitle(e)}
                         </strong>
                         <Badge value={e.execution.status} />
                       </Button>
@@ -1673,6 +1714,15 @@ function App() {
           {selected.kind === "projects" && (
             <>
               <p>{dataRow.repoPath}</p>
+              <ExecutionProfile
+                key={projectKey(dataRow)}
+                sindriProject={sindriProjectOf(dataRow, sindriProjects)}
+                session={session}
+                propose={propose}
+                api={api}
+                reloadKey={detailsNonce}
+                saved={profileSaved}
+              />
               {rows(
                 "missions",
                 allMissions.filter((m) => m.projectId === dataRow.id),
@@ -2174,6 +2224,31 @@ function App() {
               {why(sindriWhy("execution.resolve"))}
             </>
           )}
+          {selected.kind === "execution" && (() => {
+            const status = dataRow.status;
+            const cancelWhy =
+              sindriWhy("execution.cancel") ||
+              (isFinalExecution(status)
+                ? `This run has ended (status is ${status}); there is nothing to cancel.`
+                : "");
+            return (
+              <>
+                <div className="actions">
+                  <Button
+                    disabled={!!cancelWhy}
+                    title={cancelWhy || undefined}
+                    onClick={() => propose("execution.cancel", selected.id, { reason: "" })}
+                  >
+                    Cancel run
+                  </Button>
+                </div>
+                <p className="muted">
+                  {cancelWhy ||
+                    "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
+                </p>
+              </>
+            );
+          })()}
           {selected.kind === "deliveries" && (
             <>
               <div className="actions">
@@ -2233,18 +2308,22 @@ function App() {
                   <CodeBlock>{details.result.apply}</CodeBlock>
                   <h3>Undo</h3>
                   <CodeBlock>{details.result.undo}</CodeBlock>
+                  {details.result.followUp?.patch && (
+                    <PatchBlock
+                      title="Follow-up only — use this if you already applied the earlier delivery"
+                      note={`Changes since ${details.result.followUp.baseSha}, the earlier delivery's result.`}
+                      file="follow-up.patch"
+                      patch={details.result.followUp.patch}
+                      exact={details.result.followUp.patchExact}
+                    />
+                  )}
                   {details.result.patch && (
-                    <Disclosure>
-                      <DisclosureTrigger>
-                        Preview (may be shortened or altered for display)
-                      </DisclosureTrigger>
-                      <p className="muted">
-                        This text is for reading only and may not apply as a
-                        patch. Use the commands above to take the verified
-                        commit.
-                      </p>
-                      <CodeBlock>{details.result.patch}</CodeBlock>
-                    </Disclosure>
+                    <PatchBlock
+                      title={details.result.followUp?.patch ? "Full patch — everything since the original base" : "Patch"}
+                      file="result.patch"
+                      patch={details.result.patch}
+                      exact={details.result.patchExact}
+                    />
                   )}
                 </>
               )}
@@ -2347,6 +2426,51 @@ function App() {
   );
 }
 /** Reviewer feedback on a delivery; Sindri drafts a follow-up specification from it. */
+function PatchBlock({
+  title,
+  note,
+  file,
+  patch,
+  exact,
+}: {
+  title: string;
+  note?: string;
+  file: string;
+  patch: string;
+  /** False when Heimdall had to hide one of its own source tokens in the text. */
+  exact: boolean;
+}) {
+  return (
+    <>
+      <h3>{title}</h3>
+      {note && <p className="muted">{note}</p>}
+      {exact ? (
+        <Button
+          onClick={() => {
+            const url = URL.createObjectURL(new Blob([patch], { type: "text/plain" }));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = file;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+        >
+          Download {file}
+        </Button>
+      ) : (
+        <p className="warning">
+          Preview only: this text contains a Mimir or Sindri access token,
+          which Heimdall replaced, so it will not apply as a patch. Use the
+          commands above to take the verified commit.
+        </p>
+      )}
+      <Disclosure>
+        <DisclosureTrigger>{exact ? `Show ${file}` : `Preview of ${file}`}</DisclosureTrigger>
+        <CodeBlock>{patch}</CodeBlock>
+      </Disclosure>
+    </>
+  );
+}
 function RequestChanges({
   reason,
   submit,

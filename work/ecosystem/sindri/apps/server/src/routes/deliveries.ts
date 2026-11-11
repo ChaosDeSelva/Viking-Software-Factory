@@ -76,6 +76,8 @@ export function deliveryRoutes(
       );
     return execution;
   };
+  /** Deliveries (execution ids) with a rework request being drafted right now, in this process. */
+  const draftingRework = new Set<string>();
 
   app.get<{ Querystring: { projectId?: string } }>("/v1/reviews", (req) => {
     const q = parseBody(ProjectQuery, req.query);
@@ -214,91 +216,104 @@ export function deliveryRoutes(
     if (!plan || !original || !projectId || !s.knowledge.projects.get(projectId))
       throw notFound("delivery");
 
-    // One open rework per delivery: a second request while the first spec is still a draft or
-    // in review would produce two competing specs for the same change.
-    for (const earlier of s.rework.forExecution(execution.id)) {
-      const versions = s.specs.listLineage(earlier.specLineageId);
-      const latest = versions.at(-1);
-      if (latest && !versions.some((v) => v.status === "approved"))
-        throw new ApiError(
-          409,
-          "invalid_state",
-          `a rework of this delivery is already open as specification ${latest.id} (${latest.status}); revise or approve it instead of requesting another`,
-          { reworkId: earlier.id, specId: latest.id, specLineageId: earlier.specLineageId },
-        );
-    }
-
-    const { facade } = await hub.connection();
-    const results = new Map(
-      (await withMimir(() => facade.taskResultCommits(execution.mimirMissionId))).map((r) => [
-        r.taskId,
-        r.resultCommit,
-      ]),
-    );
-    // The delivered change is the frontier of verified results: every task that has a result
-    // commit and no dependant with one. A skipped task (no result) must not hide the completed
-    // work beneath it, and with nothing skipped this is simply the plan's leaves.
-    const mimirTask = new Map(
-      hub.reader.tasks(execution.id).map((t) => [t.planTaskId, t.mimirTaskId]),
-    );
-    const resultOf = (planTaskId: string) => results.get(mimirTask.get(planTaskId) ?? "");
-    const superseded = new Set(
-      plan.tasks.filter((t) => resultOf(t.id)).flatMap((t) => transitiveDeps(plan.tasks, t.id)),
-    );
-    const baseCommits = [
-      ...new Set(
-        plan.tasks
-          .filter((t) => !superseded.has(t.id))
-          .map((t) => resultOf(t.id))
-          .filter((c): c is string => typeof c === "string"),
-      ),
-    ];
-    if (baseCommits.length === 0)
+    // Drafting takes minutes and the check below only sees stored reworks, so a request that
+    // arrives meanwhile is refused here. Nothing awaits between this check and taking the guard.
+    if (draftingRework.has(execution.id))
       throw new ApiError(
         409,
         "invalid_state",
-        "this delivery has no verified result commit to build a rework on",
+        "a change request for this delivery is already being drafted; wait for it to finish",
       );
-
-    const report = await delivery.report(execution.id).catch(() => null);
-    // No intakeId: the feedback, not the original ticket, is the source of this spec, so the
-    // drafter records it as its own request instead of re-specifying the delivered ticket.
-    const out = await s.director().draftSpec({
-      projectId,
-      request: reworkRequestText({
-        originalTitle: original.title,
-        feedback: body.feedback,
-        baseCommits,
-        changedFiles: report?.changedFiles.map((c) => c.path) ?? [],
-      }),
-      workspaceCommit: baseCommits[0]!,
-      workspaceAlsoStartsFrom: baseCommits.slice(1),
-    });
-    // The spec is already stored. Without its rework row it is an ordinary spec, and a plan for
-    // it would start from the default branch instead of the delivered change.
-    let rework;
+    draftingRework.add(execution.id);
     try {
-      rework = s.rework.create({
+      // One open rework per delivery: a second request while the first spec is still a draft or
+      // in review would produce two competing specs for the same change.
+      for (const earlier of s.rework.forExecution(execution.id)) {
+        const versions = s.specs.listLineage(earlier.specLineageId);
+        const latest = versions.at(-1);
+        if (latest && !versions.some((v) => v.status === "approved"))
+          throw new ApiError(
+            409,
+            "invalid_state",
+            `a rework of this delivery is already open as specification ${latest.id} (${latest.status}); revise or approve it instead of requesting another`,
+            { reworkId: earlier.id, specId: latest.id, specLineageId: earlier.specLineageId },
+          );
+      }
+
+      const { facade } = await hub.connection();
+      const results = new Map(
+        (await withMimir(() => facade.taskResultCommits(execution.mimirMissionId))).map((r) => [
+          r.taskId,
+          r.resultCommit,
+        ]),
+      );
+      // The delivered change is the frontier of verified results: every task that has a result
+      // commit and no dependant with one. A skipped task (no result) must not hide the completed
+      // work beneath it, and with nothing skipped this is simply the plan's leaves.
+      const mimirTask = new Map(
+        hub.reader.tasks(execution.id).map((t) => [t.planTaskId, t.mimirTaskId]),
+      );
+      const resultOf = (planTaskId: string) => results.get(mimirTask.get(planTaskId) ?? "");
+      const superseded = new Set(
+        plan.tasks.filter((t) => resultOf(t.id)).flatMap((t) => transitiveDeps(plan.tasks, t.id)),
+      );
+      const baseCommits = [
+        ...new Set(
+          plan.tasks
+            .filter((t) => !superseded.has(t.id))
+            .map((t) => resultOf(t.id))
+            .filter((c): c is string => typeof c === "string"),
+        ),
+      ];
+      if (baseCommits.length === 0)
+        throw new ApiError(
+          409,
+          "invalid_state",
+          "this delivery has no verified result commit to build a rework on",
+        );
+
+      const report = await delivery.report(execution.id).catch(() => null);
+      // No intakeId: the feedback, not the original ticket, is the source of this spec, so the
+      // drafter records it as its own request instead of re-specifying the delivered ticket.
+      const out = await s.director().draftSpec({
         projectId,
-        sourceExecutionId: execution.id,
-        specLineageId: out.spec.lineageId,
-        baseCommits,
-        feedback: body.feedback,
+        request: reworkRequestText({
+          originalTitle: original.title,
+          feedback: body.feedback,
+          baseCommits,
+          changedFiles: report?.changedFiles.map((c) => c.path) ?? [],
+        }),
+        workspaceCommit: baseCommits[0]!,
+        workspaceAlsoStartsFrom: baseCommits.slice(1),
       });
-    } catch (err) {
-      req.log.error(
-        { executionId: execution.id, specId: out.spec.id, err },
-        "rework spec drafted but its link to the delivery could not be saved",
-      );
-      throw new ApiError(
-        500,
-        "internal",
-        `the rework was drafted as specification ${out.spec.id}, but its link to this delivery could not be saved. Do not approve that specification: it would be planned from the default branch, not from the delivered change. Request the rework again.`,
-        { specId: out.spec.id, specLineageId: out.spec.lineageId },
-      );
+      // The spec is already stored. Without its rework row it is an ordinary spec, and a plan for
+      // it would start from the default branch instead of the delivered change.
+      let rework;
+      try {
+        rework = s.rework.create({
+          projectId,
+          sourceExecutionId: execution.id,
+          specLineageId: out.spec.lineageId,
+          baseCommits,
+          feedback: body.feedback,
+        });
+      } catch (err) {
+        req.log.error(
+          { executionId: execution.id, specId: out.spec.id, err },
+          "rework spec drafted but its link to the delivery could not be saved",
+        );
+        throw new ApiError(
+          500,
+          "internal",
+          `the rework was drafted as specification ${out.spec.id}, but its link to this delivery could not be saved. Do not approve that specification: it would be planned from the default branch, not from the delivered change. Request the rework again.`,
+          { specId: out.spec.id, specLineageId: out.spec.lineageId },
+        );
+      }
+      req.log.info({ executionId: execution.id, reworkId: rework.id }, "rework requested");
+      return reply.code(201).send({ rework, spec: out.spec, meta: out.meta });
+    } finally {
+      draftingRework.delete(execution.id);
     }
-    req.log.info({ executionId: execution.id, reworkId: rework.id }, "rework requested");
-    return reply.code(201).send({ rework, spec: out.spec, meta: out.meta });
   });
 
   /** Reworks requested on a delivery, with the spec each one produced. */

@@ -146,8 +146,7 @@ export class CliProvider implements LlmProvider {
           }
         }
       } else {
-        const result = JSON.parse(raw) as {
-          is_error?: boolean;
+        const result = JSON.parse(raw) as ClaudeResult & {
           result?: string;
           structured_output?: unknown;
           usage?: {
@@ -157,8 +156,14 @@ export class CliProvider implements LlmProvider {
             cache_read_input_tokens?: number;
           };
         };
-        if (result.is_error)
-          throw cliFailure("Claude Code could not complete the planning request", result.result);
+        if (result.is_error) {
+          const reported = claudeError(result);
+          throw cliFailure(
+            "Claude Code could not complete the planning request",
+            [reported.text],
+            reported.status,
+          );
+        }
         parsed = result.structured_output;
         text = result.result ?? (parsed === undefined ? "" : JSON.stringify(parsed));
         if (
@@ -248,15 +253,16 @@ function runCli(
     child.on("close", (code) => {
       clearTimeout(timer);
       if (failure) reject(failure);
-      else if (code !== 0)
+      else if (code !== 0) {
+        const reported = reportedError(out);
         reject(
           cliFailure(
             `Planning CLI exited with status ${code}; check its login and model settings`,
-            errTail,
-            errorResult(out),
+            [errTail, reported.text],
+            reported.status,
           ),
         );
-      else resolve(out);
+      } else resolve(out);
     });
     child.stdin.on("error", () => {
       /* early CLI exit is handled above */
@@ -267,26 +273,111 @@ function runCli(
 
 const DETAIL_MAX = 600;
 
-/** The error text of a Claude CLI JSON result, else the end of whatever the CLI printed. */
-function errorResult(stdout: string): string {
+/** The fields of the Claude CLI's JSON result that describe a failure. */
+interface ClaudeResult {
+  is_error?: boolean;
+  subtype?: unknown;
+  /** The CLI's own messages on the `error_*` subtypes. */
+  errors?: unknown;
+  /** HTTP status of the API error that ended the turn. */
+  api_error_status?: unknown;
+  terminal_reason?: unknown;
+  result?: unknown;
+}
+
+/** What a CLI said about its own failure. Model output and the echoed prompt are never part of it. */
+interface ReportedError {
+  text?: string;
+  /** HTTP status of the API error behind the failure, when the CLI names one. */
+  status?: number;
+}
+
+/**
+ * How the Claude CLI starts `result` when a turn ends on its own error instead of an answer
+ * ("Not logged in · Please run /login", "API Error: 429 ...").
+ */
+const CLAUDE_NOTICE =
+  /^(not logged in|invalid api key|invalid auth token|authentication required|oauth token|login expired|login reached its time limit|session expired|failed to authenticate|api error\b|credit balance is too low|claude(?: ai)? usage limit reached|you['’]ve hit your)/i;
+
+/**
+ * The failure a Claude CLI JSON result reports. `result` normally holds the model's answer, so
+ * it counts only when the envelope says the turn ended on an API error, or when it is one of the
+ * CLI's own short notices.
+ */
+function claudeError(r: ClaudeResult): ReportedError {
+  const status = typeof r.api_error_status === "number" ? r.api_error_status : undefined;
+  const parts: string[] = [];
+  if (Array.isArray(r.errors))
+    parts.push(...r.errors.filter((e): e is string => typeof e === "string"));
+  if (typeof r.result === "string") {
+    const notice = r.result.length <= DETAIL_MAX && CLAUDE_NOTICE.test(r.result.trim());
+    if (status !== undefined || r.terminal_reason === "api_error" || notice) parts.push(r.result);
+  }
+  if (parts.length === 0 && typeof r.subtype === "string" && r.subtype !== "success")
+    parts.push(r.subtype);
+  return {
+    ...(parts.length > 0 ? { text: parts.join("\n") } : {}),
+    ...(status === undefined ? {} : { status }),
+  };
+}
+
+/**
+ * The failure a CLI reported on stdout: a Claude JSON result, else Codex's JSONL error events
+ * (`error`, `turn.failed`, error items). Agent messages and any other output are left out.
+ */
+function reportedError(stdout: string): ReportedError {
   try {
-    const parsed = JSON.parse(stdout) as { is_error?: boolean; result?: unknown };
-    if (typeof parsed.result === "string") return parsed.result;
+    const parsed: unknown = JSON.parse(stdout);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const result = parsed as ClaudeResult;
+      // Codex can print a single event, which parses as one object too.
+      if (result.is_error !== undefined || "result" in result) return claudeError(result);
+    }
   } catch {
     /* not a single JSON result */
   }
-  return stdout.slice(-DETAIL_MAX);
+  const messages: string[] = [];
+  for (const line of stdout.split("\n")) {
+    try {
+      const e = JSON.parse(line) as {
+        type?: unknown;
+        message?: unknown;
+        error?: { message?: unknown } | null;
+        item?: { type?: unknown; message?: unknown } | null;
+      } | null;
+      const message =
+        e?.type === "error"
+          ? e.message
+          : e?.type === "turn.failed"
+            ? e.error?.message
+            : e?.item?.type === "error"
+              ? e.item.message
+              : undefined;
+      if (typeof message === "string" && !messages.includes(message)) messages.push(message);
+    } catch {
+      /* progress that is not an event */
+    }
+  }
+  return messages.length > 0 ? { text: messages.join("\n") } : {};
 }
 
+// Phrases the Claude and Codex CLIs (and the APIs they quote) use; matched against what the CLI
+// itself reported only, so they need not guard against words in a prompt or an answer.
 const AUTH =
-  /not logged in|\/login\b|log ?in required|sign in|invalid api key|authentication|unauthori[sz]ed|\b401\b|token (has |is )?expired|credentials?/i;
-const RATE_LIMITED = /rate.?limit|\b429\b|too many requests|usage limit|quota|overloaded/i;
+  /not logged in|not signed in|please run \/login|claude auth login|codex login|sign in again|log ?in required|login expired|session expired|invalid api key|invalid auth token|incorrect api key|authentication required|failed to authenticate|authentication_error|oauth token (has expired|revoked)|token (has |is )?expired|\b401 unauthorized\b/i;
+const RATE_LIMITED =
+  /rate_limit_error|rate limit (reached|exceeded)|\b429 too many requests\b|too many requests|api error: (429|529)\b|usage limit|hit your limit|usage_limit_reached|insufficient_quota|exceeded your current quota|overloaded_error/i;
 
 /**
- * A CLI failure with its cause: the end of what the CLI reported (secrets redacted) is kept as
- * `detail`, and the cases an operator can act on get their own code instead of `api_error`.
+ * A CLI failure with its cause: the end of what the CLI itself reported (stderr and the error
+ * fields of its output; secrets redacted) is kept as `detail`, and the cases an operator can act
+ * on get their own code instead of `api_error`. `status` is the API status the CLI named, if any.
  */
-export function cliFailure(fallback: string, ...reported: (string | undefined)[]): ProviderError {
+export function cliFailure(
+  fallback: string,
+  reported: (string | undefined)[],
+  status?: number,
+): ProviderError {
   const raw = reported
     .filter((r): r is string => Boolean(r?.trim()))
     .join("\n")
@@ -295,13 +386,13 @@ export function cliFailure(fallback: string, ...reported: (string | undefined)[]
     .trim();
   const detail = redactSecrets(raw).text.replace(/\s+/g, " ").slice(-DETAIL_MAX);
   const details = detail ? { detail } : {};
-  if (RATE_LIMITED.test(raw))
+  if (status === 429 || status === 529 || RATE_LIMITED.test(raw))
     return new ProviderError(
       "rate_limited",
       "Planning CLI reached its rate or usage limit; retry later",
       details,
     );
-  if (AUTH.test(raw))
+  if (status === 401 || AUTH.test(raw))
     return new ProviderError(
       "auth",
       "Planning CLI is not signed in or its login expired; sign in to the CLI and retry",

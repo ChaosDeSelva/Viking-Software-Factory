@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client.js";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import type { ExecutionDetail, ExecutionEvent, TaskGate } from "../api/delivery-types.js";
-import { Badge, Button, Card, DetailHeading, Empty, LoadState } from "../components/ui.js";
+import {
+  Badge,
+  Button,
+  Card,
+  DetailHeading,
+  Empty,
+  Field,
+  inputClass,
+  LoadState,
+} from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
 const gateText = (g: TaskGate | undefined) =>
@@ -15,12 +24,14 @@ const gateText = (g: TaskGate | undefined) =>
 const DELIVERED = new Set(["verified_pending_review", "delivered_pending_merge"]);
 /** Statuses after which a run produces no more events, so a closed stream is not reopened. */
 const FINAL = new Set([...DELIVERED, "replan_requested", "cancelled", "failed"]);
+/** Statuses the server refuses to cancel: the run has finished. A requested replan has not. */
+const ENDED = new Set([...DELIVERED, "cancelled", "failed"]);
 /** Delays between attempts to reopen the event stream; the last one repeats. */
 export const RECONNECT_DELAYS_MS = [1000, 2000, 5000, 10_000, 30_000];
 const tone = (status: string) =>
   DELIVERED.has(status)
     ? "ok"
-    : status === "awaiting_human" || status === "blocked"
+    : status === "awaiting_human" || status === "blocked" || status === "failed"
       ? "warn"
       : "neutral";
 
@@ -68,7 +79,11 @@ export function RunsScreen() {
       </Card>
       <div className="lg:col-span-2">
         {state.executionId ? (
-          <RunDetail key={state.executionId} executionId={state.executionId} />
+          <RunDetail
+            key={state.executionId}
+            executionId={state.executionId}
+            onChanged={list.reload}
+          />
         ) : (
           <Card title="Run detail">
             <Empty>Select a run to follow its tasks, approvals and events.</Empty>
@@ -79,7 +94,7 @@ export function RunsScreen() {
   );
 }
 
-function RunDetail({ executionId }: { executionId: string }) {
+function RunDetail({ executionId, onChanged }: { executionId: string; onChanged: () => void }) {
   const api = useApi();
   const { dispatch } = useStore();
   const report = useReportError();
@@ -202,6 +217,34 @@ function RunDetail({ executionId }: { executionId: string }) {
                 </Button>
               ) : null}
             </div>
+            {ENDED.has(d.execution.status) ? null : (
+              <CancelRun
+                executionId={executionId}
+                onCancelled={(cancelled) => {
+                  setLive(cancelled);
+                  onChanged();
+                }}
+                onRefused={refresh}
+              />
+            )}
+            {d.execution.status === "failed" || d.execution.status === "cancelled" ? (
+              <div
+                role="note"
+                aria-label={d.execution.status === "failed" ? "Run failed" : "Run cancelled"}
+                className="space-y-2 rounded border-2 border-amber-500 p-3 text-sm"
+              >
+                <p>
+                  {d.execution.status === "failed"
+                    ? "This run failed and will not continue. Revise the plan or execute it again."
+                    : "This run was cancelled and will not continue. Execute the plan again to start over."}
+                </p>
+                {plan ? (
+                  <Button onClick={() => dispatch({ type: "plan/open", planId: plan.id })}>
+                    Open plan
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {disconnected && !FINAL.has(d.execution.status) ? (
               <p
                 role="note"
@@ -343,6 +386,74 @@ function RunDetail({ executionId }: { executionId: string }) {
         );
       }}
     </LoadState>
+  );
+}
+
+/** Stops a run for good, behind a second step so one stray click does not end it. */
+function CancelRun(props: {
+  executionId: string;
+  onCancelled: (d: ExecutionDetail) => void;
+  /** The server refused, most likely because the run finished meanwhile. */
+  onRefused: () => void;
+}) {
+  const api = useApi();
+  const { dispatch } = useStore();
+  const report = useReportError();
+  const [confirming, setConfirming] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  if (!confirming)
+    return (
+      <div>
+        <Button variant="danger" onClick={() => setConfirming(true)}>
+          Cancel run
+        </Button>
+      </div>
+    );
+  return (
+    <form
+      aria-label="Cancel this run"
+      className="space-y-2 rounded border-2 border-red-500 p-3 text-sm"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        api
+          .cancelExecution(props.executionId, reason.trim() || undefined)
+          .then(
+            (d) => {
+              dispatch({ type: "notice", notice: { kind: "info", text: "Run cancelled" } });
+              props.onCancelled(d);
+            },
+            (err: unknown) => {
+              report(err);
+              props.onRefused();
+            },
+          )
+          .finally(() => setBusy(false));
+      }}
+    >
+      <p>
+        Cancelling stops this run for good. It cannot be resumed; to continue, execute the plan
+        again.
+      </p>
+      <Field label="Reason (optional)" id="cancel-reason">
+        <input
+          id="cancel-reason"
+          className={inputClass}
+          maxLength={2000}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+      </Field>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" variant="danger" disabled={busy}>
+          {busy ? "Cancelling…" : "Confirm cancel"}
+        </Button>
+        <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
+          Keep running
+        </Button>
+      </div>
+    </form>
   );
 }
 

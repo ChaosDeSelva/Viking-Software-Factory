@@ -158,3 +158,23 @@ it("says capacity only when a compatible worker is merely busy", async () => {
     (err: unknown) => (err as { details?: unknown }).details === undefined,
   );
 });
+it("reports being at capacity without asking a worker, and only when that is certain", async () => {
+  const { fleet, nodes } = fixture();
+  // Kinds not known yet: the launch decides.
+  expect(fleet.atCapacity("codex")).toBe(false);
+  await fleet.capabilities();
+  expect(fleet.atCapacity("codex")).toBe(false);
+  await fleet.createSession(spec("one"));
+  expect(fleet.atCapacity("codex")).toBe(false);
+  await fleet.createSession(spec("two"));
+  const asked = nodes.map((n) => vi.mocked(n.runtime.health).mock.calls.length);
+  expect(fleet.atCapacity("codex")).toBe(true);
+  // No worker runs this kind: that is a failure for `createSession` to report, not a wait.
+  expect(fleet.atCapacity("missing")).toBe(false);
+  expect(nodes.map((n) => vi.mocked(n.runtime.health).mock.calls.length)).toEqual(asked);
+  // A draining worker is not waited for; the other one still is.
+  await fleet.setDraining("a", true);
+  expect(fleet.atCapacity("codex")).toBe(true);
+  await fleet.setDraining("b", true);
+  expect(fleet.atCapacity("codex")).toBe(false);
+});

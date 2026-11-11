@@ -4,6 +4,7 @@ import {
   branchNameFor,
   type ChangedFilesManifest,
   type CreateWorktreeInput,
+  type ExportedResult,
   type GitManager,
   type RestoreRecord,
   type WorktreeDiff,
@@ -41,7 +42,7 @@ export interface WorktreePort {
     bases: readonly string[],
     results: readonly string[],
     opts?: { fromDefaultBranch?: boolean },
-  ): Promise<{ baseSha: string; resultCommit: string; patch: string }>;
+  ): Promise<ExportedResult>;
   dependencyBase(
     projectId: string,
     repoPath: string,

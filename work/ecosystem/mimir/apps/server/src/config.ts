@@ -78,6 +78,8 @@ export interface ServerConfig extends ListenOptions {
   artifactRetentionDays: number;
   /** `MIMIR_APPROVAL_TTL_MS`; null = server default. */
   approvalTtlMs: number | null;
+  /** `MIMIR_CAPACITY_WAIT_MS`: longest wait for a free fleet worker; null = server default. */
+  capacityWaitMs: number | null;
   /** `MIMIR_MAX_ARTIFACT_BYTES`: largest artifact served over HTTP. */
   maxArtifactBytes: number;
   /** `MIMIR_WEB_ROOT`: built web app directory to serve from the API origin; null = API only. */
@@ -214,6 +216,7 @@ export function loadConfig(env: Env, home: string = homedir()): ServerConfig {
     tickMs: Math.floor(numberFrom(env, "MIMIR_TICK_MS", 0, 1000)),
     artifactRetentionDays: numberFrom(env, "MIMIR_ARTIFACT_RETENTION_DAYS", 1, 30),
     approvalTtlMs: numberFrom(env, "MIMIR_APPROVAL_TTL_MS", 1, null),
+    capacityWaitMs: numberFrom(env, "MIMIR_CAPACITY_WAIT_MS", 1, null),
     maxArtifactBytes: Math.floor(numberFrom(env, "MIMIR_MAX_ARTIFACT_BYTES", 1, 64 * 1024 * 1024)),
     webRoot: nonEmpty(env["MIMIR_WEB_ROOT"]) ?? null,
   };

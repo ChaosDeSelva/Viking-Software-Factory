@@ -196,20 +196,22 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
                       <p>
                         Verified result: <code>{result.resultCommit}</code>
                       </p>
-                      <Button
-                        onClick={() => {
-                          const url = URL.createObjectURL(
-                            new Blob([result.patch], { type: "text/plain" }),
-                          );
-                          const a = document.createElement("a");
-                          a.href = url;
-                          a.download = "result.patch";
-                          a.click();
-                          setTimeout(() => URL.revokeObjectURL(url), 1000);
-                        }}
-                      >
-                        Download result.patch
-                      </Button>
+                      {result.followUp ? (
+                        <PatchBlock
+                          title="Follow-up only — use this if you already applied the earlier delivery"
+                          note={`Only what changed since the earlier delivery's result (${result.followUp.baseSha}). It applies on top of that result, not on a project without it.`}
+                          patch={result.followUp.patch}
+                          fileName="follow-up.patch"
+                          name="follow-up patch"
+                        />
+                      ) : null}
+                      <PatchBlock
+                        title={result.followUp ? "Full patch — the whole change" : "Patch"}
+                        note="The exact patch, complete and unaltered. Download or copy it, then apply it with the command below."
+                        patch={result.patch}
+                        fileName="result.patch"
+                        name="patch"
+                      />
                       <p>From the project folder, using the downloaded patch path:</p>
                       <pre className="overflow-auto text-xs">{result.apply}</pre>
                       <p>To undo the same patch:</p>
@@ -235,6 +237,63 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
         </LoadState>
       </Card>
     </div>
+  );
+}
+
+/** A patch shown as plain text, with download and copy. The text is never changed here. */
+function PatchBlock(props: {
+  title: string;
+  note: string;
+  patch: string;
+  fileName: string;
+  /** What the copy button and its confirmation call it. */
+  name: string;
+}) {
+  const { dispatch } = useStore();
+  const report = useReportError();
+  return (
+    <section
+      aria-label={props.title}
+      className="space-y-2 rounded border border-slate-200 p-3 dark:border-slate-700"
+    >
+      <h3 className="font-medium">{props.title}</h3>
+      <p className="text-xs text-slate-600 dark:text-slate-300">{props.note}</p>
+      <pre
+        tabIndex={0}
+        className="max-h-80 overflow-auto rounded bg-slate-100 p-3 text-xs dark:bg-slate-900"
+      >
+        {props.patch}
+      </pre>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          onClick={() => {
+            const url = URL.createObjectURL(new Blob([props.patch], { type: "text/plain" }));
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = props.fileName;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }}
+        >
+          Download {props.fileName}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            navigator.clipboard.writeText(props.patch).then(
+              () =>
+                dispatch({
+                  type: "notice",
+                  notice: { kind: "info", text: `Copied the ${props.name} to the clipboard` },
+                }),
+              report,
+            )
+          }
+        >
+          Copy {props.name}
+        </Button>
+      </div>
+    </section>
   );
 }
 

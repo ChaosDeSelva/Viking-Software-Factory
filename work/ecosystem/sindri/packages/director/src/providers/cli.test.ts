@@ -182,9 +182,15 @@ it("says why a CLI failed: not signed in, rate limited, timed out, or the CLI's 
   ).toMatchObject({ code: "auth", detail: "OAuth token has expired. Please run /login" });
   expect(
     await claude(
-      `console.log(JSON.stringify({is_error:true,result:'API Error: 429 rate_limit_error: usage limit reached'}));`,
+      `console.log(JSON.stringify({is_error:true,api_error_status:429,terminal_reason:'api_error',result:'API Error: Request rejected (429)'}));`,
     ),
-  ).toMatchObject({ code: "rate_limited", detail: expect.stringContaining("429") });
+  ).toMatchObject({ code: "rate_limited", detail: "API Error: Request rejected (429)" });
+  // What the installed CLI (2.1.x) prints for a rejected key: the status decides, not the words.
+  expect(
+    await claude(
+      `console.log(JSON.stringify({type:'result',subtype:'success',is_error:true,api_error_status:401,terminal_reason:'api_error',result:'Invalid API key · Fix external API key'})); process.exit(1);`,
+    ),
+  ).toMatchObject({ code: "auth", detail: "Invalid API key · Fix external API key" });
   expect(await claude(`setInterval(()=>{},1000);`, 100)).toMatchObject({
     code: "timeout",
     message: expect.stringMatching(/time limit/),
@@ -199,4 +205,55 @@ it("says why a CLI failed: not signed in, rate limited, timed out, or the CLI's 
   expect(other.detail).toContain("model not found: opus-9");
   expect(other.detail).not.toContain(secret);
   expect(other.detail.length).toBeLessThanOrEqual(600);
+}, 30_000);
+
+it("classifies a CLI failure from what the CLI reports, never from the prompt or the model's answer", async () => {
+  const run = (kind: "claude-cli" | "codex-cli", source: string) =>
+    new CliProvider({ kind, executable: executable(source) })
+      .complete(request)
+      .catch((e: unknown) => e) as Promise<{ code: string; detail?: string }>;
+  // A ticket about rate limiting and sign-in, echoed by the model, that fails for another reason.
+  const answer =
+    "I will add rate limiting to the login endpoint: check credentials, sign in, authentication, 401, 429, quota";
+
+  const maxTurns = await run(
+    "claude-cli",
+    `console.log(JSON.stringify({type:'result',subtype:'error_max_turns',is_error:true,errors:['Reached maximum number of turns (1)'],result:${JSON.stringify(answer)}})); process.exit(1);`,
+  );
+  expect(maxTurns).toMatchObject({
+    code: "api_error",
+    detail: "Reached maximum number of turns (1)",
+  });
+  // An error result that names no cause says nothing rather than quoting the answer.
+  const unnamed = await run(
+    "claude-cli",
+    `console.log(JSON.stringify({type:'result',subtype:'success',is_error:true,result:${JSON.stringify(answer)}}));`,
+  );
+  expect(unnamed.code).toBe("api_error");
+  expect(unnamed.detail).toBeUndefined();
+  const subtypeOnly = await run(
+    "claude-cli",
+    `console.log(JSON.stringify({type:'result',subtype:'error_during_execution',is_error:true,result:${JSON.stringify(answer)}}));`,
+  );
+  expect(subtypeOnly).toMatchObject({ code: "api_error", detail: "error_during_execution" });
+
+  // Codex: only its error events count, not the agent's messages or other output.
+  const message = `console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:${JSON.stringify(answer)}}}));`;
+  const codexOther = await run(
+    "codex-cli",
+    `${message} console.log(JSON.stringify({type:'error',message:'model not found: gpt-9'})); console.log(JSON.stringify({type:'turn.failed',error:{message:'model not found: gpt-9'}})); process.exit(1);`,
+  );
+  expect(codexOther).toMatchObject({ code: "api_error", detail: "model not found: gpt-9" });
+  const codexSilent = await run("codex-cli", `${message} process.exit(1);`);
+  expect(codexSilent.code).toBe("api_error");
+  expect(codexSilent.detail).toBeUndefined();
+  expect(
+    await run(
+      "codex-cli",
+      `${message} console.log(JSON.stringify({type:'turn.failed',error:{message:'exceeded retry limit, last status: 429 Too Many Requests'}})); process.exit(1);`,
+    ),
+  ).toMatchObject({ code: "rate_limited", detail: expect.stringContaining("429 Too Many") });
+  expect(
+    await run("codex-cli", `console.error('Not logged in. Run codex login'); process.exit(1);`),
+  ).toMatchObject({ code: "auth" });
 }, 30_000);

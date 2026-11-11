@@ -106,6 +106,8 @@ export interface BuildServerOptions {
   webRoot?: string;
   /** Ticks between periodic runtime reconciles (`MIMIR_RECONCILE_EVERY_TICKS`, default 30). */
   reconcileEveryTicks?: number;
+  /** Longest a task waits for a free fleet worker (`MIMIR_CAPACITY_WAIT_MS`, default 30 min). */
+  capacityWaitMs?: number;
   /** Set when the runtime adapter reports measured usage (the local CLI adapter does). */
   runtimeReportsUsage?: boolean;
 }
@@ -164,6 +166,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     ...(opts.reconcileEveryTicks !== undefined
       ? { reconcileEveryTicks: opts.reconcileEveryTicks }
       : {}),
+    ...(opts.capacityWaitMs !== undefined ? { capacityWaitMs: opts.capacityWaitMs } : {}),
   });
   const retentionDays = opts.artifactRetentionDays ?? DEFAULT_ARTIFACT_RETENTION_DAYS;
   const pruneArtifacts = () => {

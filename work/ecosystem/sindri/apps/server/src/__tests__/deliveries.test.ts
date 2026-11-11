@@ -377,6 +377,42 @@ describe("requesting changes: one open rework, and a failed link is not silent",
     expect((await rework("Also quote every field.")).statusCode).toBe(201);
   });
 
+  it("refuses a second rework while the first is still being drafted, and frees the delivery afterwards", async () => {
+    const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const rework = (feedback: string) =>
+      flow.h.call({
+        method: "POST",
+        url: `/v1/deliveries/${execution.id}/rework`,
+        payload: { feedback },
+      });
+    // Both arrive before either has stored a rework, so only the in-flight guard can tell.
+    const both = await Promise.all([
+      rework("Use ISO dates in the export."),
+      rework("Also quote every field."),
+    ]);
+    expect(both.map((r) => r.statusCode).sort()).toEqual([201, 409]);
+    const refused = both.find((r) => r.statusCode === 409)!.json().error;
+    expect(refused.code).toBe("invalid_state");
+    expect(refused.message).toMatch(/already being drafted/);
+    expect(refused.details).toBeUndefined();
+    const { reworks } = (
+      await flow.h.call({ url: `/v1/deliveries/${execution.id}/reworks` })
+    ).json();
+    expect(reworks).toHaveLength(1);
+    expect(reworks[0].specs).toHaveLength(1);
+
+    // The guard is released when the request ends: afterwards the stored rework answers, and
+    // once that is approved the delivery can be sent back again.
+    const drafted = both.find((r) => r.statusCode === 201)!.json().spec.id as string;
+    const later = await rework("Also quote every field.");
+    expect(later.statusCode).toBe(409);
+    expect(later.json().error.message).toContain(drafted);
+    await approveDraft(flow, drafted);
+    expect((await rework("Also quote every field.")).statusCode).toBe(201);
+  });
+
   it("names the orphaned spec and warns against approving it when the link cannot be saved", async () => {
     const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
     const { execution } = await run(flow);

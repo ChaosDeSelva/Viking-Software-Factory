@@ -551,6 +551,8 @@ export class ReadModel {
     if (to === "completed" || to === "failed" || to === "cancelled" || to === "ready") {
       patch.leaseExpiresAt = null;
     }
+    // A lease given back (`launch_deferred`) leaves no agent on the task, as in the task machine.
+    if (type === "task.ready") patch.agentId = null;
     if (type === "task.blocked")
       patch.blockedReason = (p as EventPayloadMap["task.blocked"]).reason;
     const next = bump(t, at, patch);

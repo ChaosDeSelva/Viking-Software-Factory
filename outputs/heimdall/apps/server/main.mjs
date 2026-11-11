@@ -89,8 +89,12 @@ export async function startHeimdall(options = {}) {
   let hub = new Hub(connections, store, broadcast);
   const web = resolve(fileURLToPath(new URL("../../dist/", import.meta.url)));
   let boundPort = port;
-  let loginFailures = 0,
-    lockedUntil = 0;
+  // Separate counts: a token holder must not be able to reset the operator-code lockout.
+  const attempts = { login: { failures: 0, lockedUntil: 0 }, unlock: { failures: 0, lockedUntil: 0 } };
+  const failedAttempt = (kind) => {
+    if (++attempts[kind].failures >= 5)
+      attempts[kind] = { failures: 0, lockedUntil: Date.now() + 60000 };
+  };
   const server = createServer(async (req, res) => {
     res.setHeader("x-content-type-options", "nosniff");
     res.setHeader("referrer-policy", "no-referrer");
@@ -136,20 +140,17 @@ export async function startHeimdall(options = {}) {
           status: 403,
         });
       if (path === "/api/login" && req.method === "POST") {
-        if (Date.now() < lockedUntil)
+        if (Date.now() < attempts.login.lockedUntil)
           throw Object.assign(
             Error("Too many attempts. Try again in one minute."),
             { status: 429 },
           );
         const b = await body(req);
         if (!equals(b.token, token)) {
-          if (++loginFailures >= 5) {
-            lockedUntil = Date.now() + 60000;
-            loginFailures = 0;
-          }
+          failedAttempt("login");
           throw Object.assign(Error("Invalid access token"), { status: 401 });
         }
-        loginFailures = 0;
+        attempts.login.failures = 0;
         const sid = randomBytes(32).toString("base64url");
         sessions.set(sid, {
           expires: Date.now() + 12 * 3600000,
@@ -183,21 +184,18 @@ export async function startHeimdall(options = {}) {
           pairedSindri: !!session.approvalSecret,
         });
       if (path === "/api/unlock" && req.method === "POST") {
-        if (Date.now() < lockedUntil)
+        if (Date.now() < attempts.unlock.lockedUntil)
           throw Object.assign(Error("Too many attempts. Try later."), {
             status: 429,
           });
         const b = await body(req);
         if (!equals(b.code, operatorCode)) {
-          if (++loginFailures >= 5) {
-            lockedUntil = Date.now() + 60000;
-            loginFailures = 0;
-          }
+          failedAttempt("unlock");
           throw Object.assign(Error("Incorrect operator code"), {
             status: 403,
           });
         }
-        loginFailures = 0;
+        attempts.unlock.failures = 0;
         session.operator = true;
         store.audit({
           actor: "local operator",
@@ -432,7 +430,7 @@ export async function startHeimdall(options = {}) {
       if (artifact && req.method === "GET")
         return json(res, 200, await hub.artifact(artifact[1]));
       const detail =
-        /^\/api\/details\/(specs|plans|intakes|deliveries|questions|local)\/([\w-]+)$/.exec(
+        /^\/api\/details\/(specs|plans|intakes|deliveries|questions|local|profile)\/([\w-]+)$/.exec(
           path,
         );
       if (detail && req.method === "GET") {
@@ -442,12 +440,27 @@ export async function startHeimdall(options = {}) {
             ? `/v1/specs/${id}/questions`
             : kind === "local"
               ? `/v1/deliveries/${id}/local`
-              : `/v1/${kind}/${id}`;
-        return json(
-          res,
-          200,
-          hub.clean(await request(connections.sindri, upstream)),
-        );
+              : kind === "profile"
+                ? `/v1/projects/${id}/profile`
+                : `/v1/${kind}/${id}`;
+        const raw = await request(connections.sindri, upstream);
+        const cleaned = hub.clean(raw);
+        // The form saves what it shows, so it must know when a value was replaced for display.
+        if (kind === "profile")
+          cleaned.altered = JSON.stringify(cleaned) !== JSON.stringify(raw);
+        if (kind === "local") {
+          // A patch has to apply byte for byte, so the display rewrite skips it. It is the
+          // operator's own repository diff; only this app's source tokens are still withheld.
+          const tokens = Object.values(connections).map((c) => c?.token).filter(Boolean);
+          const exact = (shown, patch) => {
+            if (typeof patch !== "string" || !shown) return;
+            shown.patchExact = !tokens.some((t) => patch.includes(t));
+            if (shown.patchExact) shown.patch = patch;
+          };
+          exact(cleaned.result, raw.result?.patch);
+          exact(cleaned.result?.followUp, raw.result?.followUp?.patch);
+        }
+        return json(res, 200, cleaned);
       }
       if (path === "/api/commands" && req.method === "POST") {
         if (!session.operator)
@@ -536,7 +549,7 @@ export async function startHeimdall(options = {}) {
         const timeoutMs = options.commandTimeout?.(c.action) ?? commandTimeout(c.action);
         try {
           const result = await request(connections[route.source], route.path, {
-            method: "POST",
+            method: route.method,
             headers: {
               "idempotency-key": key,
               "x-heimdall-audit": key,

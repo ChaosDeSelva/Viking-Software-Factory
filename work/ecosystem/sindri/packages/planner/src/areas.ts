@@ -165,13 +165,20 @@ export function deriveWorkAreas(spec: AreaInput, repoIndex: RepoIndex = {}): Wor
     }
   }
 
-  // Security and docs areas only review and document. When the criteria matched nothing but
-  // those (a security-only ticket), the work itself still needs an implementer.
-  if (toBuild.length > 0 && !IMPLEMENTATION.some((k) => areas.has(k))) {
-    const a = area("backend");
-    for (const id of toBuild) {
-      a.acceptanceCriteria.push(id);
-      a.reasons.push(`${id} matches no implementation area; assigned to backend`);
+  // Security and docs areas only review and document, so every criterion that asks for more than
+  // documentation needs an implementer too, also when other criteria already have one. It goes
+  // where the repository says the work is, else to backend.
+  const uncovered = toBuild.filter(
+    (id) => !IMPLEMENTATION.some((k) => areas.get(k)?.acceptanceCriteria.includes(id)),
+  );
+  if (uncovered.length > 0) {
+    const pathImpl = IMPLEMENTATION.filter((k) => fromPaths.has(k));
+    for (const kind of pathImpl.length > 0 ? pathImpl : (["backend"] as AreaKind[])) {
+      const a = area(kind);
+      for (const id of uncovered) {
+        a.acceptanceCriteria.push(id);
+        a.reasons.push(`${id} matches no implementation area; assigned to ${kind}`);
+      }
     }
   }
 

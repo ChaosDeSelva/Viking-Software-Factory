@@ -195,6 +195,42 @@ describe("executions with a fake Mimir", () => {
     expect(none.statusCode).toBe(409);
   });
 
+  it("keeps an escalation answerable after Mimir failed the mission: retry is refused, skip delivers", async () => {
+    const flow = (f = await startMimirFlow({
+      qa: [
+        { kind: "fail", reason: "broken" },
+        { kind: "fail", reason: "broken" },
+      ],
+    }));
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const { execution } = (await create(flow, plan.id)).json();
+    await until(status(flow, execution.id), (s) => s === "awaiting_human");
+    flow.fake.inject(
+      "mission.failed",
+      { from: "active", to: "failed", reason: "task exhausted" },
+      { missionId: execution.mimirMissionId },
+    );
+    const resolve = (decision: string) =>
+      flow.h.call({
+        method: "POST",
+        url: `/v1/executions/${execution.id}/escalations/qa`,
+        payload: { decision, reason: "x" },
+      });
+    const retry = await resolve("retry");
+    expect(retry.statusCode).toBe(409);
+    expect(retry.json().error).toMatchObject({
+      code: "invalid_state",
+      message: expect.stringMatching(/mission has ended.*run the plan again/),
+    });
+    expect(await status(flow, execution.id)()).toBe("awaiting_human");
+    expect((await resolve("skip")).statusCode).toBe(200);
+    await until(status(flow, execution.id), (s) => s === "verified_pending_review");
+    const after = await getExec(flow, execution.id);
+    expect(after.tasks.find((t: { planTaskId: string }) => t.planTaskId === "qa").resolution).toBe(
+      "skipped",
+    );
+  });
+
   it("aborts an execution from an escalation", async () => {
     const flow = (f = await startMimirFlow({
       qa: [

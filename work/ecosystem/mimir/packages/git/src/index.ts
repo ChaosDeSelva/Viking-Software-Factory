@@ -13,6 +13,7 @@ export {
   type GitManagerOptions,
   type RegisterProjectInput,
   type CreateWorktreeInput,
+  type ExportedResult,
   type OwnerClaim,
   type RemoveWorktreeOptions,
   type RemoveWorktreeResult,

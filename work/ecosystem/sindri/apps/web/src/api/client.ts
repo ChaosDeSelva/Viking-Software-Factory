@@ -16,6 +16,7 @@ import type {
   BootstrapResult,
   Capabilities,
   DraftResult,
+  ExecutionProfile,
   Intake,
   IntakeComment,
   KnowledgeEntry,
@@ -55,11 +56,13 @@ export interface ClientOptions {
 const enc = encodeURIComponent;
 
 /**
- * Routes that need the approval secret: spec and plan approval, PR requests (audit M9) and
- * decisions on agents' gated actions (review I1).
+ * Routes that need the approval secret: spec and plan approval, PR requests (audit M9),
+ * decisions on agents' gated actions (review I1) and a project's execution profile.
  */
 const APPROVAL_ROUTE =
-  /^\/v1\/(?:(?:specs|plans)\/[^/]+\/approve|executions\/[^/]+\/(?:pr|approvals\/[^/]+)|projects\/[^/]+\/data|deliveries\/[^/]+\/proposals(?:\/[^/]+\/decision)?)$/;
+  /^\/v1\/(?:(?:specs|plans)\/[^/]+\/approve|executions\/[^/]+\/(?:pr|approvals\/[^/]+)|projects\/[^/]+\/(?:data|profile)|deliveries\/[^/]+\/proposals(?:\/[^/]+\/decision)?)$/;
+/** Only writing a profile is gated; reading it must not carry the secret. */
+const APPROVAL_ON_WRITE_ONLY = /^\/v1\/projects\/[^/]+\/profile$/;
 const APPROVAL_HEADER = "x-sindri-approval";
 const qs = (params: Record<string, string>) => new URLSearchParams(params).toString();
 
@@ -75,7 +78,9 @@ export function createApiClient(opts: ClientOptions) {
     const headers = new Headers();
     const token = opts.getToken();
     if (token) headers.set("authorization", `Bearer ${token}`);
-    const approvalRoute = APPROVAL_ROUTE.test(path.split("?")[0] ?? "");
+    const route = path.split("?")[0] ?? "";
+    const approvalRoute =
+      APPROVAL_ROUTE.test(route) && !(method === "GET" && APPROVAL_ON_WRITE_ONLY.test(route));
     if (approvalRoute && approvalSecret) headers.set(APPROVAL_HEADER, approvalSecret);
     const init: RequestInit = { method, headers };
     if (method !== "GET") {
@@ -145,6 +150,15 @@ export function createApiClient(opts: ClientOptions) {
     search: async (id: string, q: string) =>
       (await call<{ hits: SearchHit[] }>("GET", `/v1/projects/${enc(id)}/search?${qs({ q })}`))
         .hits,
+    getProfile: async (id: string) =>
+      (await call<{ profile: ExecutionProfile }>("GET", `/v1/projects/${enc(id)}/profile`)).profile,
+    /** Replaces the whole profile. `harness` is null when the profile has no checks. */
+    putProfile: (id: string, profile: ExecutionProfile) =>
+      call<{ profile: ExecutionProfile; harness: { name: string; version: string } | null }>(
+        "PUT",
+        `/v1/projects/${enc(id)}/profile`,
+        profile,
+      ),
     /** `eraseEvidence` also erases immutable task evidence (ids and hashes are kept). */
     deleteProjectData: (id: string, confirm: string, o: { eraseEvidence?: boolean } = {}) =>
       call<{ deleted: { projectId: string; evidenceErased?: number } }>(

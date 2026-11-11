@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import { ApiError } from "../api/client.js";
 import type { ExecutionStreamMessage } from "../api/delivery-types.js";
 import { NoticeRegion } from "../components/Layout.js";
 import { useStore } from "../store/context.js";
@@ -260,4 +261,120 @@ describe("RunsScreen", () => {
     await userEvent.click(within(note).getByRole("button", { name: "Open plan" }));
     expect(screen.getByTestId("where").textContent).toBe("plans:pl1");
   });
+
+  it("cancels a run after a confirm step, with the reason", async () => {
+    const cancelled = executionDetail({
+      execution: { ...executionDetail().execution, status: "cancelled" },
+      approvals: [],
+    });
+    let runs = [summary];
+    const api = mockApi({
+      listExecutions: () => Promise.resolve(runs),
+      getExecution: executionDetail(),
+      streamExecution: idleStream,
+      cancelExecution: () => {
+        runs = [{ ...summary, status: "cancelled" }];
+        return Promise.resolve(cancelled);
+      },
+    });
+    renderWithStore(ui, api, { executionId: "e1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    expect(api.cancelExecution).not.toHaveBeenCalled();
+    // Backing out leaves the run alone.
+    await userEvent.click(screen.getByRole("button", { name: "Keep running" }));
+    expect(screen.queryByRole("button", { name: "Confirm cancel" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel run" }));
+    await userEvent.type(screen.getByLabelText("Reason (optional)"), " wrong plan ");
+    await userEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
+    expect(api.cancelExecution).toHaveBeenCalledWith("e1", "wrong plan");
+    const note = await screen.findByRole("note", { name: "Run cancelled" });
+    expect(note.textContent).toMatch(/was cancelled and will not continue/);
+    expect(screen.getByRole("status").textContent).toMatch(/Run cancelled/);
+    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+    // The list is reloaded, so it shows the new status too.
+    const item = await screen.findByRole("button", { name: /e1/, pressed: true });
+    expect(item.textContent).toMatch(/cancelled/);
+  });
+
+  it("sends no reason when none is given, and reports a refused cancel", async () => {
+    const verified = executionDetail({
+      execution: { ...executionDetail().execution, status: "verified_pending_review" },
+      approvals: [],
+    });
+    let detail = executionDetail();
+    const api = mockApi({
+      listExecutions: [summary],
+      getExecution: () => Promise.resolve(detail),
+      streamExecution: idleStream,
+      cancelExecution: () => {
+        detail = verified;
+        return Promise.reject(
+          new ApiError(409, "invalid_state", "the execution has finished; nothing to cancel"),
+        );
+      },
+    });
+    renderWithStore(ui, api, { executionId: "e1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Cancel run" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm cancel" }));
+    expect(api.cancelExecution).toHaveBeenCalledWith("e1", undefined);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/nothing to cancel/);
+    // The run is shown as it now is, and can no longer be cancelled.
+    await screen.findByRole("button", { name: "Open delivery" });
+    expect(screen.queryByRole("button", { name: "Confirm cancel" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+  });
+
+  it.each(["failed", "cancelled", "verified_pending_review"])(
+    "offers no cancel for a run that is %s",
+    async (status) => {
+      const api = mockApi({
+        listExecutions: [{ ...summary, status }],
+        getExecution: executionDetail({
+          execution: { ...executionDetail().execution, status: status as "failed" },
+          approvals: [],
+        }),
+        streamExecution: idleStream,
+      });
+      renderWithStore(ui, api, { executionId: "e1" });
+      await screen.findByRole("table", { name: "Tasks" });
+      expect(screen.queryByRole("button", { name: "Cancel run" })).toBeNull();
+    },
+  );
+
+  it("can cancel a run that is waiting for a replan", async () => {
+    const api = mockApi({
+      listExecutions: [{ ...summary, status: "replan_requested" }],
+      getExecution: executionDetail({
+        execution: { ...executionDetail().execution, status: "replan_requested" },
+        approvals: [],
+      }),
+      streamExecution: idleStream,
+    });
+    renderWithStore(ui, api, { executionId: "e1" });
+    expect(await screen.findByRole("button", { name: "Cancel run" })).toBeTruthy();
+  });
+
+  it("says a failed run will not continue, and treats it as final", async () => {
+    const api = mockApi({
+      listExecutions: [{ ...summary, status: "failed" }],
+      getExecution: executionDetail({
+        execution: { ...executionDetail().execution, status: "failed" },
+        approvals: [],
+      }),
+    });
+    let end: () => void = () => undefined;
+    api.streamExecution.mockImplementation(() => new Promise<void>((r) => (end = r)));
+    renderWithStore(withWhere, api, { executionId: "e1" });
+    const note = await screen.findByRole("note", { name: "Run failed" });
+    expect(note.textContent).toBe(
+      "This run failed and will not continue. Revise the plan or execute it again.Open plan",
+    );
+    // Final: a closed stream is not reopened and no disconnect warning appears.
+    await act(async () => end());
+    await new Promise((r) => setTimeout(r, 1300));
+    expect(api.streamExecution).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("note", { name: "Live updates" })).toBeNull();
+    await userEvent.click(within(note).getByRole("button", { name: "Open plan" }));
+    expect(screen.getByTestId("where").textContent).toBe("plans:pl1");
+  }, 20_000);
 });

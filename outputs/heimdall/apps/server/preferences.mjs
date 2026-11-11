@@ -156,6 +156,14 @@ export function attentionRecords(state) {
       d,
     );
   for (const e of state.sindri.executions ?? []) {
+    if (e.execution.status === "failed")
+      push(
+        "execution:" + e.execution.id,
+        "Run failed: " + e.execution.id,
+        "error",
+        "execution",
+        e.execution,
+      );
     for (const g of e.gates ?? [])
       if (!g.passed)
         push(

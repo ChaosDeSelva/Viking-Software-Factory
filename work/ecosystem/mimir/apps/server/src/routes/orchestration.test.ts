@@ -28,6 +28,7 @@ import {
   type Harness,
   type HarnessOptions,
 } from "../orchestrator/test-harness.js";
+import { localDeliveryInstructions } from "../orchestrator/orchestrator.js";
 import { writingRuntime } from "../orchestrator/test-agent-files.js";
 
 // Integration tests: real git worktrees, npm verification and server boots (slow on a busy host).
@@ -354,9 +355,22 @@ describe("mission base commits", () => {
       url: `/v1/artifacts/${(delivery!.payload as { artifactId: string }).artifactId}/content`,
       headers: { authorization: "Bearer test-token-0123456789" },
     });
-    const body = JSON.parse(content.body) as { baseSha: string; patch: string };
+    const body = JSON.parse(content.body) as {
+      baseSha: string;
+      patch: string;
+      followUp: { baseSha: string; patch: string };
+      apply: string;
+      undo: string;
+    };
     expect(body.baseSha).toBe(defaultBranch);
     for (const task of [a, b, r1, r2]) expect(body.patch).toContain(`${task}.txt`);
+    // For a checkout that already has the first delivery: only what the rework added.
+    expect(body.followUp.baseSha).toBe(bases[0]);
+    for (const task of [r1, r2]) expect(body.followUp.patch).toContain(`${task}.txt`);
+    for (const task of [a, b]) expect(body.followUp.patch).not.toContain(`${task}.txt`);
+    expect(body.apply).toContain("git apply --check followup.patch && git apply followup.patch");
+    expect(body.apply).toContain("git apply --check result.patch && git apply result.patch");
+    expect(body.undo).toContain("git apply --reverse followup.patch");
   }, 180_000);
 
   it("rejects a base commit that is not a git sha", async () => {
@@ -633,11 +647,26 @@ describe("artifacts, PR delivery, usage, budgets and attention", () => {
     const body = JSON.parse(content.body);
     expect(body.resultCommit).toBe(h.task(t).resultCommit);
     expect(body.repoPath).toBe(h.repo);
-    expect(body.apply).toContain("git apply --check");
+    // Not a rework: one patch, and `apply` and `undo` are the commands themselves.
+    expect(body.apply).toBe("git apply --check result.patch && git apply result.patch");
+    expect(body.undo).toBe(
+      "git apply --reverse --check result.patch && git apply --reverse result.patch",
+    );
+    expect("followUp" in body || "followUpOnly" in body).toBe(false);
     expect((await h.get(`/v1/artifacts/${newId("art")}`)).status).toBe(404);
     // the approval was consumed by that delivery: a second request asks again (review I1)
     expect((await h.post(`/v1/tasks/${t}/pr`)).json).toMatchObject({ status: "approval_required" });
   }, 120_000);
+
+  it("says so when a rework delivery holds only the follow-up", () => {
+    const only = localDeliveryInstructions({
+      followUpOnly: "the default branch could not be determined",
+    });
+    expect(only.apply).toContain("only the follow-up to the earlier delivery");
+    expect(only.apply).toContain("the default branch could not be determined");
+    expect(only.apply).toContain("git apply --check result.patch && git apply result.patch");
+    expect(only.undo).toContain("git apply --reverse result.patch");
+  });
 
   it("POST /v1/tasks/:id/pr answers with the protocol RequestPrResponse and rejects body fields", async () => {
     const h = await track();

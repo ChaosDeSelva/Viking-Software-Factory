@@ -104,6 +104,7 @@ export async function startMimir(env: Env): Promise<StartedMimir> {
       maxArtifactBytes: config.maxArtifactBytes,
       ...(config.webRoot !== null ? { webRoot: config.webRoot } : {}),
       ...(config.approvalTtlMs !== null ? { approvalTtlMs: config.approvalTtlMs } : {}),
+      ...(config.capacityWaitMs !== null ? { capacityWaitMs: config.capacityWaitMs } : {}),
       ...(config.tls
         ? {
             https: {

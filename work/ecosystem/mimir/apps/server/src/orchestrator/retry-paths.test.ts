@@ -4,7 +4,13 @@ import { join } from "node:path";
 import type { FakeRuntime } from "@mimir/fake-runtime";
 import { MimirError, type RuntimeAdapter, type RuntimeSessionSpec } from "@mimir/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CAPACITY_RETRY_MS, verificationFailureNote } from "./orchestrator.js";
+import { argvFor } from "../templates.js";
+import {
+  CAPACITY_RETRY_MS,
+  DEFAULT_CAPACITY_WAIT_MS,
+  EVENT_OUTPUT_CAP,
+  verificationFailureNote,
+} from "./orchestrator.js";
 import { writingRuntime } from "./test-agent-files.js";
 import {
   FAST_TEST_COMMAND,
@@ -47,7 +53,10 @@ function launching(
 /** Answers each verification from `results` in order (the last one repeats). */
 class ScriptedVerifier implements Verifier {
   readonly inputs: VerifyInput[] = [];
-  constructor(private readonly results: readonly ("pass" | "fail")[]) {}
+  constructor(
+    private readonly results: readonly ("pass" | "fail")[],
+    private readonly failOutput = "running suite\n\u001b[31mFAIL\u001b[0m TestParse: want 3 got 4\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789\n",
+  ) {}
   verify(input: VerifyInput): Promise<VerificationResult> {
     const outcome = this.results[Math.min(this.inputs.length, this.results.length - 1)];
     this.inputs.push(input);
@@ -63,9 +72,7 @@ class ScriptedVerifier implements Verifier {
           exitCode: passed ? 0 : 2,
           durationMs: 1,
           timedOut: false,
-          output: passed
-            ? "ok"
-            : "running suite\n\u001b[31mFAIL\u001b[0m TestParse: want 3 got 4\nAuthorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789\n",
+          output: passed ? "ok" : this.failOutput,
         },
       ],
     });
@@ -157,6 +164,47 @@ describe("a launch that finds the runtime full (A3)", () => {
     expect(failures(h, t)).toEqual([]);
   });
 
+  it("clears the agent of a task whose lease was given back", async () => {
+    const h = await track({
+      wrapRuntime: (fake) =>
+        launching(fake, () => {
+          throw new MimirError("runtime_unavailable", "full", { reason: "capacity" });
+        }),
+    });
+    const { missionId } = await setupMission(h);
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    expect(h.events(["task.leased"]).filter((e) => e.taskId === t)).toHaveLength(1);
+    expect(h.task(t)).toMatchObject({ status: "ready", agentId: null });
+    await h.restart();
+    expect(h.task(t)).toMatchObject({ status: "ready", agentId: null });
+  });
+
+  it("fails the attempt as fleet_capacity_timeout once the refused launches exceed the wait", async () => {
+    const h = await track({
+      overrides: { capacityWaitMs: 5000 },
+      wrapRuntime: (fake) =>
+        launching(fake, () => {
+          throw new MimirError("runtime_unavailable", "full", { reason: "capacity" });
+        }),
+    });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 1 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick(); // refused at 0 s: waits 2 s
+    await h.advance(2000);
+    await h.tick(); // refused at 2 s: waits 4 s
+    expect(h.task(t).status).toBe("ready");
+    await h.advance(4000);
+    await h.tick(); // refused at 6 s: longer than the 5 s allowed
+    expect(failures(h, t)).toEqual([
+      expect.objectContaining({ reason: "fleet_capacity_timeout", attempt: 0, retryable: false }),
+    ]);
+    await h.tick();
+    expect(h.app.mimir.orchestrator.capacityWaiting()).toEqual([]);
+  });
+
   it("still fails the attempt when no runtime can ever take the task", async () => {
     const h = await track({
       wrapRuntime: (fake) =>
@@ -170,6 +218,103 @@ describe("a launch that finds the runtime full (A3)", () => {
     await h.tick();
     expect(h.task(t).status).toBe("failed");
     expect(failures(h, t)[0]!.reason).toMatch(/^session_create_failed: /);
+  });
+});
+
+describe("a runtime that reports it is full before a launch", () => {
+  /** A runtime that can say it is full, like the fleet (`CapacityAware`). */
+  const fleetLike = (fake: FakeRuntime, state: { full: boolean; launches: number }) => ({
+    ...launching(fake, () => {
+      state.launches += 1;
+    }),
+    atCapacity: () => state.full,
+  });
+
+  it("starts nothing and appends no event while a task waits, then runs it", async () => {
+    const state = { full: true, launches: 0 };
+    const h = await track({ wrapRuntime: (fake) => fleetLike(fake, state) });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 2 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    const waiting = h.events().length;
+    for (let i = 0; i < 20; i++) {
+      await h.advance(30_000);
+      await h.tick();
+    }
+    expect(h.events()).toHaveLength(waiting);
+    expect(h.events(["task.leased", "session.requested", "session.state_changed"])).toEqual([]);
+    expect(h.app.mimir.readModel.sessions.size).toBe(0);
+    expect(state.launches).toBe(0);
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 0, agentId: null });
+    expect(h.app.mimir.orchestrator.capacityWaiting()).toEqual([t]);
+
+    state.full = false;
+    await until(h, t, "completed");
+    expect(state.launches).toBe(1);
+    expect(h.task(t).attempt).toBe(0);
+    expect(failures(h, t)).toEqual([]);
+    expect(h.app.mimir.orchestrator.capacityWaiting()).toEqual([]);
+  });
+
+  it("forgets the wait of tasks that stop waiting: mission paused or cancelled", async () => {
+    const state = { full: true, launches: 0 };
+    const h = await track({ wrapRuntime: (fake) => fleetLike(fake, state) });
+    const { missionId } = await setupMission(h);
+    const a = await createTask(h, missionId, "A", "echo a");
+    const b = await createTask(h, missionId, "B", "echo b");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    const waits = () => h.app.mimir.orchestrator.capacityWaiting().sort();
+    expect(waits()).toEqual([a, b].sort());
+    expect((await h.post(`/v1/missions/${missionId}/pause`)).status).toBe(202);
+    await h.tick();
+    expect(waits()).toEqual([]);
+    expect((await h.post(`/v1/missions/${missionId}/resume`)).status).toBe(202);
+    await h.tick();
+    expect(waits()).toEqual([a, b].sort());
+    // Cancelling forgets them at once, without a tick.
+    expect((await h.post(`/v1/missions/${missionId}/cancel`)).status).toBe(202);
+    expect(waits()).toEqual([]);
+    await h.tick();
+    expect(waits()).toEqual([]);
+    expect(state.launches).toBe(0);
+  });
+
+  it("fails the attempt as fleet_capacity_timeout after the total wait, then retries or gives up", async () => {
+    const state = { full: true, launches: 0 };
+    const h = await track({ wrapRuntime: (fake) => fleetLike(fake, state) });
+    const { missionId } = await setupMission(h, { maxAttemptsPerTask: 2 });
+    const t = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(DEFAULT_CAPACITY_WAIT_MS - 1000);
+    await h.tick();
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 0 });
+    expect(failures(h, t)).toEqual([]);
+    await h.advance(1000);
+    await h.tick();
+    expect(failures(h, t)).toEqual([
+      expect.objectContaining({ reason: "fleet_capacity_timeout", attempt: 0, retryable: true }),
+    ]);
+    // The normal retry path (after its backoff): the next attempt waits again, from zero.
+    await h.advance(2000);
+    await h.tick();
+    await h.tick();
+    expect(h.task(t)).toMatchObject({ status: "ready", attempt: 1 });
+    await h.advance(DEFAULT_CAPACITY_WAIT_MS);
+    await h.tick();
+    expect(failures(h, t)).toHaveLength(2);
+    expect(failures(h, t)[1]).toMatchObject({
+      reason: "fleet_capacity_timeout",
+      attempt: 1,
+      retryable: false,
+    });
+    await h.tick();
+    expect(h.task(t).status).toBe("failed");
+    expect(state.launches).toBe(0);
+    expect(h.app.mimir.readModel.sessions.size).toBe(0);
+    expect(h.app.mimir.orchestrator.capacityWaiting()).toEqual([]);
   });
 });
 
@@ -244,6 +389,94 @@ describe("the brief of an attempt after a failed verification (A7)", () => {
     expect(second!.length).toBeLessThan(first!.length + 2000);
     // After a restart the note is rebuilt from the stored events; a pass clears it.
     expect(h.app.mimir.readModel.verificationFailure(t)).toEqual([]);
+  });
+
+  it("quotes the end of a long output, where runners print the failure summary", async () => {
+    const specs: RuntimeSessionSpec[] = [];
+    const output = `${"compiling module\n".repeat(4000)}FAIL TestParse: want 3 got 4\nFAILED 1 of 212 tests\n`;
+    expect(output.length).toBeGreaterThan(EVENT_OUTPUT_CAP * 4);
+    const h = await track({
+      overrides: { verifier: new ScriptedVerifier(["fail", "pass"], `first line\n${output}`) },
+      wrapRuntime: (fake) => launching(fake, (spec) => specs.push(spec)),
+    });
+    const p = await h.post("/v1/projects", {
+      name: "demo",
+      repoPath: h.repo,
+      settings: { testCommand: FAST_TEST_COMMAND },
+    });
+    const m = await h.post("/v1/missions", { projectId: p.json.project.id, objective: "o" });
+    const missionId = m.json.mission.id as string;
+    await h.post("/v1/crews", {
+      missionId,
+      template: "solo",
+      limits: { maxAttemptsPerTask: 3 },
+      members: [{ role: "implementer", agentKind: "codex" }],
+    });
+    const t = await createTask(h, missionId, "T", "Fix the parser");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await until(h, t, "completed");
+    const stored = h
+      .events(["test.run_completed"])
+      .map((e) => (e.payload as { output: string }).output)[0]!;
+    expect(stored.length).toBeLessThanOrEqual(EVENT_OUTPUT_CAP);
+    expect(stored.startsWith("first line\n")).toBe(true);
+    expect(stored).toMatch(/\n\[\.\.\. \d+ bytes omitted \.\.\.\]\n/);
+    expect(stored.endsWith("FAILED 1 of 212 tests\n")).toBe(true);
+    const brief = specs[1]!.argv.at(-1)!;
+    expect(brief).toContain("FAIL TestParse: want 3 got 4 FAILED 1 of 212 tests");
+    expect(brief).not.toContain("bytes omitted");
+  });
+
+  it("treats explicit argv equal to the plain template as a template task: sandbox overrides and the note", async () => {
+    const specs: RuntimeSessionSpec[] = [];
+    const h = await track({
+      overrides: { verifier: new ScriptedVerifier(["fail", "pass"]) },
+      wrapRuntime: (fake) => launching(fake, (spec) => specs.push(spec)),
+    });
+    const p = await h.post("/v1/projects", {
+      name: "demo",
+      repoPath: h.repo,
+      settings: {
+        testCommand: FAST_TEST_COMMAND,
+        agent: { codexSandbox: { writableRoots: ["/var/cache/go-build"], networkAccess: true } },
+      },
+    });
+    const m = await h.post("/v1/missions", { projectId: p.json.project.id, objective: "o" });
+    const missionId = m.json.mission.id as string;
+    const c = await h.post("/v1/crews", {
+      missionId,
+      template: "solo",
+      limits: { maxAttemptsPerTask: 3 },
+      members: [{ role: "implementer", agentKind: "codex" }],
+    });
+    const created = await h.post("/v1/tasks", {
+      missionId,
+      crewId: c.json.crew.id,
+      title: "T",
+      brief: "Fix it",
+      argv: argvFor("codex", "implementer", "Fix it"),
+    });
+    expect(created.status).toBe(201);
+    const t = created.json.task.id as string;
+    await h.post(`/v1/missions/${missionId}/start`);
+    await until(h, t, "completed");
+    expect(h.events(["task.blocked", "approval.requested", "policy.denied"])).toEqual([]);
+    expect(specs).toHaveLength(2);
+    for (const spec of specs) {
+      expect(spec.argv.slice(0, -1)).toEqual([
+        "codex",
+        "exec",
+        "--sandbox",
+        "workspace-write",
+        "--json",
+        "-c",
+        'sandbox_workspace_write.writable_roots=["/var/cache/go-build"]',
+        "-c",
+        "sandbox_workspace_write.network_access=true",
+      ]);
+    }
+    expect(specs[0]!.argv.at(-1)).not.toContain("failed verification");
+    expect(specs[1]!.argv.at(-1)).toContain("The previous attempt failed verification");
   });
 
   it("is rebuilt after a restart and never changes a shell member's command", async () => {

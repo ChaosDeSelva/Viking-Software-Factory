@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Button, Card, Input, StatusBadge } from "../components/ui";
 type Project = { id: string; name?: string; repoPath?: string };
-export function Projects({ projects, archived, onArchive, onOpen, onCreate }: {
+export function Projects({ projects, archived, onArchive, onOpen, onCreate, onProfile }: {
   projects: Project[]; archived: string[];
   onArchive: (id: string, archive: boolean) => Promise<void>;
-  onOpen: (id: string) => void; onCreate: () => void;
+  onOpen: (id: string) => void; onCreate: () => void; onProfile: (id: string) => void;
 }) {
   const [view, setView] = useState("active");
   const [query, setQuery] = useState("");
@@ -39,7 +39,7 @@ export function Projects({ projects, archived, onArchive, onOpen, onCreate }: {
         <div className="section-title"><h2>{p.name ?? "Local project"}</h2><StatusBadge value={view === "active" ? "active" : "archived"} /></div>
         <p className="id">{p.repoPath ?? p.id}</p>
         <div className="actions">
-          {view === "active" ? <><Button onClick={() => onOpen(p.id)}>Open project</Button><Button disabled={busy} onClick={() => setPending(p)}>Archive</Button></> : <Button disabled={busy} onClick={() => void change(p, false)}>Restore project</Button>}
+          {view === "active" ? <><Button onClick={() => onOpen(p.id)}>Open project</Button><Button onClick={() => onProfile(p.id)}>Execution profile</Button><Button disabled={busy} onClick={() => setPending(p)}>Archive</Button></> : <Button disabled={busy} onClick={() => void change(p, false)}>Restore project</Button>}
         </div>
       </Card>)}
     </div>

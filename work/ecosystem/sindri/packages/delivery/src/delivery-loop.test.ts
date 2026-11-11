@@ -567,27 +567,69 @@ describe("DeliveryLoop: runs that end outside the happy path", () => {
     expect(res.status).toBe(202);
   }
 
-  it("mission.failed ends the execution failed", async () => {
-    const h = await boot(failTwice);
-    const exec = await execute(h, askPlan());
-    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+  const failMission = (h: Harness, missionId: string) =>
     h.fake.inject(
       "mission.failed",
       { from: "active", to: "failed", reason: "task exhausted" },
-      { missionId: exec.mimirMissionId as never },
+      { missionId: missionId as never },
     );
+  const cancels = (h: Harness) => h.fake.requests.filter((r) => r.path.endsWith("/cancel"));
+
+  it("mission.failed with nothing awaiting a human ends the execution failed and closes its approvals", async () => {
+    const h = await boot({ impl: [{ kind: "approval", action: "git.push" }] });
+    const exec = await execute(h, approvedPlan([planTask("impl")]));
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    failMission(h, exec.mimirMissionId);
     expect(await h.loop.resume(exec.id)).toEqual({ status: "failed", interrupted: false });
-    const after = h.loop.get(exec.id)!;
-    expect(after.finishedAt).toBeTruthy();
+    expect(h.loop.get(exec.id)!.finishedAt).toBeTruthy();
     expect(h.notices).toContainEqual(
       expect.objectContaining({ type: "status_changed", executionId: exec.id, to: "failed" }),
     );
-    await expect(
-      h.loop.resolveEscalation(exec.id, "impl", { decision: "skip", actor: "j", reason: "r" }),
-    ).rejects.toThrow(/is failed/);
+    expect(h.loop.approvals(exec.id).map((a) => a.status)).toEqual(["expired"]);
+    expect(h.loop.inbox(exec.id).filter((i) => i.status === "open")).toEqual([]);
   });
 
-  it("an execution that stored mission.failed before the loop handled it ends failed on resume", async () => {
+  it("mission.failed leaves an escalated execution waiting; skip then delivers the verified work", async () => {
+    const h = await boot({ impl: [{ kind: "fail" }, { kind: "fail" }] });
+    const plan = approvedPlan([
+      planTask("other"),
+      planTask("impl", { maxRetries: 1, escalation: "ask", dependsOn: ["other"] }),
+      planTask("after", { dependsOn: ["impl"] }),
+    ]);
+    const exec = await execute(h, plan);
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    // Mimir fails the mission after the loop stopped reading on the escalation. A retry reads
+    // that first: the mission is over, so another attempt is impossible and nothing changes.
+    failMission(h, exec.mimirMissionId);
+    await expect(
+      h.loop.resolveEscalation(exec.id, "impl", { decision: "retry", actor: "j", reason: "r" }),
+    ).rejects.toMatchObject({ code: "invalid_state" });
+    expect(h.fake.requests.filter((r) => r.path.endsWith("/retry"))).toHaveLength(1);
+    expect(await h.loop.resume(exec.id)).toEqual({ status: "awaiting_human", interrupted: false });
+    expect(h.loop.get(exec.id)!.finishedAt).toBeNull();
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["open"]);
+    await expect(
+      h.loop.resolveEscalation(exec.id, "impl", { decision: "retry", actor: "j", reason: "r" }),
+    ).rejects.toThrow(/mission has ended.*run the plan again/);
+    expect(h.loop.get(exec.id)!.status).toBe("awaiting_human");
+    expect(h.loop.tasks(exec.id).find((t) => t.planTaskId === "impl")!.escalation).toBe("ask");
+    const result = await h.loop.resolveEscalation(exec.id, "impl", {
+      decision: "skip",
+      actor: "jacob",
+      reason: "not needed",
+    });
+    expect(result).toEqual({ status: "verified_pending_review", interrupted: false });
+    const byId = Object.fromEntries(h.loop.tasks(exec.id).map((t) => [t.planTaskId, t]));
+    expect(byId.other!.status).toBe("completed");
+    expect(byId.impl!.resolution).toBe("skipped");
+    expect(byId.after!.resolution).toBe("skipped_dependency");
+    expect(h.loop.get(exec.id)!.finishedAt).toBeTruthy();
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+    // Known to be unnecessary: the mission already ended.
+    expect(cancels(h)).toEqual([]);
+  });
+
+  it("an escalated execution that stored mission.failed can still be aborted, without a cancel", async () => {
     const h = await boot(failTwice);
     const exec = await execute(h, askPlan());
     expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
@@ -597,8 +639,38 @@ describe("DeliveryLoop: runs that end outside the happy path", () => {
          VALUES ('exv_old', ?, 'evt_old_failed', 'mission.failed', '{}', 'then')`,
       )
       .run(exec.id);
-    expect((await h.loop.resume(exec.id)).status).toBe("failed");
+    expect((await h.loop.resume(exec.id)).status).toBe("awaiting_human");
+    const result = await h.loop.resolveEscalation(exec.id, "impl", {
+      decision: "abort",
+      actor: "jacob",
+      reason: "stop",
+    });
+    expect(result.status).toBe("cancelled");
     expect(h.loop.get(exec.id)!.finishedAt).toBeTruthy();
+    expect(h.loop.inbox(exec.id).map((i) => i.status)).toEqual(["resolved"]);
+    expect(cancels(h)).toEqual([]);
+  });
+
+  it("replan still works after mission.failed and the revised plan supersedes the run", async () => {
+    const h = await boot(failTwice);
+    const old = await execute(h, askPlan());
+    expect((await h.loop.run(old.id)).status).toBe("awaiting_human");
+    failMission(h, old.mimirMissionId);
+    const result = await h.loop.resolveEscalation(old.id, "impl", {
+      decision: "replan",
+      actor: "jacob",
+      reason: "wrong approach",
+    });
+    expect(result.status).toBe("replan_requested");
+    // Reading the failure afterwards does not end the run either.
+    expect((await h.loop.resume(old.id)).status).toBe("replan_requested");
+    const revised = await execute(
+      h,
+      approvedPlan([planTask("build")], { id: "plan-2", version: 2 }),
+    );
+    expect(revised.id).not.toBe(old.id);
+    expect(h.loop.get(old.id)!.status).toBe("cancelled");
+    expect(h.loop.inbox(old.id).filter((i) => i.status === "open")).toEqual([]);
   });
 
   it("abort succeeds when Mimir has already ended the mission", async () => {
@@ -649,7 +721,10 @@ describe("DeliveryLoop: runs that end outside the happy path", () => {
     const h = await boot({ impl: [{ kind: "approval", action: "git.push" }] });
     const exec = await execute(h, approvedPlan([planTask("impl")]));
     expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
-    const cancelled = await h.loop.cancelExecution(exec.id, { actor: "jacob", reason: "wrong plan" });
+    const cancelled = await h.loop.cancelExecution(exec.id, {
+      actor: "jacob",
+      reason: "wrong plan",
+    });
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.finishedAt).toBeTruthy();
     expect(h.fake.requests.some((r) => r.path.endsWith("/cancel"))).toBe(true);
@@ -712,8 +787,6 @@ describe("DeliveryLoop: runs that end outside the happy path", () => {
     const [a, b] = await Promise.all([execute(h, threeTasks()), execute(h, threeTasks())]);
     expect(a.id).toBe(b.id);
     expect(h.fake.creates.missions).toBe(1);
-    expect(
-      (h.db.prepare("SELECT COUNT(*) AS n FROM executions").get() as { n: number }).n,
-    ).toBe(1);
+    expect((h.db.prepare("SELECT COUNT(*) AS n FROM executions").get() as { n: number }).n).toBe(1);
   });
 });

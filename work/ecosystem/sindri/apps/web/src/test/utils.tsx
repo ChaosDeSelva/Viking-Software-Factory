@@ -19,6 +19,8 @@ export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): M
     "createProject",
     "bootstrap",
     "search",
+    "getProfile",
+    "putProfile",
     "deleteProjectData",
     "listIntakes",
     "getIntake",

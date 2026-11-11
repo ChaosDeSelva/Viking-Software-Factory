@@ -244,4 +244,65 @@ describe("DeliveriesScreen", () => {
     await waitFor(() => expect(api.listReworks).toHaveBeenCalledTimes(2));
     expect(api.listReworks).toHaveBeenLastCalledWith("e1");
   });
+
+  const local = {
+    baseSha: "a".repeat(40),
+    resultCommit: "b".repeat(40),
+    // Markup and trailing whitespace must come through untouched.
+    patch: "diff --git a/x.html b/x.html\n+<b>bold</b> &amp; <script>alert(1)</script>  \n\t+end\n",
+    repoPath: "/repo/demo",
+    apply: "git apply result.patch",
+    undo: "git apply -R result.patch",
+  };
+
+  it("shows the exact patch as plain text, with copy and download", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: local,
+      deliveryTrace: trace(),
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    const block = await screen.findByRole("region", { name: "Patch" });
+    const pre = block.querySelector("pre")!;
+    expect(pre.textContent).toBe(local.patch);
+    // Text, not markup: nothing in the patch became an element.
+    expect(pre.children.length).toBe(0);
+    expect(block.textContent).toMatch(/complete and unaltered/);
+    expect(block.textContent).not.toMatch(/preview|shortened|truncated/i);
+    expect(within(block).getByRole("button", { name: "Download result.patch" })).toBeTruthy();
+    await userEvent.click(within(block).getByRole("button", { name: "Copy patch" }));
+    expect(writeText).toHaveBeenCalledWith(local.patch);
+    expect((await screen.findByRole("status")).textContent).toMatch(/Copied the patch/);
+    expect(screen.queryByRole("region", { name: /Follow-up only/ })).toBeNull();
+  });
+
+  it("shows a rework's follow-up patch as its own block above the full patch", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const followUp = { baseSha: "c".repeat(40), patch: "diff --git a/y b/y\n+<i>only this</i>\n" };
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: delivery(),
+      localDelivery: { ...local, followUp },
+      deliveryTrace: trace(),
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    const follow = await screen.findByRole("region", {
+      name: "Follow-up only — use this if you already applied the earlier delivery",
+    });
+    const full = screen.getByRole("region", { name: "Full patch — the whole change" });
+    expect(follow.querySelector("pre")!.textContent).toBe(followUp.patch);
+    expect(follow.querySelector("pre")!.children.length).toBe(0);
+    expect(follow.textContent).toContain(followUp.baseSha);
+    expect(full.querySelector("pre")!.textContent).toBe(local.patch);
+    expect(follow.compareDocumentPosition(full) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(follow).getByRole("button", { name: "Download follow-up.patch" })).toBeTruthy();
+    await userEvent.click(within(follow).getByRole("button", { name: "Copy follow-up patch" }));
+    expect(writeText).toHaveBeenCalledWith(followUp.patch);
+    await userEvent.click(within(full).getByRole("button", { name: "Copy patch" }));
+    expect(writeText).toHaveBeenLastCalledWith(local.patch);
+  });
 });
