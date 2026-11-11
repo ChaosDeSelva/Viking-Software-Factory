@@ -116,6 +116,11 @@ export function createApiClient(opts: ClientOptions) {
       ).proposals,
     decideProposal: (id: string, proposalId: string, decision: "accepted" | "rejected") =>
       call("POST", `/v1/deliveries/${enc(id)}/proposals/${enc(proposalId)}/decision`, { decision }),
+    /** Reviewer feedback on a delivery; returns the specification drafted for the rework. */
+    requestRework: (id: string, feedback: string) =>
+      call<{ rework: { id: string }; spec: Spec }>("POST", `/v1/deliveries/${enc(id)}/rework`, {
+        feedback,
+      }),
     health: () => call<{ status: string }>("GET", "/v1/health"),
     capabilities: () => call<Capabilities>("GET", "/v1/capabilities"),
 

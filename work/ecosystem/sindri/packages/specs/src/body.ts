@@ -13,6 +13,10 @@ export const OpenQuestionSchema = z.object({
   id: z.string().trim().min(1),
   text: z.string().trim().min(1),
   blocking: z.boolean(),
+  /** The drafter's suggested answer, offered to the person answering. Advisory only. */
+  recommendation: z.string().trim().min(1).optional(),
+  /** Why the drafter suggests it: what in the request or the code points that way. */
+  rationale: z.string().trim().min(1).optional(),
 });
 
 const uniqueIds = (field: string) => (items: { id: string }[], ctx: z.RefinementCtx) => {

@@ -205,6 +205,13 @@
               "cancelled",
               "failed"
             ]
+          },
+          "baseCommits": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{7,64}$"
+            }
           }
         },
         "required": [
@@ -1514,6 +1521,15 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "baseCommits": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{7,64}$"
+                    },
+                    "minItems": 1,
+                    "maxItems": 16
                   },
                   "tasks": {
                     "type": "array",

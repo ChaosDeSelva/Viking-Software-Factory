@@ -50,8 +50,20 @@ function draftFrom(ctx: Map<string, string>, over: Partial<DraftOutput> = {}): D
       },
     ],
     openQuestions: [
-      { id: "Q1", text: "Which columns are exported?", blocking: true },
-      { id: "Q2", text: "Preferred file name?", blocking: false },
+      {
+        id: "Q1",
+        text: "Which columns are exported?",
+        blocking: true,
+        recommendation: "Date, customer and total",
+        rationale: "The reports page already lists these columns.",
+      },
+      {
+        id: "Q2",
+        text: "Preferred file name?",
+        blocking: false,
+        recommendation: "",
+        rationale: "No file name is given.",
+      },
     ],
     ...over,
   };
@@ -292,6 +304,20 @@ describe("Director", () => {
     expect(spec.provenance.acceptanceCriteria).not.toHaveProperty("AC2");
   });
 
+  it("keeps a recommendation with its reason, and drops a reason that has no recommendation", async () => {
+    const { d } = director(drafting());
+    const { spec } = await d.draftSpec({
+      projectId,
+      request: "Add CSV export to the reports page",
+    });
+    const [q1, q2] = spec.body.openQuestions;
+    expect(q1).toMatchObject({
+      recommendation: "Date, customer and total",
+      rationale: "The reports page already lists these columns.",
+    });
+    expect(q2).toEqual({ id: "Q2", text: "Preferred file name?", blocking: false });
+  });
+
   it("returns only blocking questions and revises the spec when one is answered", async () => {
     const { d } = director(drafting());
     const { spec } = await d.draftSpec({
@@ -299,7 +325,13 @@ describe("Director", () => {
       request: "Add CSV export to the reports page",
     });
     expect(d.questions(spec.id)).toEqual([
-      { id: "Q1", text: "Which columns are exported?", blocking: true },
+      {
+        id: "Q1",
+        text: "Which columns are exported?",
+        blocking: true,
+        recommendation: "Date, customer and total",
+        rationale: "The reports page already lists these columns.",
+      },
     ]);
 
     const revised = d.answer(spec.id, "Q1", "Date, customer and total", { author: "pm@acme" });

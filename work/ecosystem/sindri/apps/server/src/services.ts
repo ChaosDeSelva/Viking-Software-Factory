@@ -15,6 +15,8 @@ import {
 } from "@sindri/knowledge";
 import { openSpecs, type Specs } from "@sindri/specs";
 import { CommandStore } from "./idempotency.js";
+import { planningWorkspace, type PlanningWorkspace } from "./repo-snapshot.js";
+import { ReworkStore } from "./rework.js";
 import { SERVER_MIGRATIONS } from "./schema.js";
 import { effectiveProvider, SettingsStore, type Settings } from "./settings.js";
 
@@ -37,7 +39,14 @@ export interface Services {
   specs: Specs;
   commands: CommandStore;
   settings: SettingsStore;
+  /** Reviewer requests to change a delivered execution. */
+  rework: ReworkStore;
   dataDir: string | null;
+  /** The directory a planner reads for a project: a default-branch snapshot when possible. */
+  planningWorkspace(
+    project: { id: string; repoPath: string },
+    opts?: { commit?: string },
+  ): Promise<PlanningWorkspace>;
   intake(): Intake;
   director(): Director;
 }
@@ -93,6 +102,17 @@ export function createServices(o: ServiceOptions): Services {
   const connectorFactory =
     o.connectorFactory ?? ((st: Settings) => connectorsFromSettings(st, o.secrets));
 
+  const workspaceFor = (
+    project: { id: string; repoPath: string },
+    opts: { commit?: string } = {},
+  ): Promise<PlanningWorkspace> =>
+    planningWorkspace({
+      dataDir: o.dataDir ?? null,
+      projectId: project.id,
+      repoPath: project.repoPath,
+      ...(opts.commit ? { commit: opts.commit } : {}),
+    });
+
   let intakeCache: { key: string; intake: Intake } | undefined;
   let directorCache: { key: string; director: Director } | undefined;
   return {
@@ -101,7 +121,9 @@ export function createServices(o: ServiceOptions): Services {
     specs,
     commands,
     settings,
+    rework: new ReworkStore(db, now),
     dataDir: o.dataDir ?? null,
+    planningWorkspace: workspaceFor,
     intake() {
       const st = settings.get();
       const key = JSON.stringify(st.connectors ?? {});
@@ -121,7 +143,10 @@ export function createServices(o: ServiceOptions): Services {
       const st = settings.get();
       const key = JSON.stringify([st.provider, st.model, st.apiKeySecret, st.localOnly]);
       if (directorCache?.key !== key)
-        directorCache = { key, director: openDirector(db, { provider: providerFactory(st), now }) };
+        directorCache = {
+          key,
+          director: openDirector(db, { provider: providerFactory(st), now, workspaceFor }),
+        };
       return directorCache.director;
     },
   };

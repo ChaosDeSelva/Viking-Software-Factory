@@ -461,6 +461,8 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
         );
       }
       later(() => {
+        // A verified result, as the real server records: the head the task's manifest reported.
+        st.task.resultCommit = headShaOf(st.task.id);
         transition(st, "task.completed", "completed");
         later(() => pump(st.task.missionId));
       });
@@ -581,7 +583,10 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       return { status: 200, body: ListMissionsResponseSchema.parse({ missions: list }) };
     },
     "POST /v1/missions": ({ body }) => {
-      const req = parseWith(CreateMissionRequestSchema, body, "body");
+      // `baseCommits` is newer than the vendored protocol's strict schema; the real server takes it.
+      const known = { ...((body ?? {}) as Record<string, unknown>) };
+      delete known["baseCommits"];
+      const req = parseWith(CreateMissionRequestSchema, known, "body");
       need(projects, req.projectId, "project");
       const mission: Mission = {
         ...base(newId("msn")),

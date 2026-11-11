@@ -51,9 +51,21 @@ export function planRoutes(
     // Preflight: the planner reports an unreachable harness service as "no resolvable harness"
     // (422); asking it for its harnesses first surfaces `not_wired` as 503 brokkr_unavailable.
     await service.listHarnesses();
+    const project = s.knowledge.projects.get(spec.projectId);
+    const rework = s.rework.forLineage(spec.lineageId);
+    const workspace = project
+      ? await s.planningWorkspace(
+          project,
+          rework?.baseCommits[0] ? { commit: rework.baseCommits[0] } : {},
+        )
+      : undefined;
     const plan = await f.planner.propose(
       { id: spec.id },
-      { provider: f.provider(), harnesses: service },
+      {
+        provider: f.provider(),
+        harnesses: service,
+        ...(workspace ? { workspace: workspace.path, workspaceLabel: workspace.label } : {}),
+      },
     );
     return reply.code(201).send({ plan, versions: versions(plan), harnessSource: source });
   });

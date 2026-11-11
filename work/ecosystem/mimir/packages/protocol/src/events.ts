@@ -139,6 +139,8 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     objective: z.string(),
     /** Mission-wide budget, enforced by the scheduler. */
     budget: BudgetPolicySchema.optional(),
+    /** Commits the mission's root tasks start from instead of the default branch. */
+    baseCommits: z.array(z.string()).optional(),
   }),
   "mission.started": missionTransition("active"),
   "mission.paused": missionTransition("paused"),

@@ -8,6 +8,7 @@ export {
   isSecretPath,
   isUnsafeName,
   auditGitConfig,
+  gitConfigFindings,
   UnsafeGitConfigError,
   MAX_PATH_LENGTH,
   listCandidateFiles,
@@ -20,6 +21,7 @@ export {
   type DocumentKind,
   type SkipReason,
 } from "./bootstrap.js";
+export { hardenedGitEnv, HARDENED_GIT_CONFIG } from "./git-safety.js";
 export {
   containsSecret,
   redactSecrets,

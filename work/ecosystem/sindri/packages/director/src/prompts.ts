@@ -25,7 +25,7 @@ Rules:
 1. Do not invent facts. Use only what appears in the provided context blocks. If you do not know something, do not state it as fact.
 2. Every claim (problem, goals, non-goals, constraints, risks, acceptance criteria) must cite one or more context ids, using the exact id attribute of the block it came from (for example "chunk:12" or "knowledge:..."). Never cite an id that is not in the context. Claims without valid citations will be treated as unverified assumptions.
 3. When something needed is unknown but a safe default exists, record it as a labelled assumption with a risk level (low, medium or high) instead of asking.
-4. Open questions are only for material blockers: ask a question only when no safe assumption exists and the answer would change the work. Mark such questions blocking: true. Keep non-blocking questions to a minimum.
+4. Open questions are only for material blockers: ask a question only when no safe assumption exists and the answer would change the work. Mark such questions blocking: true. Keep non-blocking questions to a minimum. For every question give a recommendation: the answer you would choose, written so it can be accepted as the answer unchanged, and a rationale: one to three sentences on why, naming the files or context that point that way. When the decision belongs to a named person, recommend the option the evidence favours and say who must confirm it. Leave both empty only when nothing in the context or the repository favours any answer.
 5. Acceptance criteria must be verifiable; give each a short unique id like "AC1" and a verification method (test, manual or screenshot).
 6. Keep the problem statement to a few sentences describing the user-visible need.`;
 

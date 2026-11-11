@@ -1011,7 +1011,8 @@ function App() {
                           }
                         >
                           <strong>{label(r)}</strong>
-                          <Badge value={r.status} />
+                          {/* Intakes carry only the tracker's status, which manual requests lack. */}
+                          <Badge value={r.status ?? (kind === "intakes" ? "received" : undefined)} />
                           <small>{r.id}</small>
                         </Button>
                       ),
@@ -2075,6 +2076,11 @@ function App() {
                   View local patch
                 </Button>
               </div>
+              <RequestChanges
+                key={dataRow.id}
+                enabled={!!session.operator}
+                submit={(feedback) => propose("delivery.rework", dataRow.id, { feedback })}
+              />
               {details?.result?.patch && (
                 <>
                   <Button
@@ -2194,6 +2200,33 @@ function App() {
     </div>
   );
 }
+/** Reviewer feedback on a delivery; Sindri drafts a follow-up specification from it. */
+function RequestChanges({
+  enabled,
+  submit,
+}: {
+  enabled: boolean;
+  submit: (feedback: string) => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  return (
+    <Disclosure className="editor">
+      <DisclosureTrigger>Request changes to this delivery</DisclosureTrigger>
+      <p>
+        Describe what should be different. A new specification is drafted from your feedback and,
+        once you approve it and its plan, the work continues from this delivery's verified result
+        instead of starting over.
+      </p>
+      <Field>
+        What should change
+        <Textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+      </Field>
+      <Button disabled={!enabled || !feedback.trim()} onClick={() => submit(feedback.trim())}>
+        Review change request
+      </Button>
+    </Disclosure>
+  );
+}
 function Question({
   question: q,
   answer,
@@ -2207,6 +2240,17 @@ function Question({
   return (
     <div className="question">
       <p>{q.question ?? q.text ?? JSON.stringify(q)}</p>
+      {q.recommendation && (
+        <div className="recommendation">
+          <p>
+            <strong>Recommended answer:</strong> {q.recommendation}
+          </p>
+          {q.rationale && <p className="why">Why: {q.rationale}</p>}
+          <Button disabled={disabled} onClick={() => setText(String(q.recommendation))}>
+            Use recommendation
+          </Button>
+        </div>
+      )}
       <Field>
         Your answer
         <Textarea value={text} onChange={(e) => setText(e.target.value)} />

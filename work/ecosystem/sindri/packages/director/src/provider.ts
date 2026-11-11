@@ -27,6 +27,13 @@ export interface CompleteRequest<T = unknown> {
   responseSchema?: z.ZodType<T>;
   /** Non-prompt metadata (e.g. purpose) for routing/logging. Never sent to the model. */
   metadata?: { purpose?: string };
+  /**
+   * Absolute path of the project repository the provider may read, never write, to ground its
+   * answer. Providers without file access ignore it.
+   */
+  workspace?: string;
+  /** One line telling the model what `workspace` holds (which branch and commit, or a checkout). */
+  workspaceLabel?: string;
 }
 
 export interface CompleteResult<T = unknown> {

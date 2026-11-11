@@ -218,6 +218,7 @@ export function missionRoutes(app: FastifyInstance): void {
           payload: {
             projectId: body.projectId,
             objective: body.objective,
+            ...(body.baseCommits ? { baseCommits: [...new Set(body.baseCommits)] } : {}),
             ...(body.budget
               ? {
                   budget: budgetFrom(body.budget, { missionId, crewId: null }, at.toISOString()),

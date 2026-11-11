@@ -1452,3 +1452,21 @@
 }
 .decision-panel .empty { padding: 12px 16px; }
 .verification-heading { align-items: center; }
+
+/* A drafter's suggested answer beside a clarification question. */
+.recommendation {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.recommendation .why {
+  color: var(--muted);
+}
+.recommendation button {
+  justify-self: start;
+}

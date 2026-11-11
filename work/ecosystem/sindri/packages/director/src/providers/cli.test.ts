@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -112,4 +112,33 @@ it("reads Codex output without a schema and ignores non-event progress", async (
   });
   expect(result.text).toBe("plain");
   expect(result.usage).toBeNull();
+});
+
+it("gives Claude read-only tools and the repository as cwd only when a workspace is named", async () => {
+  const bin = executable(
+    `const a=process.argv; console.log(JSON.stringify({structured_output:{ready:true},result:JSON.stringify({cwd:process.cwd(),tools:a[a.indexOf('--tools')+1],allowed:a.includes('--allowedTools')?a[a.indexOf('--allowedTools')+1]:null,settings:a.includes('--settings')?a[a.indexOf('--settings')+1]:null})}));`,
+  );
+  const workspace = mkdtempSync(join(tmpdir(), "director-cli-workspace-"));
+  roots.push(workspace);
+  const provider = new CliProvider({ kind: "claude-cli", executable: bin });
+  const seen = (r: { text: string }) =>
+    JSON.parse(r.text) as {
+      cwd: string;
+      tools: string;
+      allowed: string | null;
+      settings: string | null;
+    };
+
+  const grounded = seen(await provider.complete({ ...request, workspace }));
+  expect(realpathSync(grounded.cwd)).toBe(realpathSync(workspace));
+  expect(grounded.tools).toBe("Read,Grep,Glob");
+  expect(grounded.allowed).toBeNull();
+  expect(JSON.parse(grounded.settings!).permissions.deny).toContain("Read(./**/.env)");
+
+  for (const req of [request, { ...request, workspace: join(workspace, "missing") }]) {
+    const isolated = seen(await provider.complete(req));
+    expect(isolated.tools).toBe("");
+    expect(isolated.allowed).toBeNull();
+    expect(isolated.cwd).toContain("sindri-director-");
+  }
 });

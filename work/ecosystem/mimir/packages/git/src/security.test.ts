@@ -132,7 +132,6 @@ describe("C1 config audit before worktree add/remove", () => {
     ["core.gitProxy", "x"],
     ["credential.helper", "x"],
     ["core.fsmonitor", "x"],
-    ["core.hooksPath", "/nonexistent/hooks"],
     ["gpg.program", "x"],
     ["alias.st", "status"],
     ["include.path", "/nonexistent/mimir-include"],
@@ -145,6 +144,17 @@ describe("C1 config audit before worktree add/remove", () => {
       details: { keys: [key.toLowerCase()] },
     });
     expect(sh(repo, "worktree", "list", "--porcelain").split("\n\n")).toHaveLength(1);
+  });
+
+  it("core.hooksPath (husky) is tolerated and its hooks never run on createWorktree", async () => {
+    const hooks = await dirs.make("hooks");
+    const hook = join(hooks, "post-checkout");
+    await writeFile(hook, `#!/bin/sh\n'${driver}' hook\n`);
+    await chmod(hook, 0o755);
+    sh(repo, "config", "--local", "core.hooksPath", hooks);
+    const w = await mgr.createWorktree(input());
+    expect(existsSync(w.path)).toBe(true);
+    expect(await sentinelText()).toBe("");
   });
 
   it("a smudge filter planted by an earlier task never runs on createWorktree", async () => {

@@ -76,7 +76,14 @@ export const DraftOutputSchema = z.strictObject({
     }),
   ),
   openQuestions: z.array(
-    z.strictObject({ id: z.string(), text: z.string(), blocking: z.boolean() }),
+    z.strictObject({
+      id: z.string(),
+      text: z.string(),
+      blocking: z.boolean(),
+      /** Empty when the drafter has no grounded suggestion. */
+      recommendation: z.string(),
+      rationale: z.string(),
+    }),
   ),
 });
 export type DraftOutput = z.infer<typeof DraftOutputSchema>;
@@ -149,6 +156,11 @@ export interface DraftSpecInput {
   request: string;
   /** Skip the classify call when the caller already classified the request. */
   classification?: Classification;
+  /**
+   * Commit the drafter should read instead of the default branch: a rework is drafted against
+   * the delivered change it revises.
+   */
+  workspaceCommit?: string;
 }
 
 export interface DraftSpecResult {
@@ -165,6 +177,14 @@ export interface OpenDirectorOptions {
   /** Max search chunks in the context (ADR chunks are counted separately). Default 8. */
   topK?: number;
   maxTokens?: number;
+  /**
+   * Where the provider may read a project's code while drafting. Defaults to the project's
+   * `repoPath`; a server passes a snapshot of the default branch instead.
+   */
+  workspaceFor?: (
+    project: { id: string; repoPath: string },
+    opts?: { commit?: string },
+  ) => Promise<{ path: string; label?: string } | undefined>;
 }
 
 export class DirectorError extends SindriError {
@@ -246,11 +266,28 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
     projectId: string | null,
     purpose: string,
     req: Omit<CompleteRequest<T>, "metadata">,
+    workspaceCommit?: string,
   ) => {
     log.info("director.llm", { purpose, provider: provider.name, projectId });
     let res: CompleteResult<T>;
     try {
-      res = await provider.complete<T>({ ...req, metadata: { purpose } });
+      // Classification is a quick label; only drafting is worth a read of the repository.
+      const project =
+        projectId && purpose !== "classify" ? knowledge.projects.get(projectId) : undefined;
+      const workspace = project
+        ? options.workspaceFor
+          ? await options.workspaceFor(
+              { id: project.id, repoPath: project.repoPath },
+              workspaceCommit ? { commit: workspaceCommit } : {},
+            )
+          : { path: project.repoPath }
+        : undefined;
+      res = await provider.complete<T>({
+        ...req,
+        metadata: { purpose },
+        ...(workspace ? { workspace: workspace.path } : {}),
+        ...(workspace?.label ? { workspaceLabel: workspace.label } : {}),
+      });
     } catch (e) {
       // Every provider call is accounted for, including failed validation and refusals.
       const pe = e instanceof ProviderError ? e : null;
@@ -588,18 +625,23 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         parsed: draft,
         model,
         run,
-      } = await call(projectId, "draft_spec", {
-        system: draftSpecSystem(nonce),
-        messages: [
-          {
-            role: "user",
-            content: `${DRAFT_INSTRUCTIONS}\n\n${summaryBlock}\n\n${blocks.join("\n\n")}`,
-          },
-        ],
-        maxTokens,
-        temperature: 0,
-        responseSchema: DraftOutputSchema,
-      });
+      } = await call(
+        projectId,
+        "draft_spec",
+        {
+          system: draftSpecSystem(nonce),
+          messages: [
+            {
+              role: "user",
+              content: `${DRAFT_INSTRUCTIONS}\n\n${summaryBlock}\n\n${blocks.join("\n\n")}`,
+            },
+          ],
+          maxTokens,
+          temperature: 0,
+          responseSchema: DraftOutputSchema,
+        },
+        input.workspaceCommit,
+      );
 
       // 4. Resolve citations deterministically; uncited or unknown-cited claims become assumptions.
       const clean = (s: string) => redactInjections(s.trim());
@@ -672,7 +714,18 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         acProv[ac.id.trim()] = r.refs.length ? dedupeRefs(r.refs) : [intakeRef];
       }
       const openQuestions: OpenQuestion[] = draft.openQuestions
-        .map((q) => ({ id: q.id.trim(), text: clean(q.text), blocking: q.blocking }))
+        .map((q) => {
+          const recommendation = clean(q.recommendation);
+          const rationale = clean(q.rationale);
+          return {
+            id: q.id.trim(),
+            text: clean(q.text),
+            blocking: q.blocking,
+            // A reason without a suggestion has nothing to explain.
+            ...(recommendation ? { recommendation } : {}),
+            ...(recommendation && rationale ? { rationale } : {}),
+          };
+        })
         .filter((q) => q.text);
 
       const body: SpecBody = {

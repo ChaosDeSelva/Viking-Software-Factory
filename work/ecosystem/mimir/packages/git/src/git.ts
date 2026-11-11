@@ -149,7 +149,9 @@ const AUDIT_PATTERNS: RegExp[] = [
   /^merge\..+\.driver$/,
   /^diff\..+\.(command|textconv)$/,
   /^diff\.external$/,
-  /^core\.(sshcommand|gitproxy|fsmonitor|hookspath|askpass|editor|pager|alternaterefscommand)$/,
+  // core.hookspath is not audited: husky and similar tools set it in ordinary repositories, and
+  // SAFE_CONFIG pins it to /dev/null on every Mimir git call, which outranks repo config.
+  /^core\.(sshcommand|gitproxy|fsmonitor|askpass|editor|pager|alternaterefscommand)$/,
   /^credential\./,
   /^gpg\.(.+\.)?program$/,
   /^alias\./,

@@ -253,6 +253,99 @@ describe("deliveries", () => {
   });
 });
 
+/** Answer the draft's blocking question, then submit and approve it: returns the approved id. */
+async function approveDraft(flow: MimirFlow, specId: string): Promise<string> {
+  const a = await flow.h.call({
+    method: "POST",
+    url: `/v1/specs/${specId}/answer`,
+    payload: { questionId: "Q1", answer: "Date and total" },
+  });
+  expect(a.statusCode).toBe(201);
+  const id = a.json().spec.id as string;
+  expect(
+    (await flow.h.call({ method: "POST", url: `/v1/specs/${id}/submit`, payload: {} })).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await flow.h.call({
+        method: "POST",
+        url: `/v1/specs/${id}/approve`,
+        payload: {},
+        headers: await flow.h.approvalHeaders(),
+      })
+    ).statusCode,
+  ).toBe(200);
+  return id;
+}
+
+describe("requesting changes to a delivery", () => {
+  it("drafts a rework spec and runs its plan on top of the delivered results", async () => {
+    const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
+    const { plan, execution } = await run(flow);
+
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const empty = await flow.h.call({
+      method: "POST",
+      url: `/v1/deliveries/${execution.id}/rework`,
+      payload: { feedback: "   " },
+    });
+    expect(empty.statusCode).toBe(422);
+    expect(
+      (
+        await flow.h.call({
+          method: "POST",
+          url: "/v1/deliveries/nope/rework",
+          payload: { feedback: "x" },
+        })
+      ).statusCode,
+    ).toBe(404);
+
+    const res = await flow.h.call({
+      method: "POST",
+      url: `/v1/deliveries/${execution.id}/rework`,
+      payload: { feedback: "Use ISO dates in the export." },
+    });
+    expect(res.statusCode).toBe(201);
+    const { rework, spec } = res.json();
+    expect(rework).toMatchObject({
+      sourceExecutionId: execution.id,
+      specLineageId: spec.lineageId,
+      feedback: "Use ISO dates in the export.",
+    });
+    // The delivered change is the results nothing else in the plan builds on.
+    const full = (await flow.h.call({ url: `/v1/plans/${plan.id}` })).json().plan as {
+      specId: string;
+      tasks: { id: string; dependsOn: string[] }[];
+    };
+    const dependedOn = new Set(full.tasks.flatMap((t) => t.dependsOn));
+    const leaves = full.tasks.filter((t) => !dependedOn.has(t.id)).length;
+    expect(rework.baseCommits).toHaveLength(leaves);
+    for (const c of rework.baseCommits) expect(c).toMatch(/^[0-9a-f]{40}$/);
+    expect(spec.status).toBe("draft");
+    expect(spec.id).not.toBe(full.specId);
+
+    const listed = (await flow.h.call({ url: `/v1/deliveries/${execution.id}/reworks` })).json();
+    expect(listed.reworks.map((r: { id: string }) => r.id)).toContain(rework.id);
+    expect(listed.reworks.at(-1).specs[0]).toMatchObject({ id: spec.id, status: "draft" });
+
+    // The rework's own plan starts from those commits; the original mission did not.
+    const reworkPlan = await approvedPlan(flow, await approveDraft(flow, spec.id));
+    const second = await flow.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: reworkPlan.id },
+    });
+    expect(second.statusCode).toBe(201);
+    const missions = flow.fake.requests.filter(
+      (r) => r.method === "POST" && r.path === "/v1/missions",
+    );
+    expect((missions[0]!.body as { baseCommits?: string[] }).baseCommits).toBeUndefined();
+    expect((missions.at(-1)!.body as { baseCommits?: string[] }).baseCommits).toEqual(
+      rework.baseCommits,
+    );
+  });
+});
+
 describe("mimir status", () => {
   it("reports configuration and reachability", async () => {
     const flow = (f = await startMimirFlow());

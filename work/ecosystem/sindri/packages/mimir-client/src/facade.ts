@@ -154,7 +154,16 @@ export class MimirClientFacade {
    */
   async createMissionFromPlan(
     plan: Plan,
-    { projectId, run }: { projectId: ProjectId | string; run?: number },
+    {
+      projectId,
+      run,
+      baseCommits,
+    }: {
+      projectId: ProjectId | string;
+      run?: number;
+      /** Commits the mission's root tasks start from instead of the default branch (a rework). */
+      baseCommits?: readonly string[];
+    },
   ): Promise<MissionSubmission> {
     let mapped;
     try {
@@ -175,7 +184,12 @@ export class MimirClientFacade {
     const head = fresh ? (await client.snapshot()).cursor : undefined;
     const { mission } = await this.submit("mission", mapped.missionIdempotencyKey, async () => {
       const res = await client.missions.create(
-        { projectId: projectId as ProjectId, objective: mapped.objective },
+        {
+          projectId: projectId as ProjectId,
+          objective: mapped.objective,
+          // `baseCommits` is newer than the vendored @mimir/protocol types; the server accepts it.
+          ...(baseCommits?.length ? ({ baseCommits: [...baseCommits] } as object) : {}),
+        },
         { idempotencyKey: mapped.missionIdempotencyKey },
       );
       return { id: res.mission.id, value: res };
@@ -445,6 +459,16 @@ export class MimirClientFacade {
       { idempotencyKey },
     );
     return { crewId: res.crew.id };
+  }
+
+  /** The verified result commit of each mission task that has one. */
+  async taskResultCommits(
+    missionId: MissionId | string,
+  ): Promise<{ taskId: string; resultCommit: string }[]> {
+    const { tasks } = await this.sdk.tasks.list({ missionId: missionId as MissionId });
+    return tasks.flatMap((t) =>
+      t.resultCommit ? [{ taskId: t.id as string, resultCommit: t.resultCommit }] : [],
+    );
   }
 
   /** Adds a task to a (non-terminal) mission: `client.tasks.create` (`POST /v1/tasks`). */

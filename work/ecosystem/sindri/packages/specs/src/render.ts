@@ -68,10 +68,11 @@ export function renderSpec(s: RenderInput): string {
     "## Open questions",
     "",
     ...(b.openQuestions.length
-      ? b.openQuestions.map(
-          (q) =>
-            `- **${inline(q.id)}** (${q.blocking ? "blocking" : "non-blocking"}): ${inline(q.text)}`,
-        )
+      ? b.openQuestions.flatMap((q) => [
+          `- **${inline(q.id)}** (${q.blocking ? "blocking" : "non-blocking"}): ${inline(q.text)}`,
+          ...(q.recommendation ? [`  - Recommended answer: ${inline(q.recommendation)}`] : []),
+          ...(q.rationale ? [`  - Why: ${inline(q.rationale)}`] : []),
+        ])
       : ["_None._"]),
     "",
     sources(p.openQuestions),

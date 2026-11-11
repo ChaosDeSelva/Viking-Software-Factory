@@ -274,6 +274,9 @@ export class ReadModel {
           id: id as Mission["id"],
           projectId: pl.projectId,
           objective: pl.objective,
+          ...(pl.baseCommits?.length
+            ? { baseCommits: pl.baseCommits as Mission["baseCommits"] }
+            : {}),
           status: "draft",
           createdAt: at,
           updatedAt: at,

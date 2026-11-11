@@ -11,7 +11,7 @@ const routes = {
   'task.retry':'mimir /v1/tasks/item/retry', 'task.verify':'mimir /v1/tasks/item/verify', 'approval.decide':'mimir /v1/approvals/item/decision',
   'spec.submit':'sindri /v1/specs/item/submit', 'spec.approve':'sindri /v1/specs/item/approve', 'spec.answer':'sindri /v1/specs/item/answer', 'spec.revise':'sindri /v1/specs/item/revise',
   'plan.submit':'sindri /v1/plans/item/submit', 'plan.approve':'sindri /v1/plans/item/approve', 'plan.revise':'sindri /v1/plans/item/revise',
-  'execution.assess':'sindri /v1/executions/item/assess', 'execution.export':'sindri /v1/executions/item/pr', 'execution.resolve':'sindri /v1/executions/item/escalations/task',
+  'execution.assess':'sindri /v1/executions/item/assess', 'execution.export':'sindri /v1/executions/item/pr', 'execution.resolve':'sindri /v1/executions/item/escalations/task', 'delivery.rework':'sindri /v1/deliveries/item/rework',
   'project.create':'sindri /v1/projects', 'project.bootstrap':'sindri /v1/projects/item/bootstrap', 'intake.create':'sindri /v1/intakes', 'spec.draft':'sindri /v1/director/draft', 'plan.propose':'sindri /v1/plans/propose', 'execution.create':'sindri /v1/executions',
 };
 for (const [action, expected] of Object.entries(routes)) {

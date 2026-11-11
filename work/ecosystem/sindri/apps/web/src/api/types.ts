@@ -62,6 +62,9 @@ export interface OpenQuestion {
   id: string;
   text: string;
   blocking: boolean;
+  /** The drafter's suggested answer; advisory. */
+  recommendation?: string;
+  rationale?: string;
 }
 
 export interface SpecBody {
@@ -167,8 +170,38 @@ export interface NewKnowledge {
 
 export interface Settings {
   provider: "anthropic" | "codex-cli" | "claude-cli" | "fake" | "null";
-  workerAgent?: "codex" | "claude" | "opencode" | "gemini" | "pi" | "pi-signed" | "grok" | "kimi" | "cursor" | "muse" | "rovo" | "omp" | "agy" | "devin" | "commandcode";
-  reviewerAgent?: "codex" | "claude" | "opencode" | "gemini" | "pi" | "pi-signed" | "grok" | "kimi" | "cursor" | "muse" | "rovo" | "omp" | "agy" | "devin" | "commandcode";
+  workerAgent?:
+    | "codex"
+    | "claude"
+    | "opencode"
+    | "gemini"
+    | "pi"
+    | "pi-signed"
+    | "grok"
+    | "kimi"
+    | "cursor"
+    | "muse"
+    | "rovo"
+    | "omp"
+    | "agy"
+    | "devin"
+    | "commandcode";
+  reviewerAgent?:
+    | "codex"
+    | "claude"
+    | "opencode"
+    | "gemini"
+    | "pi"
+    | "pi-signed"
+    | "grok"
+    | "kimi"
+    | "cursor"
+    | "muse"
+    | "rovo"
+    | "omp"
+    | "agy"
+    | "devin"
+    | "commandcode";
   model: string;
   localOnly: boolean;
   mimirUrl?: string;

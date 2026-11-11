@@ -241,7 +241,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     if (opts.resumeOnReady !== false) void factory.resume();
   });
   app.addHook("preClose", async () => factory.close());
-  deliveryRoutes(app, services, factory.hub, factory.delivery, approvals);
+  deliveryRoutes(app, services, factory.hub, factory.delivery, approvals, factory);
   settingsRoutes(app, services, {
     approvals,
     beforePurge: async (projectId) => {

@@ -114,7 +114,13 @@ describe("director", () => {
     const { spec } = await draft();
     const q = await h.call({ method: "GET", url: `/v1/specs/${spec.id}/questions` });
     expect(q.json().questions).toEqual([
-      { id: "Q1", text: "Which columns must the CSV include?", blocking: true },
+      {
+        id: "Q1",
+        text: "Which columns must the CSV include?",
+        blocking: true,
+        recommendation: "Date, customer and total",
+        rationale: "The reports page already lists these columns.",
+      },
     ]);
     const ans = await h.call({
       method: "POST",

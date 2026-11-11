@@ -2,7 +2,16 @@ import { useState } from "react";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import type { DeliveryReport, TraceNode, PrDelivery } from "../api/delivery-types.js";
 import { traceTree } from "../api/trace-tree.js";
-import { Badge, Button, Card, DetailHeading, Empty, LoadState } from "../components/ui.js";
+import {
+  Badge,
+  Button,
+  Card,
+  DetailHeading,
+  Empty,
+  Field,
+  inputClass,
+  LoadState,
+} from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
 export function DeliveriesScreen() {
@@ -194,6 +203,7 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
           </>
         )}
       </LoadState>
+      <RequestChanges deliveryId={deliveryId} />
       <Card title="Trace">
         <LoadState state={trace.state} what="trace" onRetry={trace.reload}>
           {(doc) => (
@@ -362,5 +372,59 @@ function Report({ report: r }: { report: DeliveryReport }) {
         <li>{r.rollback.note}</li>
       </ul>
     </section>
+  );
+}
+
+/** Reviewer feedback on a delivery: drafts a follow-up specification that builds on its result. */
+function RequestChanges({ deliveryId }: { deliveryId: string }) {
+  const api = useApi();
+  const { dispatch } = useStore();
+  const report = useReportError();
+  const [feedback, setFeedback] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Card title="Request changes">
+      <form
+        aria-label="Request changes to this delivery"
+        className="space-y-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!feedback.trim() || busy) return;
+          setBusy(true);
+          api
+            .requestRework(deliveryId, feedback.trim())
+            .then(({ spec }) => {
+              setFeedback("");
+              dispatch({
+                type: "notice",
+                notice: {
+                  kind: "info",
+                  text: "A specification was drafted from your feedback. Review and approve it to continue from this delivery.",
+                },
+              });
+              dispatch({ type: "spec/open", specId: spec.id });
+            }, report)
+            .finally(() => setBusy(false));
+        }}
+      >
+        <Field
+          label="What should change"
+          id="rework-feedback"
+          hint="A new specification is drafted from this. Once you approve it and its plan, work continues from this delivery's verified result instead of starting over."
+        >
+          <textarea
+            id="rework-feedback"
+            aria-describedby="rework-feedback-hint"
+            rows={4}
+            className={inputClass}
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+          />
+        </Field>
+        <Button type="submit" disabled={busy || !feedback.trim()}>
+          {busy ? "Drafting specification…" : "Request changes"}
+        </Button>
+      </form>
+    </Card>
   );
 }

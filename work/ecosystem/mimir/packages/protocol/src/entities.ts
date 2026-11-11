@@ -92,6 +92,8 @@ export const MissionSchema = entity(MissionIdSchema, {
   projectId: ProjectIdSchema,
   objective: z.string().min(1),
   status: MissionStatusSchema,
+  /** See `CreateMissionRequest.baseCommits`. Absent when work starts from the default branch. */
+  baseCommits: z.array(GitShaSchema).optional(),
 }).meta({ id: "Mission" });
 export type Mission = z.infer<typeof MissionSchema>;
 

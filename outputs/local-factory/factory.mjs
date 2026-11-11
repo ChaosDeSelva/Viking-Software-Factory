@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 const ecosystem = process.env.FACTORY_ECOSYSTEM_ROOT || fileURLToPath(new URL('../../work/ecosystem/', import.meta.url));
 const { startMimir } = await import(pathToFileURL(join(ecosystem,'mimir/apps/server/dist/start.js')).href);
-const { startServer } = await import(pathToFileURL(join(ecosystem,'sindri/apps/server/dist/boot.js')).href);
+const { startServer, secretStoreFor } = await import(pathToFileURL(join(ecosystem,'sindri/apps/server/dist/boot.js')).href);
 const { SettingsStore } = await import(pathToFileURL(join(ecosystem,'sindri/apps/server/dist/settings.js')).href);
 const { startHeimdall } = await import('../heimdall/apps/server/main.mjs');
 const root = process.env.FACTORY_DATA_DIR ? resolve(process.env.FACTORY_DATA_DIR) : fileURLToPath(new URL('../../work/local-factory/daily/', import.meta.url));
@@ -31,7 +31,9 @@ try {
  mimir = await startMimir({...process.env,MIMIR_CODEX_BIN:codex,MIMIR_CLAUDE_BIN:claude,MIMIR_HOST:'127.0.0.1',MIMIR_PORT:process.env.MIMIR_PORT || '7700',MIMIR_RUNTIME:runtimeChoice,MIMIR_FLEET_CONFIG:fleetConfig,MIMIR_DATA_DIR:join(root,'mimir'),MIMIR_WORKTREE_ROOT:join(root,'worktrees'),MIMIR_LOG_LEVEL:'warn'});
  const mtoken=mimir.auth.token;
  let pairing;
- sindri=await startServer({...process.env,SINDRI_HOST:'127.0.0.1',SINDRI_PORT:process.env.SINDRI_PORT || '4310',SINDRI_DATA_DIR:join(root,'sindri')},{webDist:join(ecosystem,'sindri/apps/web/dist'),logLevel:'warn',overrides:{secrets:{get:async name=>name==='local.mimir.token'?mtoken:undefined},approval:{onPairingCode:code=>{pairing=code;}}}});
+ // Connector credentials (Linear, Jira) stay in the operator's own store: Keychain on macOS, or SINDRI_SECRET_* with SINDRI_SECRET_STORE=env.
+ const operatorSecrets=secretStoreFor(process.env);
+ sindri=await startServer({...process.env,SINDRI_HOST:'127.0.0.1',SINDRI_PORT:process.env.SINDRI_PORT || '4310',SINDRI_DATA_DIR:join(root,'sindri')},{webDist:join(ecosystem,'sindri/apps/web/dist'),logLevel:'warn',overrides:{secrets:{get:async name=>name==='local.mimir.token'?mtoken:operatorSecrets.get(name)},approval:{onPairingCode:code=>{pairing=code;}}}});
  const settings=new SettingsStore(sindri.db,()=>new Date());
  const saved=settings.get();
  settings.put({...saved,...(saved.provider==='null'?{provider:'claude-cli',model:'default',localOnly:false,workerAgent:'codex',reviewerAgent:'claude',brokkrEnabled:true}:{}),mimirUrl:`http://127.0.0.1:${process.env.MIMIR_PORT || '7700'}`,mimirTokenSecret:'local.mimir.token'});

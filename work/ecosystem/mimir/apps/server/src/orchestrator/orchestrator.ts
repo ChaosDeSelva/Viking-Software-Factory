@@ -614,15 +614,23 @@ export class Orchestrator {
             const dependencies = [...this.rm.taskDependencies.values()]
               .filter((d) => d.taskId === input.taskId)
               .map((d) => d.dependsOnId);
+            // A task with dependencies inherits the mission's base through their results; only a
+            // root task has to be started from it.
+            const missionBase = dependencies.length
+              ? []
+              : (this.rm.missions.get(this.task(input.taskId).missionId)?.baseCommits ?? []);
             const dependencyBase = await this.git.dependencyBase(
               input.project.id,
               input.project.repoPath,
-              dependencies.map((id) => {
-                const commit = this.task(id).resultCommit;
-                if (!commit)
-                  throw new Error(`dependency ${id} has no immutable verified result; rerun it`);
-                return commit;
-              }),
+              [
+                ...missionBase,
+                ...dependencies.map((id) => {
+                  const commit = this.task(id).resultCommit;
+                  if (!commit)
+                    throw new Error(`dependency ${id} has no immutable verified result; rerun it`);
+                  return commit;
+                }),
+              ],
             );
             created = await this.git.create({
               ...(dependencyBase ? { baseRef: dependencyBase } : {}),

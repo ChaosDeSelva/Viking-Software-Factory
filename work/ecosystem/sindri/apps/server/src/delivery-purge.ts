@@ -11,6 +11,8 @@ import type { SqliteDatabase } from "@sindri/knowledge";
 const TABLES = [
   // The server's own settle-assessment markers.
   "quality_assessments",
+  // Reviewer feedback on a delivery is project text too.
+  "rework_requests",
   "pr_requests",
   "delivery_evidence",
   "knowledge_proposals",

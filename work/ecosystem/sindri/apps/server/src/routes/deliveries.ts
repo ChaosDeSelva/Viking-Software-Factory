@@ -5,11 +5,14 @@ import type { ApprovalAuthority } from "../approval.js";
 import type { DeliveryService } from "../delivery-service.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import type { ExecutionHub } from "../execution-hub.js";
-import { executionsByProject } from "../queries.js";
+import type { Factory } from "../factory.js";
+import { executionsByProject, projectOfExecution } from "../queries.js";
+import { reworkRequestText } from "../rework.js";
 import type { Services } from "../services.js";
 import { DELIVERED_STATUSES } from "../statuses.js";
 
 const ProjectQuery = z.object({ projectId: z.string().min(1) });
+const Rework = z.strictObject({ feedback: z.string().trim().min(1).max(20_000) });
 
 /** Reviews inbox, deliveries (report, PR text, trace) and PR requests. */
 export function deliveryRoutes(
@@ -18,6 +21,7 @@ export function deliveryRoutes(
   hub: ExecutionHub,
   delivery: DeliveryService,
   approvals: ApprovalAuthority,
+  f: Factory,
 ) {
   const projectExecutions = (projectId: string) => {
     if (!s.knowledge.projects.get(projectId)) throw notFound("project");
@@ -143,6 +147,85 @@ export function deliveryRoutes(
       })
       .parse(JSON.parse(await facade.artifactContent(payload.artifactId)));
     return { result };
+  });
+
+  /**
+   * Request changes to a delivered execution. Drafts a new spec from the reviewer's feedback
+   * and ties it to the delivery's verified results, so its plan is drafted against the delivered
+   * code and its execution starts from that code rather than from the default branch. The spec
+   * then goes through the usual questions, approvals, plan and run.
+   */
+  app.post<{ Params: { id: string } }>("/v1/deliveries/:id/rework", async (req, reply) => {
+    const body = parseBody(Rework, req.body);
+    const execution = requireDelivered(req.params.id);
+    const plan = f.planner.get(execution.planId);
+    const original = plan ? s.specs.get(plan.specId) : undefined;
+    const projectId = projectOfExecution(s.db, execution.id) ?? original?.projectId;
+    if (!plan || !original || !projectId || !s.knowledge.projects.get(projectId))
+      throw notFound("delivery");
+
+    // The results nothing else in the plan builds on: together they are the delivered change.
+    const { facade } = await hub.connection();
+    const results = new Map(
+      (await facade.taskResultCommits(execution.mimirMissionId)).map((r) => [
+        r.taskId,
+        r.resultCommit,
+      ]),
+    );
+    const dependedOn = new Set(plan.tasks.flatMap((t) => t.dependsOn));
+    const mimirTask = new Map(
+      hub.reader.tasks(execution.id).map((t) => [t.planTaskId, t.mimirTaskId]),
+    );
+    const baseCommits = [
+      ...new Set(
+        plan.tasks
+          .filter((t) => !dependedOn.has(t.id))
+          .map((t) => results.get(mimirTask.get(t.id) ?? ""))
+          .filter((c): c is string => typeof c === "string"),
+      ),
+    ];
+    if (baseCommits.length === 0)
+      throw new ApiError(
+        409,
+        "invalid_state",
+        "this delivery has no verified result commit to build a rework on",
+      );
+
+    const report = await delivery.report(execution.id).catch(() => null);
+    const out = await s.director().draftSpec({
+      projectId,
+      ...(original.intakeId ? { intakeId: original.intakeId } : {}),
+      request: reworkRequestText({
+        originalTitle: original.title,
+        feedback: body.feedback,
+        baseCommits,
+        changedFiles: report?.changedFiles.map((c) => c.path) ?? [],
+      }),
+      workspaceCommit: baseCommits[0]!,
+    });
+    const rework = s.rework.create({
+      projectId,
+      sourceExecutionId: execution.id,
+      specLineageId: out.spec.lineageId,
+      baseCommits,
+      feedback: body.feedback,
+    });
+    req.log.info({ executionId: execution.id, reworkId: rework.id }, "rework requested");
+    return reply.code(201).send({ rework, spec: out.spec, meta: out.meta });
+  });
+
+  /** Reworks requested on a delivery, with the spec each one produced. */
+  app.get<{ Params: { id: string } }>("/v1/deliveries/:id/reworks", (req) => {
+    const execution = hub.reader.get(req.params.id);
+    if (!execution) throw notFound("delivery");
+    return {
+      reworks: s.rework.forExecution(execution.id).map((r) => ({
+        ...r,
+        specs: s.specs
+          .listLineage(r.specLineageId)
+          .map((sp) => ({ id: sp.id, version: sp.version, status: sp.status, title: sp.title })),
+      })),
+    };
   });
 
   app.post<{ Params: { id: string } }>("/v1/executions/:id/pr", async (req) => {

@@ -144,6 +144,12 @@ export function SpecView({
               <li key={q.id}>
                 <span className="font-mono">{q.id}</span> {q.text}{" "}
                 {q.blocking ? <Badge tone="warn">blocking</Badge> : <Badge>non-blocking</Badge>}
+                {q.recommendation && (
+                  <p className="ml-4">
+                    <span className="font-semibold">Recommended:</span> {q.recommendation}
+                    {q.rationale && <span className="block italic">{q.rationale}</span>}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
@@ -215,6 +221,22 @@ export function BlockingQuestions(props: {
                 onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
               />
             </Field>
+            {q.recommendation && (
+              <div className="space-y-1 rounded bg-amber-50 p-2 text-sm text-slate-900">
+                <p>
+                  <span className="font-semibold">Recommended answer:</span> {q.recommendation}
+                </p>
+                {q.rationale && <p className="italic">Why: {q.rationale}</p>}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={props.busy}
+                  onClick={() => setAnswers({ ...answers, [q.id]: q.recommendation ?? "" })}
+                >
+                  Use recommendation <span className="sr-only">for {q.id}</span>
+                </Button>
+              </div>
+            )}
             <Button type="submit" disabled={props.busy || !value.trim()}>
               Submit answer <span className="sr-only">to {q.id}</span>
             </Button>

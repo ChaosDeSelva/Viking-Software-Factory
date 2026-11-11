@@ -103,7 +103,13 @@ export function executionRoutes(
     const conn = await hub.connection();
     try {
       const mimirProject = await conn.facade.ensureProject(project.repoPath);
-      const execution = await conn.loop.createExecution(plan, { projectId: mimirProject.id });
+      // A plan for a rework spec builds on the delivered change it revises, not the default branch.
+      const spec = s.specs.get(plan.specId);
+      const rework = spec ? s.rework.forLineage(spec.lineageId) : undefined;
+      const execution = await conn.loop.createExecution(plan, {
+        projectId: mimirProject.id,
+        ...(rework ? { baseCommits: rework.baseCommits } : {}),
+      });
       await hub.ensureRunning(execution.id);
       return reply.code(201).send(view(execution.id));
     } catch (err) {

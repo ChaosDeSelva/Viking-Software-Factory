@@ -67,6 +67,10 @@ export interface ProposeOptions {
   harnesses: HarnessService;
   repoIndex?: RepoIndex;
   caps?: ProjectCaps;
+  /** Project repository the provider may read while filling in the plan. */
+  workspace?: string;
+  /** One line telling the provider what `workspace` holds. */
+  workspaceLabel?: string;
 }
 
 export interface RevisePatch {
@@ -469,6 +473,8 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           temperature: 0,
           responseSchema: FillSchema,
           metadata: { purpose: "plan" },
+          ...(opts.workspace ? { workspace: opts.workspace } : {}),
+          ...(opts.workspaceLabel ? { workspaceLabel: opts.workspaceLabel } : {}),
         });
       } catch (e) {
         // Every provider call is accounted for, including refusals and failed validation.

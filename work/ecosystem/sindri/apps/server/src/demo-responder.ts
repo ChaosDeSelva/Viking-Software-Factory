@@ -41,8 +41,20 @@ export function demoResponder(): FakeResponder {
           },
         ],
         openQuestions: [
-          { id: "Q1", text: "Which columns must the CSV include?", blocking: true },
-          { id: "Q2", text: "Preferred file name?", blocking: false },
+          {
+            id: "Q1",
+            text: "Which columns must the CSV include?",
+            blocking: true,
+            recommendation: "Date, customer and total",
+            rationale: "The reports page already lists these columns.",
+          },
+          {
+            id: "Q2",
+            text: "Preferred file name?",
+            blocking: false,
+            recommendation: "",
+            rationale: "",
+          },
         ],
       },
     };

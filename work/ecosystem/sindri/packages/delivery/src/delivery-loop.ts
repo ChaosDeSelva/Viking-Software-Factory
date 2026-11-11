@@ -272,7 +272,10 @@ export class DeliveryLoop {
    * execution, a new one gets the next run number and therefore a new Mimir mission; it never
    * reattaches to the old mission.
    */
-  async createExecution(plan: Plan, { projectId }: { projectId: string }): Promise<Execution> {
+  async createExecution(
+    plan: Plan,
+    { projectId, baseCommits }: { projectId: string; baseCommits?: readonly string[] },
+  ): Promise<Execution> {
     const existing = this.db
       .prepare(
         `SELECT * FROM executions WHERE plan_id = ? AND plan_version = ?
@@ -289,7 +292,11 @@ export class DeliveryLoop {
           )
           .get(plan.id, plan.version) as { n: number }
       ).n + 1;
-    const submission = await this.mimir.createMissionFromPlan(plan, { projectId, run });
+    const submission = await this.mimir.createMissionFromPlan(plan, {
+      projectId,
+      run,
+      ...(baseCommits?.length ? { baseCommits } : {}),
+    });
     const id = `exe_${randomUUID()}`;
     const at = this.now().toISOString();
     // Token and cost budgets went to Mimir with the crews; wall-clock limits cannot be enforced there.

@@ -53,6 +53,11 @@ export function commandRoute(c) {
   } else if (["execution.assess", "execution.export"].includes(c.action)) {
     source = "sindri";
     path = `/v1/executions/${id}/${c.action.endsWith("export") ? "pr" : "assess"}`;
+  } else if (c.action === "delivery.rework") {
+    // Reviewer feedback on a delivered execution: Sindri drafts a follow-up specification that
+    // builds on the delivered results.
+    source = "sindri";
+    path = `/v1/deliveries/${id}/rework`;
   } else if (c.action === "execution.resolve") {
     source = "sindri";
     if (!/^[\w.-]{1,200}$/.test(c.taskId ?? ""))

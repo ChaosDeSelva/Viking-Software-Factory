@@ -223,6 +223,59 @@ describe("missions", () => {
   }, 120_000);
 });
 
+describe("mission base commits", () => {
+  it("starts a mission's root task from the given verified commit, not the default branch", async () => {
+    const h = await track();
+    const { projectId, missionId } = await setupMission(h);
+    const first = await createTask(h, missionId, "T", "echo t");
+    await h.post(`/v1/missions/${missionId}/start`);
+    await h.tick();
+    await h.advance(1000);
+    const delivered = h.task(first).resultCommit;
+    expect(delivered).toBeDefined();
+
+    const m = await h.post("/v1/missions", {
+      projectId,
+      objective: "rework the delivery",
+      baseCommits: [delivered, delivered],
+    });
+    expect(m.status).toBe(201);
+    expect(m.json.mission.baseCommits).toEqual([delivered]);
+    const rework = m.json.mission.id as string;
+    await h.post("/v1/crews", {
+      missionId: rework,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "shell" }],
+    });
+    const root = await createTask(h, rework, "R", "echo r");
+    await h.post(`/v1/missions/${rework}/start`);
+    await h.tick();
+    await h.advance(1000);
+    const created = h
+      .events(["git.worktree_created"])
+      .filter((e) => e.taskId === root)
+      .map((e) => e.payload as { baseSha: string })[0];
+    expect(created?.baseSha).toBe(delivered);
+    // The first mission's own worktree started from the default branch, as before.
+    const original = h
+      .events(["git.worktree_created"])
+      .filter((e) => e.taskId === first)
+      .map((e) => e.payload as { baseSha: string })[0];
+    expect(original?.baseSha).not.toBe(delivered);
+  });
+
+  it("rejects a base commit that is not a git sha", async () => {
+    const h = await track();
+    const { projectId } = await setupMission(h);
+    const bad = await h.post("/v1/missions", {
+      projectId,
+      objective: "x",
+      baseCommits: ["--upload-pack=evil"],
+    });
+    expect(bad.status).toBe(422);
+  });
+});
+
 describe("crews and tasks", () => {
   it("validates crews and lists them by mission", async () => {
     const h = await track();

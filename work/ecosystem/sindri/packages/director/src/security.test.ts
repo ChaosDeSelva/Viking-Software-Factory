@@ -212,7 +212,9 @@ describe("Director security", () => {
       return {
         output: {
           ...minimalDraft(req),
-          openQuestions: [{ id: "Q1", text: "Which key?", blocking: true }],
+          openQuestions: [
+            { id: "Q1", text: "Which key?", blocking: true, recommendation: "", rationale: "" },
+          ],
         },
       };
     });
