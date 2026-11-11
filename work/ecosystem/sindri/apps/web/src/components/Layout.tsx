@@ -18,7 +18,7 @@ import {
   type LinkProps,
   type NavTab,
 } from "@factory/ui";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { switcherApps } from "../config.js";
 import { useApi, useLive, useReportError, useStore } from "../store/context.js";
 import type { View } from "../store/reducer.js";
@@ -132,8 +132,11 @@ function useConnection(): { state: ConnectionState; detail: string; reconnect: (
   const host = location.host || "local";
   return {
     state: live.state,
-    detail:
-      live.state === "live"
+    detail: !live.streaming
+      ? live.state === "live"
+        ? `Connected to ${host}; this server has no live updates, so reload to refresh`
+        : "Cannot reach the Sindri server; showing what was loaded last"
+      : live.state === "live"
         ? `Live: pages update as Sindri changes (${host})`
         : live.state === "offline"
           ? "Cannot reach the Sindri server; showing what was loaded last"
@@ -268,9 +271,18 @@ export function Layout(props: { children: ReactNode }) {
   // The project picker needs the list on every screen, not only on Projects (which loads and
   // refreshes it itself). Reloaded when Sindri reports a change, so new projects appear.
   const { version } = useLive();
+  const firstProjects = useRef(true);
   useEffect(() => {
     if (state.view === "projects") return;
-    api.listProjects().then((projects) => dispatch({ type: "projects/loaded", projects }), report);
+    // Only the first load reports a failure; a refresh after a change fails quietly.
+    const quiet = !firstProjects.current;
+    firstProjects.current = false;
+    api
+      .listProjects()
+      .then(
+        (projects) => dispatch({ type: "projects/loaded", projects }),
+        quiet ? () => undefined : report,
+      );
   }, [api, version]);
 
   // A Guide link (or any navigation) closes the Ask drawer so the screen is visible.

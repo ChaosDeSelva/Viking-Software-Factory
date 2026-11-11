@@ -13,7 +13,9 @@ const SOURCES: Record<string, { text: string; tone: "ok" | "warn" | "neutral" }>
 /** Which Feedback Graph project this factory project reads lessons from, and those lessons. */
 export function FeedbackGraphCard({ project }: { project: Project }) {
   const api = useApi();
-  const loaded = useLoad(() => api.getProjectFeedbackGraph(project.id), [project.id]);
+  const loaded = useLoad(() => api.getProjectFeedbackGraph(project.id), [project.id], {
+    live: false,
+  });
   return (
     <Card title="Feedback Graph" term="Feedback Graph">
       <p className="text-sm">

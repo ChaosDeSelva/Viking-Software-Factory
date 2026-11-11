@@ -133,4 +133,110 @@ describe("live changes", () => {
     expect(await screen.findByText("signed out")).toBeTruthy();
     expect(stream.fn).toHaveBeenCalledTimes(1);
   });
+
+  it("after a dropped stream, the first version on reconnect refreshes the pages", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const stream = controllableStream();
+    const api = mockApi({ streamChanges: stream.fn });
+    const loader = vi.fn(() => Promise.resolve(1));
+    function Probe() {
+      useLoad(loader, []);
+      return null;
+    }
+    render(
+      <AppProviders api={api as unknown as ApiClient} initial={{ token: "tok" }}>
+        <Probe />
+      </AppProviders>,
+    );
+    await act(async () => undefined);
+    expect(loader).toHaveBeenCalledTimes(1);
+    await act(async () => stream.drop());
+    await act(async () => vi.advanceTimersByTime(1_000));
+    // The new connection's first version (0 again after a server restart) still catches up.
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("a manual Reconnect also catches the pages up", async () => {
+    const stream = controllableStream();
+    const api = mockApi({ streamChanges: stream.fn });
+    const loader = vi.fn(() => Promise.resolve(1));
+    let reconnect: () => void = () => undefined;
+    function Probe() {
+      useLoad(loader, []);
+      reconnect = useLive().reconnect;
+      return null;
+    }
+    render(
+      <AppProviders api={api as unknown as ApiClient} initial={{ token: "tok" }}>
+        <Probe />
+      </AppProviders>,
+    );
+    await act(async () => undefined);
+    expect(loader).toHaveBeenCalledTimes(1);
+    await act(async () => reconnect());
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  });
+
+  it("a quiet refresh keeps data through an error, but shows a record that is gone", async () => {
+    const stream = controllableStream();
+    const api = mockApi({ streamChanges: stream.fn });
+    let answer: () => Promise<string> = () => Promise.resolve("spec v1");
+    function Probe() {
+      const { state } = useLoad(() => answer(), []);
+      return <p>{state.status === "ready" ? state.data : state.status}</p>;
+    }
+    render(
+      <AppProviders api={api as unknown as ApiClient} initial={{ token: "tok" }}>
+        <Probe />
+      </AppProviders>,
+    );
+    await screen.findByText("spec v1");
+    answer = () => Promise.reject(new ApiError(500, "internal", "blip"));
+    act(() => stream.push(1));
+    await act(async () => undefined);
+    expect(screen.getByText("spec v1")).toBeTruthy();
+    answer = () => Promise.reject(new ApiError(404, "not_found", "spec not found"));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 1_100));
+      stream.push(2);
+    });
+    expect(await screen.findByText("error")).toBeTruthy();
+  });
+
+  it("loaders marked live: false do not re-run on changes", async () => {
+    const stream = controllableStream();
+    const api = mockApi({ streamChanges: stream.fn });
+    const loader = vi.fn(() => Promise.resolve(1));
+    function Probe() {
+      useLoad(loader, [], { live: false });
+      return null;
+    }
+    render(
+      <AppProviders api={api as unknown as ApiClient} initial={{ token: "tok" }}>
+        <Probe />
+      </AppProviders>,
+    );
+    await act(async () => undefined);
+    act(() => stream.push(1));
+    await act(async () => undefined);
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("an older server without the stream falls back to a health check, not Offline forever", async () => {
+    const api = mockApi({
+      streamChanges: () => Promise.reject(new ApiError(404, "not_found", "route not found")),
+      health: { status: "ok" },
+    });
+    function State() {
+      const live = useLive();
+      return <p>{`${live.state}:${live.streaming}`}</p>;
+    }
+    render(
+      <AppProviders api={api as unknown as ApiClient} initial={{ token: "tok" }}>
+        <State />
+      </AppProviders>,
+    );
+    expect(await screen.findByText("live:false")).toBeTruthy();
+    expect(api.streamChanges).toHaveBeenCalledTimes(1);
+  });
 });

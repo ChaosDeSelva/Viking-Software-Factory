@@ -6,15 +6,15 @@ const HEARTBEAT_MS = 15_000;
 const DEFAULT_POLL_MS = 500;
 
 /**
- * A number that moves whenever Sindri's database is written: total_changes() counts this
- * connection's writes (the server, the Director, the steward, run ingestion), data_version moves
- * on commits from other connections (the CLI). Watching the database itself means no write path
- * can forget to announce a change.
+ * Returns a reader of a number that moves whenever Sindri's database is written: total_changes()
+ * counts this connection's writes (the server, the Director, the steward, run ingestion),
+ * data_version moves on commits from other connections (the CLI). Watching the database itself
+ * means no write path can forget to announce a change. The statement is prepared once.
  */
-export function changeFingerprint(db: SqliteDatabase): string {
-  const own = (db.prepare("SELECT total_changes() AS n").get() as { n: number }).n;
-  const others = db.pragma("data_version", { simple: true }) as number;
-  return `${own}:${others}`;
+export function changeFingerprint(db: SqliteDatabase): () => string {
+  const own = db.prepare("SELECT total_changes() AS n");
+  return () =>
+    `${(own.get() as { n: number }).n}:${db.pragma("data_version", { simple: true }) as number}`;
 }
 
 /**
@@ -28,15 +28,16 @@ export function changeRoutes(
   opts: { pollMs?: number } = {},
 ) {
   const streams = new Set<ServerResponse>();
+  const fingerprint = changeFingerprint(db);
   let version = 0;
-  let last = changeFingerprint(db);
+  let last = fingerprint();
   let timer: NodeJS.Timeout | undefined;
 
   const broadcast = () => {
     for (const raw of streams) raw.write(`event: changed\ndata: {"version":${version}}\n\n`);
   };
   const poll = () => {
-    const now = changeFingerprint(db);
+    const now = fingerprint();
     if (now === last) return;
     last = now;
     version += 1;

@@ -51,13 +51,14 @@ describe("GET /v1/changes", () => {
 
   it("does not move without a write", async () => {
     h = await makeHarness();
-    const before = changeFingerprint(h.db);
+    const fingerprint = changeFingerprint(h.db);
+    const before = fingerprint();
     h.db.prepare("SELECT COUNT(*) FROM schema_migrations").get();
-    expect(changeFingerprint(h.db)).toBe(before);
+    expect(fingerprint()).toBe(before);
     h.db.exec(
       "CREATE TABLE IF NOT EXISTS change_probe (x INTEGER); INSERT INTO change_probe VALUES (1)",
     );
-    expect(changeFingerprint(h.db)).not.toBe(before);
+    expect(fingerprint()).not.toBe(before);
   });
 
   it("requires the bearer token", async () => {

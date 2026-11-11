@@ -168,8 +168,8 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
   const { dispatch } = useStore();
   const report = useReportError();
   const detail = useLoad(() => api.getDelivery(deliveryId), [deliveryId]);
-  const trace = useLoad(() => api.deliveryTrace(deliveryId), [deliveryId]);
-  const local = useLoad(() => api.localDelivery(deliveryId), [deliveryId]);
+  const trace = useLoad(() => api.deliveryTrace(deliveryId), [deliveryId], { live: false });
+  const local = useLoad(() => api.localDelivery(deliveryId), [deliveryId], { live: false });
   const [busy, setBusy] = useState(false);
   const [assessing, setAssessing] = useState(false);
   const [exportRequest, setExportRequest] = useState<PrDelivery | null>(null);

@@ -28,19 +28,28 @@ export const TOKEN_KEY = "sindri.token";
 export interface LiveChanges {
   state: ConnectionState;
   version: number;
+  /** False when the server has no change stream (older Sindri): pages then update on reload only. */
+  streaming: boolean;
   reconnect: () => void;
 }
 const LiveContext = createContext<LiveChanges>({
   state: "connecting",
   version: 0,
+  streaming: true,
   reconnect: () => undefined,
 });
 /** Backoff between reconnect attempts; after the third failure the bar says Offline. */
 const RETRY_MS = [1_000, 2_000, 5_000, 10_000];
 /** Writes during a run arrive several times a second; pages refresh at most this often. */
 export const REFRESH_THROTTLE_MS = 1_000;
+/** Without a change stream, reachability is checked this often. */
+const HEALTH_MS = 30_000;
 
-/** Keeps `/v1/changes` open while signed in, reconnecting with backoff when it drops. */
+/**
+ * Keeps `/v1/changes` open while signed in, reconnecting with backoff when it drops. The first
+ * version of a session is only a baseline (pages have just loaded); after a dropped stream or a
+ * manual Reconnect the first version always refreshes the pages, since writes may have been missed.
+ */
 function useChangeStream(
   api: ApiClient,
   token: string | null,
@@ -49,6 +58,9 @@ function useChangeStream(
   const [state, setState] = useState<ConnectionState>("connecting");
   const [version, setVersion] = useState(0);
   const [attempt, setAttempt] = useState(0);
+  const [streaming, setStreaming] = useState(true);
+  // Survives reconnects: whether the next connection must catch the pages up.
+  const catchUp = useRef(false);
   useEffect(() => {
     if (!token) return;
     const ctrl = new AbortController();
@@ -57,6 +69,7 @@ function useChangeStream(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let failures = 0;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    let health: ReturnType<typeof setInterval> | undefined;
     // Trailing throttle: the first change shows at once, a burst collapses into one refresh.
     const publish = () => {
       timer = undefined;
@@ -65,19 +78,35 @@ function useChangeStream(
       setVersion((v) => v + 1);
       timer = setTimeout(publish, REFRESH_THROTTLE_MS);
     };
+    // Older server without /v1/changes: say whether it is reachable, and nothing more.
+    const pollHealth = () => {
+      setStreaming(false);
+      const check = () =>
+        api.health().then(
+          () => !ctrl.signal.aborted && setState("live"),
+          () => !ctrl.signal.aborted && setState("offline"),
+        );
+      void check();
+      health = setInterval(check, HEALTH_MS);
+    };
     const connect = () => {
       setState(failures === 0 ? "connecting" : failures < 3 ? "reconnecting" : "offline");
+      let first = true;
       api
         .streamChanges((v) => {
           failures = 0;
+          setStreaming(true);
           setState("live");
-          // The first version after (re)connecting only sets the baseline, unless a change was
-          // missed while disconnected: then the pages catch up.
-          if (shown === null) {
-            shown = latest = v;
-            return;
-          }
           latest = v;
+          if (first) {
+            first = false;
+            if (!catchUp.current) {
+              shown = v;
+              return;
+            }
+            catchUp.current = false;
+            shown = null;
+          }
           if (!timer) publish();
         }, ctrl.signal)
         .then(
@@ -87,13 +116,14 @@ function useChangeStream(
               onRejected();
               return "stop";
             }
+            if (err instanceof ApiError && err.status === 404) return "unsupported";
             return undefined;
           },
         )
         .then((outcome) => {
           if (ctrl.signal.aborted || outcome === "stop") return;
-          // A server restart resets its version, so the next connect re-baselines and refreshes.
-          shown = shown === null ? null : -1;
+          if (outcome === "unsupported") return pollHealth();
+          catchUp.current = true;
           failures += 1;
           setState(failures < 3 ? "reconnecting" : "offline");
           retry = setTimeout(connect, RETRY_MS[Math.min(failures - 1, RETRY_MS.length - 1)]);
@@ -104,9 +134,18 @@ function useChangeStream(
       ctrl.abort();
       clearTimeout(timer);
       clearTimeout(retry);
+      clearInterval(health);
     };
   }, [api, token, attempt]);
-  return { state, version, reconnect: () => setAttempt((n) => n + 1) };
+  return {
+    state,
+    version,
+    streaming,
+    reconnect: () => {
+      catchUp.current = true;
+      setAttempt((n) => n + 1);
+    },
+  };
 }
 
 /** Live connection state and the change version, for the bottom bar and useLoad. */
@@ -226,10 +265,19 @@ export type Loadable<T> =
  * a failed refresh keeps it, and an unchanged answer keeps the same object so nothing re-renders
  * (forms seeded from it are not reset).
  */
-export function useLoad<T>(loader: (() => Promise<T>) | null, deps: unknown[]) {
+export function useLoad<T>(
+  loader: (() => Promise<T>) | null,
+  deps: unknown[],
+  opts: {
+    /** False for loaders that call out to Mimir, Feedback Graph or the repository: they do not
+     * re-run on every database change, only on their deps and reload(). */
+    live?: boolean;
+  } = {},
+) {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const [tick, setTick] = useState(0);
-  const { version } = useLive();
+  const liveVersion = useLive().version;
+  const version = opts.live === false ? 0 : liveVersion;
   const report = useReportError();
   const current = useRef(state);
   current.current = state;
@@ -256,7 +304,8 @@ export function useLoad<T>(loader: (() => Promise<T>) | null, deps: unknown[]) {
       (err: unknown) => {
         if (!live) return;
         if (err instanceof ApiError && err.status === 401) report(err);
-        if (quiet) return;
+        // A quiet refresh keeps what is shown through a blip, but not for a record that is gone.
+        if (quiet && !(err instanceof ApiError && err.status === 404)) return;
         setState({ status: "error", error: err instanceof Error ? err.message : String(err) });
       },
     );

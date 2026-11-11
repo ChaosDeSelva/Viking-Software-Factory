@@ -237,7 +237,7 @@ function PlanDetail({
   const [tab, setTab] = useState("tasks");
   const [, setUnlockTick] = useState(0);
   const detail = useLoad(() => api.getPlan(planId), [planId, tick]);
-  const dry = useLoad(() => api.dryRunPlan(planId), [planId]);
+  const dry = useLoad(() => api.dryRunPlan(planId), [planId], { live: false });
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
   const act = (fn: () => Promise<unknown>) => {
     setBusy(true);

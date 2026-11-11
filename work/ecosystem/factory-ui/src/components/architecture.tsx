@@ -252,7 +252,7 @@ export function ArchitectureDiagram(): ReactNode {
           <Box
             x={186}
             y={380}
-            w={150}
+            w={190}
             h={70}
             title="Feedback Graph · :8787"
             lines={["Approved lessons;", "Sindri only reads"]}
@@ -277,10 +277,10 @@ export function ArchitectureDiagram(): ReactNode {
           />
           <Edge d="M95,330 L95,380" marker={marker} />
           <Edge
-            d="M210,330 L250,380"
+            d="M262,380 L215,330"
             marker={marker}
             label="lessons"
-            lx={252}
+            lx={262}
             ly={360}
             anchor="start"
           />

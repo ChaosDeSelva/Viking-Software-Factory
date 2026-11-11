@@ -24,7 +24,7 @@ const none = (xs: string[]) => xs.join(", ") || "none";
  */
 export function HarnessesScreen() {
   const api = useApi();
-  const list = useLoad(() => api.listHarnesses(), []);
+  const list = useLoad(() => api.listHarnesses(), [], { live: false });
   const [selected, setSelected] = useState<string | null>(null);
   const harnesses = list.state.status === "ready" ? list.state.data.harnesses : [];
   const current = selected ? (harnesses.find((h) => key(h) === selected) ?? null) : undefined;
@@ -175,7 +175,7 @@ function Manifest({ harness }: { harness: HarnessSummary | null }) {
 /** The selected project's detected tooling (Project settings). */
 export function RepositorySignals({ projectId }: { projectId: string }) {
   const api = useApi();
-  const signals = useLoad(() => api.repoSignals(projectId), [projectId]);
+  const signals = useLoad(() => api.repoSignals(projectId), [projectId], { live: false });
   return (
     <Card
       title="Repository signals"
