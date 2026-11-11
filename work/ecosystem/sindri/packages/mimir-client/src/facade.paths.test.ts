@@ -138,6 +138,29 @@ describe("MimirClientFacade.createMissionFromPlan", () => {
     for (const t of tasks) expect(t.brief).toContain("AC-1: criterion of plan-1");
   });
 
+  it("sends each task's cited operator lessons, as quoted data, in its brief", async () => {
+    const { facade, fake } = await boot();
+    const project = await facade.ensureProject("/repos/app");
+    const lesson = {
+      id: "fg:l1",
+      title: "Run the checks",
+      text: "Rule: Always run lint.\nPaths: src",
+    };
+    await facade.createMissionFromPlan(
+      approvedPlan([
+        planTask("impl", { lessons: ["fg:l1"], lessonContext: [lesson] }),
+        planTask("review", { role: "reviewer" }),
+      ]),
+      { projectId: project.id },
+    );
+    const [impl, review] = bodiesOf(fake, "POST", "/v1/tasks");
+    expect(impl!.brief).toContain("Operator lessons:");
+    expect(impl!.brief).toContain(
+      '- fg:l1 "Run the checks": "Rule: Always run lint.\\nPaths: src"',
+    );
+    expect(review!.brief).not.toContain("Operator lessons");
+  });
+
   it("forwards base commits of a rework, and leaves the field out without any", async () => {
     const { facade, fake } = await boot();
     const project = await facade.ensureProject("/repos/app");

@@ -28,6 +28,7 @@ import {
   OperationAcceptedSchema,
   RequestPrResponseSchema,
   SnapshotResponseSchema,
+  UpdateBudgetResponseSchema,
   UsageResponseSchema,
   type ApprovalDecisionRequest,
   type ApprovalId,
@@ -65,6 +66,8 @@ import {
   type StartMissionRequest,
   type StopSessionRequest,
   type TaskId,
+  type UpdateBudgetRequest,
+  type UpdateBudgetResponse,
   type UsageQuery,
   type UsageResponse,
 } from "@mimir/protocol";
@@ -113,6 +116,12 @@ export interface MimirClient {
       body?: CancelMissionRequest,
       options?: MutationOptions,
     ): Promise<OperationAccepted>;
+    /** `PATCH /v1/missions/:id/budget`: merges the given limits onto the mission's budget (creating one). */
+    updateBudget(
+      id: MissionId,
+      body: UpdateBudgetRequest,
+      options?: MutationOptions,
+    ): Promise<UpdateBudgetResponse>;
   };
   crews: {
     pause(
@@ -127,6 +136,12 @@ export interface MimirClient {
     ): Promise<CrewSchedulingResponse>;
     list(query?: ListCrewsQuery, options?: RequestOptions): Promise<ListCrewsResponse>;
     create(body: CreateCrewRequest, options?: MutationOptions): Promise<CreateCrewResponse>;
+    /** `PATCH /v1/crews/:id/budget`: merges the given limits onto the crew's budget (creating one). */
+    updateBudget(
+      id: CrewId,
+      body: UpdateBudgetRequest,
+      options?: MutationOptions,
+    ): Promise<UpdateBudgetResponse>;
   };
   tasks: {
     get(id: TaskId, options?: RequestOptions): Promise<GetTaskResponse>;
@@ -251,6 +266,8 @@ export function createMimirClient(options: MimirClientOptions): MimirClient {
       create: (body, o) => http.post(CreateMissionResponseSchema, "/v1/missions", body, o),
       start: (id, body, o) => accepted(`/v1/missions/${seg(id)}/start`, body ?? {}, o),
       cancel: (id, body, o) => accepted(`/v1/missions/${seg(id)}/cancel`, body ?? {}, o),
+      updateBudget: (id, body, o) =>
+        http.patch(UpdateBudgetResponseSchema, `/v1/missions/${seg(id)}/budget`, body, o),
     },
     crews: {
       pause: (id, body, o) =>
@@ -259,6 +276,8 @@ export function createMimirClient(options: MimirClientOptions): MimirClient {
         http.post(CrewSchedulingResponseSchema, `/v1/crews/${seg(id)}/resume`, body ?? {}, o),
       list: (q, o) => http.get(ListCrewsResponseSchema, "/v1/crews", { ...q }, o),
       create: (body, o) => http.post(CreateCrewResponseSchema, "/v1/crews", body, o),
+      updateBudget: (id, body, o) =>
+        http.patch(UpdateBudgetResponseSchema, `/v1/crews/${seg(id)}/budget`, body, o),
     },
     tasks: {
       get: (id, o) => http.get(GetTaskResponseSchema, `/v1/tasks/${seg(id)}`, undefined, o),

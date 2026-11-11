@@ -33,6 +33,20 @@ export const BudgetSchema = z
   .strict();
 export type Budget = z.infer<typeof BudgetSchema>;
 
+const LessonIdSchema = z.string().regex(/^fg:[\w.:@-]{1,200}$/);
+
+/** Stored lesson text is cut to this many characters per lesson. */
+export const MAX_TASK_LESSON_CHARS = 2000;
+
+export const TaskLessonContextSchema = z
+  .object({
+    id: LessonIdSchema,
+    title: z.string().max(200),
+    text: z.string().max(MAX_TASK_LESSON_CHARS),
+  })
+  .strict();
+export type TaskLessonContext = z.infer<typeof TaskLessonContextSchema>;
+
 export const PlanTaskSchema = z
   .object({
     id: TaskIdSchema,
@@ -59,6 +73,10 @@ export const PlanTaskSchema = z
     budget: BudgetSchema,
     maxRetries: z.number().int().min(0),
     escalation: z.enum(ESCALATIONS),
+    /** Feedback Graph lessons (`fg:<id>`) the planner was given and this task must follow. */
+    lessons: z.array(LessonIdSchema).max(20).optional(),
+    /** Redacted text of the cited lessons as planned, for the agent brief; set by the planner. */
+    lessonContext: z.array(TaskLessonContextSchema).max(20).optional(),
   })
   .strict();
 export type PlanTask = z.infer<typeof PlanTaskSchema>;
@@ -82,6 +100,9 @@ export const PlanSchema = z.object({
   status: z.enum(PLAN_STATUSES),
   tasks: z.array(PlanTaskSchema).min(1),
   estimates: EstimatesSchema,
+  /** Set when untrusted planner input (lessons) held an injection; sticky across revisions. */
+  untrustedInstructionDetected: z.boolean().optional(),
+  injectionFindings: z.array(z.object({ source: z.string(), patternId: z.string() })).optional(),
   approvedBy: z.string().nullable(),
   approvedAt: z.string().nullable(),
   createdAt: z.string(),

@@ -68,8 +68,9 @@ A hard budget that is exhausted blocks its ready tasks (`blockedReason: budget_e
 The event payload says which budget and by how much:
 `{ budgetId, scope: crew|mission|project, unit: tokens|cost, used, limit, overBy, budgetVersion }`
 (the envelope carries `missionId` and `crewId`). The operator resolves it with
-`PATCH /v1/crews/{id}/budget` or `PATCH /v1/missions/{id}/budget`
-(`{ limitTokens?, limitCost?, warnAtFraction?, enforce?, onUnknown?, expectedVersion? }`, a limit is
+`PATCH /v1/crews/{id}/budget` or `PATCH /v1/missions/{id}/budget` (SDK `crews.updateBudget`,
+`missions.updateBudget`;
+`{ limitTokens?, limitCost?, warnAtFraction?, enforce?, onUnknown?, expectedVersion? }`, a limit is
 positive and bounded, `null` removes it). That appends `budget.updated` `{ budget, previous }`, and
 the scheduler returns the blocked tasks to `ready` on its next tick.
 

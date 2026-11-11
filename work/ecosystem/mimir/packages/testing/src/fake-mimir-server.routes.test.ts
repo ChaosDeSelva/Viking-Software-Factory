@@ -31,21 +31,116 @@ async function post(path: string, body?: unknown): Promise<{ status: number; bod
   return { status: res.status, body: await res.json() };
 }
 
+async function patch(path: string, body?: unknown): Promise<{ status: number; body: Json }> {
+  const res = await fetch(`${s.url}${path}`, {
+    method: "PATCH",
+    headers: {
+      ...auth(),
+      "content-type": "application/json",
+      [IDEMPOTENCY_HEADER]: crypto.randomUUID(),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
 async function mission(): Promise<{ project: Project; mission: Mission }> {
   const { project } = (await post("/v1/projects", { name: "p", repoPath: "/tmp/r" })).body;
   const { mission } = (await post("/v1/missions", { projectId: project.id, objective: "o" })).body;
   return { project, mission };
 }
-async function crew(missionId: string, limits?: unknown): Promise<Json> {
+async function crew(missionId: string, limits?: unknown, budget?: unknown): Promise<Json> {
   return (
     await post("/v1/crews", {
       missionId,
       template: "solo",
       ...(limits === undefined ? {} : { limits }),
+      ...(budget === undefined ? {} : { budget }),
       members: [{ role: "implementer", agentKind: "shell" }],
     })
   ).body;
 }
+
+describe("budgets", () => {
+  it("creates, merges and versions crew and mission budgets; refuses stale or empty changes", async () => {
+    const a = await mission();
+    const created = await crew(a.mission.id);
+    const crewPath = `/v1/crews/${created.crew.id}/budget`;
+    expect((await patch(crewPath, { warnAtFraction: 0.5 })).body.error.code).toBe(
+      "validation_failed",
+    );
+    const first = await patch(crewPath, {
+      limitTokens: 100,
+      onUnknown: "block",
+      expectedVersion: 0,
+    });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({
+      changed: true,
+      budget: { crewId: created.crew.id, missionId: a.mission.id, limitTokens: 100, version: 0 },
+    });
+    expect((await patch(crewPath, { limitTokens: 100 })).body.changed).toBe(false);
+    const raised = await patch(crewPath, { limitCost: 2, expectedVersion: 0 });
+    expect(raised.body.budget).toMatchObject({ limitTokens: 100, limitCost: 2, version: 1 });
+    expect((await patch(crewPath, { limitCost: 3, expectedVersion: 0 })).status).toBe(409);
+    const m = await patch(`/v1/missions/${a.mission.id}/budget`, {
+      limitCost: 1,
+      enforce: "soft",
+    });
+    expect(m.body.budget).toMatchObject({ missionId: a.mission.id, crewId: null });
+    expect((await patch(`/v1/crews/${newId("crw")}/budget`, { limitCost: 1 })).status).toBe(404);
+    const events = (await get(`/v1/events?types=budget.updated`)).body.events;
+    expect(events).toHaveLength(3);
+    await post(`/v1/missions/${a.mission.id}/cancel`, {});
+    expect((await patch(crewPath, { limitCost: 9 })).body.error.code).toBe("invalid_transition");
+  });
+
+  it("refuses a hard budget without onUnknown while the runtime reports no usage", async () => {
+    const a = await mission();
+    const created = await crew(a.mission.id);
+    const hard = await patch(`/v1/crews/${created.crew.id}/budget`, { limitTokens: 100 });
+    expect(hard.status).toBe(422);
+    expect(hard.body.error.details.reason).toBe("budget_on_unknown_required");
+    const atCreation = await post("/v1/missions", {
+      projectId: a.project.id,
+      objective: "o",
+      budget: { limitCost: 1 },
+    });
+    expect(atCreation.body.error.details.reason).toBe("budget_on_unknown_required");
+    expect((await crew(a.mission.id, undefined, { limitTokens: 5 })).error.details.reason).toBe(
+      "budget_on_unknown_required",
+    );
+    await s.close();
+    s = await fakeMimirServer({ runtimeReportsUsage: true });
+    const b = await mission();
+    const c = await crew(b.mission.id);
+    expect((await patch(`/v1/crews/${c.crew.id}/budget`, { limitTokens: 100 })).status).toBe(200);
+  });
+
+  it("merges a PATCH onto the budget set at mission or crew creation", async () => {
+    const { project } = (await post("/v1/projects", { name: "p", repoPath: "/tmp/r" })).body;
+    const created = await post("/v1/missions", {
+      projectId: project.id,
+      objective: "o",
+      budget: { limitTokens: 50, onUnknown: "block" },
+    });
+    const missionId = created.body.mission.id;
+    const c = await crew(missionId, undefined, { limitCost: 2, onUnknown: "allow" });
+    for (const [path, change, kept] of [
+      [`/v1/missions/${missionId}/budget`, { limitCost: 1 }, { limitTokens: 50 }],
+      [`/v1/crews/${c.crew.id}/budget`, { limitTokens: 9 }, { limitCost: 2 }],
+    ] as const) {
+      const same = await patch(path, { ...kept, expectedVersion: 0 });
+      expect(same.body.changed).toBe(false);
+      const merged = await patch(path, { ...change, expectedVersion: 0 });
+      expect(merged.body.budget).toMatchObject({ ...kept, ...change, version: 1 });
+      expect(merged.body.budget.id).toBe(same.body.budget.id);
+      expect(
+        (await get(`/v1/events?types=budget.updated`)).body.events.at(-1).payload.previous,
+      ).toMatchObject({ id: same.body.budget.id, version: 0 });
+    }
+  });
+});
 
 describe("crews", () => {
   it("creates, lists by mission, and pauses/resumes scheduling once per change", async () => {

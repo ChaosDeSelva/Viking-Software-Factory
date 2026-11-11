@@ -4,7 +4,12 @@ import type { AddressInfo } from "node:net";
 /** What the stub answers for one request; `raw` is sent as is (malformed JSON, huge bodies). */
 export type StubReply =
   | { status?: number; json: unknown }
-  | { status?: number; raw: string | Buffer; contentType?: string; headers?: Record<string, string> }
+  | {
+      status?: number;
+      raw: string | Buffer;
+      contentType?: string;
+      headers?: Record<string, string>;
+    }
   | { hang: true }
   | { destroy: true };
 

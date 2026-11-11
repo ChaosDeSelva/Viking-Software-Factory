@@ -15,7 +15,7 @@
     "status": 200,
     "contentType": "application/json",
     "body": {
-      "artifactId": "art_00000000000000000000000019",
+      "artifactId": "art_00000000000000000000000021",
       "passed": false,
       "semantics": "Fixture only. Task acceptance is unchanged."
     }

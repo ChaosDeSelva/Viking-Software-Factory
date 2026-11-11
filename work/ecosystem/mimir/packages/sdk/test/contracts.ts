@@ -4,6 +4,8 @@ import {
   CrewSchedulingResponseSchema,
   SessionObservationResponseSchema,
   VerifyTaskResponseSchema,
+  UpdateBudgetRequestSchema,
+  UpdateBudgetResponseSchema,
 } from "@mimir/protocol";
 /**
  * Generates the `contracts/` fixtures shipped in the SDK tarball: for each OpenAPI operation, a
@@ -90,6 +92,14 @@ export const CONTRACT_SCHEMAS: Record<string, { request?: Schema; response?: Sch
   "POST /v1/crews/{id}/resume": {
     request: CrewSchedulingRequestSchema,
     response: CrewSchedulingResponseSchema,
+  },
+  "PATCH /v1/crews/{id}/budget": {
+    request: UpdateBudgetRequestSchema,
+    response: UpdateBudgetResponseSchema,
+  },
+  "PATCH /v1/missions/{id}/budget": {
+    request: UpdateBudgetRequestSchema,
+    response: UpdateBudgetResponseSchema,
   },
   "GET /v1/tasks/{id}": { response: GetTaskResponseSchema },
   "GET /v1/sessions/{id}": { response: SessionObservationResponseSchema },
@@ -264,6 +274,14 @@ export async function generateContracts(): Promise<Map<string, unknown>> {
     const calls: Record<string, () => Promise<unknown>> = {
       "POST /v1/crews/{id}/pause": () => client.crews.pause(controlledCrew.id),
       "POST /v1/crews/{id}/resume": () => client.crews.resume(controlledCrew.id),
+      "PATCH /v1/crews/{id}/budget": () =>
+        client.crews.updateBudget(controlledCrew.id, { limitTokens: 50_000, onUnknown: "allow" }),
+      "PATCH /v1/missions/{id}/budget": () =>
+        client.missions.updateBudget(open.id, {
+          limitCost: 5,
+          enforce: "hard",
+          onUnknown: "allow",
+        }),
       "GET /v1/tasks/{id}": () => client.tasks.get(done.id),
       "POST /v1/tasks/{id}/verify": () => client.tasks.verify(done.id),
       "GET /v1/sessions/{id}": () => client.sessions.get(sessionId),

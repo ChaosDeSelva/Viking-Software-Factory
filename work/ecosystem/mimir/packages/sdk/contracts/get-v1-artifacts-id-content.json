@@ -4,7 +4,7 @@
   "path": "/v1/artifacts/{id}/content",
   "status": 200,
   "request": {
-    "url": "/v1/artifacts/art_00000000000000000000000034/content",
+    "url": "/v1/artifacts/art_00000000000000000000000036/content",
     "headers": [
       "authorization"
     ]

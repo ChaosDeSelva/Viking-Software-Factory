@@ -36,6 +36,7 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | PUT    | `/v1/settings`          | full settings object, strict           | `{settings}`; 422 `local_only` for a remote provider or non loopback Mimir with local only on. A changed Mimir target stops runs on the old connection and resumes them on the new one |
 | GET    | `/v1/export`            |                                        | `application/zip` with `sindri.db`, `settings.json`, `manifest.json`                       |
 | GET    | `/v1/mimir/status`      |                                        | `{configured, url, tokenSecret, blocked, reachable, serverVersion, error}`                 |
+| GET    | `/v1/feedback-graph/status` |                                    | `{configured, enabled, url, reachable, error}`; `reachable` is null when not configured, disabled or blocked ([feedback-graph.md](feedback-graph.md)) |
 
 ## Projects, intake, director, specs, knowledge
 
@@ -46,6 +47,8 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | GET    | `/v1/projects/:id`            |                                                    | `{project}`                                                                              |
 | POST   | `/v1/projects/:id/bootstrap`  | `{}`                                               | `{result}` (indexed, unchanged, removed, skipped, secretsDropped, unsafeGitConfig?)      |
 | GET    | `/v1/projects/:id/search`     | `?q=&limit=`                                       | `{hits}`                                                                                 |
+| GET    | `/v1/projects/:id/feedback-graph` |                                                | `{link:{projectKey, source:"auto"\|"override"\|"none"}, lessons:[{id, title, rule, appliesWhen, paths, status, injectionDetected}], error}`; 404 unknown project ([feedback-graph.md](feedback-graph.md)) |
+| PUT    | `/v1/projects/:id/feedback-graph` | `{projectKey: string\|null}` (`null` clears the override) | same as GET; 422 unless the key starts with a letter, digit or `_`, then only letters, digits, `_`, `.` or `-` (at most 200) |
 | DELETE | `/v1/projects/:id/data`       | `{confirm:"<project name>", eraseEvidence?:true}`  | `{deleted:{projectId, evidenceErased?}}`; 422 wrong confirm; 409 task evidence without `eraseEvidence` |
 | POST   | `/v1/intakes`                 | `{projectId, title, body}`                         | 201 `{intake}`                                                                           |
 | POST   | `/v1/intakes/import`          | `{projectId, url}`                                 | 201 `{intake}`; 503 `local_only`; 422 `no_connector`                                     |

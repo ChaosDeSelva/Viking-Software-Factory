@@ -7,6 +7,7 @@ import { ApiError, envelope, toApiError } from "./errors.js";
 import { createFactory, type FactoryOptions } from "./factory.js";
 import { deliveryRoutes } from "./routes/deliveries.js";
 import { executionRoutes } from "./routes/executions.js";
+import { feedbackGraphRoutes } from "./routes/feedback-graph.js";
 import { harnessRoutes } from "./routes/harnesses.js";
 import { intakeRoutes } from "./routes/intakes.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
@@ -237,6 +238,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   intakeRoutes(app, services);
   specRoutes(app, services, approvals);
   knowledgeRoutes(app, services);
+  feedbackGraphRoutes(app, services);
   const factory = createFactory(
     {
       onRunError: (executionId, err) => app.log.error({ err, executionId }, "delivery run failed"),

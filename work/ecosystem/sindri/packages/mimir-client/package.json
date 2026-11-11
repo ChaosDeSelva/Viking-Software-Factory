@@ -28,8 +28,8 @@
     "@sindri/testing": "workspace:*"
   },
   "dependencies": {
-    "@mimir/protocol": "file:../../vendor/mimir/mimir-protocol-0.2.0.tgz",
-    "@mimir/sdk": "file:../../vendor/mimir/mimir-sdk-0.2.0.tgz",
+    "@mimir/protocol": "file:../../vendor/mimir/mimir-protocol-0.3.0.tgz",
+    "@mimir/sdk": "file:../../vendor/mimir/mimir-sdk-0.3.0.tgz",
     "@sindri/knowledge": "workspace:*",
     "@sindri/planner": "workspace:*",
     "zod": "^4.6.7"

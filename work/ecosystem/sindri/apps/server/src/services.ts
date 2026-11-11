@@ -181,6 +181,7 @@ export function createServices(o: ServiceOptions): Services {
             provider: providerFactory(st),
             now,
             workspaceFor,
+            lessonsFor: (id, opts) => feedbackGraph.lessonsFor(id, opts),
           }),
         };
       return directorCache.director;

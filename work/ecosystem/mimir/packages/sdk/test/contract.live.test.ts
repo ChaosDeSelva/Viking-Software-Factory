@@ -299,6 +299,29 @@ describe.skipIf(!probe.missions)("contract B: missions and T12 routes on the rea
       client.crews.resume(crew.id, { expectedVersion: crew.version }),
     ).rejects.toMatchObject({ code: "conflict" });
     expect((await client.crews.resume(crew.id)).crew.schedulingPaused).toBe(false);
+    // The FakeRuntime reports no usage, so the server requires an explicit onUnknown.
+    const crewBudget = await client.crews.updateBudget(crew.id, {
+      limitTokens: 50_000,
+      onUnknown: "allow",
+    });
+    expect(crewBudget).toMatchObject({ changed: true, budget: { crewId: crew.id } });
+    const same = await client.crews.updateBudget(crew.id, {
+      limitTokens: 50_000,
+      onUnknown: "allow",
+    });
+    expect(same).toMatchObject({ changed: false, budget: { id: crewBudget.budget.id } });
+    await expect(
+      client.missions.updateBudget(mission.id, {
+        limitCost: 5,
+        onUnknown: "allow",
+        expectedVersion: 3,
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    const missionBudget = await client.missions.updateBudget(mission.id, {
+      limitCost: 5,
+      onUnknown: "allow",
+    });
+    expect(missionBudget.budget).toMatchObject({ missionId: mission.id, crewId: null });
     const { task } = await client.tasks.create({
       missionId: mission.id,
       title: "Inspect task",

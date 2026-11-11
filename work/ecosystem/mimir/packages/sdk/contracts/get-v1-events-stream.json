@@ -16,7 +16,7 @@
     "status": 200,
     "contentType": "text/event-stream; charset=utf-8",
     "body": {
-      "id": "evt_00000000000000000000000032",
+      "id": "evt_00000000000000000000000034",
       "schemaVersion": 1,
       "streamId": "mission:msn_00000000000000000000000002",
       "sequence": 1,
@@ -118,7 +118,8 @@
                 "usage.recorded",
                 "approval.consumed",
                 "artifact.collection_skipped",
-                "artifact.collection_truncated"
+                "artifact.collection_truncated",
+                "budget.updated"
               ]
             },
             "source": {

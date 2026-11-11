@@ -5,7 +5,7 @@ allowBuilds:
   esbuild: true
   better-sqlite3: true
 overrides:
-  "@mimir/protocol": "file:vendor/mimir/mimir-protocol-0.2.0.tgz"
+  "@mimir/protocol": "file:vendor/mimir/mimir-protocol-0.3.0.tgz"
   "@brokkr/adapter-claude-code": "file:vendor/brokkr/brokkr-adapter-claude-code-0.1.0.tgz"
   "@brokkr/adapter-codex": "file:vendor/brokkr/brokkr-adapter-codex-0.1.0.tgz"
   "@brokkr/adapter-generic": "file:vendor/brokkr/brokkr-adapter-generic-0.1.0.tgz"

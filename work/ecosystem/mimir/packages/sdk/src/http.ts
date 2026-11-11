@@ -121,15 +121,35 @@ export class Http {
     return this.parse(schema, res, path);
   }
 
-  async post<T>(
+  post<T>(
     schema: ResponseSchema<T>,
     path: string,
     body: unknown,
     options: MutationOptions = {},
   ): Promise<T> {
+    return this.mutate("POST", schema, path, body, options);
+  }
+
+  /** PATCH with the same idempotency key, JSON body and response validation as `post`. */
+  patch<T>(
+    schema: ResponseSchema<T>,
+    path: string,
+    body: unknown,
+    options: MutationOptions = {},
+  ): Promise<T> {
+    return this.mutate("PATCH", schema, path, body, options);
+  }
+
+  private async mutate<T>(
+    method: "POST" | "PATCH",
+    schema: ResponseSchema<T>,
+    path: string,
+    body: unknown,
+    options: MutationOptions,
+  ): Promise<T> {
     const key = options.idempotencyKey ?? this.keyFactory();
     const res = await this.fetch(this.url(path), {
-      method: "POST",
+      method,
       headers: await this.headers({
         accept: "application/json",
         "content-type": "application/json",

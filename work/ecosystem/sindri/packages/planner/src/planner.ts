@@ -2,11 +2,15 @@ import { randomUUID } from "node:crypto";
 import {
   createDataNonce,
   DIRECTOR_MIGRATIONS,
+  loadLessons,
   ProviderError,
   recordRun,
   redactInjections,
   wrapUntrusted,
   type CompleteResult,
+  type InjectionFinding,
+  type LessonContext,
+  type LessonsFor,
   type LlmProvider,
   type LlmUsage,
 } from "@sindri/director";
@@ -46,6 +50,7 @@ import { PLANNER_MIGRATIONS } from "./migrations.js";
 import { planSystem, SKELETON_MARKER } from "./prompts.js";
 import {
   DEFAULT_CAPS,
+  MAX_TASK_LESSON_CHARS,
   type Budget,
   type Escalation,
   type Plan,
@@ -53,6 +58,7 @@ import {
   type PlanTask,
   type ProjectCaps,
   type Role,
+  type TaskLessonContext,
 } from "./schema.js";
 
 export { SKELETON_MARKER };
@@ -66,6 +72,8 @@ export interface OpenPlannerOptions {
   /** Project caps; merged over `DEFAULT_CAPS`. */
   caps?: ProjectCaps;
   maxTokens?: number;
+  /** The project's approved Feedback Graph lessons, cited `fg:<id>`; failures mean none. */
+  lessonsFor?: LessonsFor;
 }
 
 export interface ProposeOptions {
@@ -142,6 +150,8 @@ const FillSchema = z.object({
       outputs: z.array(z.string().max(500)).max(30),
       /** Implementer tasks only: further implementer tasks this one builds on. */
       dependsOn: z.array(z.string().max(64)).max(10).optional(),
+      /** Ids of the lesson blocks this task must follow; unsupplied ids are dropped. */
+      lessons: z.array(z.string().max(220)).max(20).optional(),
     }),
   ),
 });
@@ -195,8 +205,13 @@ interface PlanRow {
   created_at: string;
 }
 
+type PlanBody = Pick<
+  Plan,
+  "tasks" | "estimates" | "untrustedInstructionDetected" | "injectionFindings"
+>;
+
 const toPlan = (r: PlanRow): Plan => {
-  const body = JSON.parse(r.body_json) as Pick<Plan, "tasks" | "estimates">;
+  const body = JSON.parse(r.body_json) as PlanBody;
   return {
     id: r.id,
     projectId: r.project_id,
@@ -207,6 +222,12 @@ const toPlan = (r: PlanRow): Plan => {
     status: r.status,
     tasks: body.tasks,
     estimates: body.estimates,
+    ...(body.untrustedInstructionDetected
+      ? {
+          untrustedInstructionDetected: true,
+          injectionFindings: body.injectionFindings ?? [],
+        }
+      : {}),
     approvedBy: r.approved_by,
     approvedAt: r.approved_at,
     createdAt: r.created_at,
@@ -235,6 +256,22 @@ const acLines = (body: SpecBody, ids: readonly string[]) =>
     .filter((a) => ids.includes(a.id))
     .map((a) => `${a.id}: ${a.text}`)
     .join("\n");
+
+const toTaskLesson = (l: LessonContext): TaskLessonContext => ({
+  id: l.id,
+  title: l.title.slice(0, 200),
+  text:
+    l.text.length > MAX_TASK_LESSON_CHARS
+      ? `${l.text.slice(0, MAX_TASK_LESSON_CHARS - 1)}…`
+      : l.text,
+});
+
+/** Mirrors the Director's spec flag: any finding in untrusted planner input flags the plan. */
+const flagFor = (
+  findings: readonly InjectionFinding[],
+  flagged = findings.length > 0,
+): Pick<PlanBody, "untrustedInstructionDetected" | "injectionFindings"> =>
+  flagged ? { untrustedInstructionDetected: true, injectionFindings: [...findings] } : {};
 
 interface SkeletonTask {
   id: string;
@@ -456,7 +493,12 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
     };
   };
 
-  function promptFor(nonce: string, spec: StoredSpec, tasks: PlanTask[]): string {
+  function promptFor(
+    nonce: string,
+    spec: StoredSpec,
+    tasks: PlanTask[],
+    lessons: readonly LessonContext[],
+  ): string {
     const b = spec.body;
     // Spec text can carry ticket-derived secrets (answers, revisions): redact before prompting
     // (review I2).
@@ -470,6 +512,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       ...b.acceptanceCriteria.map((a) =>
         wrapUntrusted(nonce, `ac:${a.id}`, r(a.text), { kind: "acceptance-criterion" }),
       ),
+      ...lessons.map((l) => wrapUntrusted(nonce, l.id, l.text, { kind: "lesson", title: l.title })),
     ];
     const skeleton = {
       tasks: tasks.map((t) => ({
@@ -521,14 +564,15 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       assertValidPlan({ tasks: skeleton }, { spec: spec.body, caps });
       await checkHarnessesKnown(skeleton, opts.harnesses);
 
+      const { lessons, findings } = await loadLessons(options.lessonsFor, spec.projectId);
       const nonce = createDataNonce();
       const runOf = (model: string, usage: LlmUsage | null, outcome: string) =>
         recordRun(db, { projectId: spec.projectId, purpose: "plan", model, usage, outcome }, iso());
       let res: CompleteResult<z.infer<typeof FillSchema>>;
       try {
         res = await opts.provider.complete({
-          system: planSystem(nonce),
-          messages: [{ role: "user", content: promptFor(nonce, spec, skeleton) }],
+          system: planSystem(nonce, { lessons: lessons.length > 0 }),
+          messages: [{ role: "user", content: promptFor(nonce, spec, skeleton, lessons) }],
           maxTokens: options.maxTokens ?? 8000,
           temperature: 0,
           responseSchema: FillSchema,
@@ -565,13 +609,20 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       // The provider may have read the workspace, so its text is scanned for secrets like the
       // drafter's is, before it is stored and handed to agents.
       const clean = (text: string) => redactInjections(redactSecrets(text).text);
-      const tasks = ordered.map((t) => {
+      // A task keeps only citations of lessons this prompt supplied, with their redacted text
+      // for the agent brief.
+      const supplied = new Map(lessons.map((l) => [l.id, toTaskLesson(l)]));
+      const tasks = ordered.map((t): PlanTask => {
         const f = filled.get(t.id) as Fill;
+        const cited = [...new Set(f.lessons ?? [])].filter((id) => supplied.has(id));
         return {
           ...t,
           objective: clean(f.objective),
           inputs: f.inputs.map(clean),
           outputs: f.outputs.map(clean),
+          ...(cited.length
+            ? { lessons: cited, lessonContext: cited.map((id) => supplied.get(id)!) }
+            : {}),
         };
       });
       assertValidPlan({ tasks }, { spec: spec.body, caps });
@@ -583,7 +634,11 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         lineage_id: randomUUID(),
         version: 1,
         status: "draft",
-        body_json: JSON.stringify({ tasks, estimates: estimatePlan(tasks) }),
+        body_json: JSON.stringify({
+          tasks,
+          estimates: estimatePlan(tasks),
+          ...flagFor(findings),
+        } satisfies PlanBody),
         approved_by: null,
         approved_at: null,
         created_at: iso(),
@@ -651,13 +706,21 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       assertValidPlan({ tasks: patch.tasks }, { spec: spec.body, caps });
       await checkHarnessesKnown(patch.tasks, opts.harnesses);
       const before = new Map(prev.tasks.map((t) => [t.id, t]));
+      // Lesson text comes only from what the planner stored, never from the patch.
+      const known = new Map(prev.tasks.flatMap((t) => t.lessonContext ?? []).map((l) => [l.id, l]));
+      const withLessons = (t: PlanTask): PlanTask => {
+        const out: PlanTask = { ...t };
+        delete out.lessonContext;
+        const ctx = (t.lessons ?? []).flatMap((id) => known.get(id) ?? []);
+        return ctx.length ? { ...out, lessonContext: ctx } : out;
+      };
       const summaries = await opts.harnesses.listHarnesses();
       const tasks: PlanTask[] = [];
       for (const t of patch.tasks) {
         const old = before.get(t.id);
         if (old && old.harnessId === t.harnessId && old.harnessVersion === t.harnessVersion) {
           tasks.push({
-            ...t,
+            ...withLessons(t),
             harnessSelection: old.harnessSelection,
             harnessLockDigest: old.harnessLockDigest,
             skills: old.skills,
@@ -685,7 +748,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           throw e;
         }
         tasks.push({
-          ...t,
+          ...withLessons(t),
           harnessSelection: sel,
           harnessLockDigest: sel.lock.digest,
           skills: sel.skills.map((s) => s.name),
@@ -703,7 +766,11 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         lineage_id: r.lineage_id,
         version: r.version + 1,
         status: "draft",
-        body_json: JSON.stringify({ tasks, estimates: estimatePlan(tasks) }),
+        body_json: JSON.stringify({
+          tasks,
+          estimates: estimatePlan(tasks),
+          ...flagFor(prev.injectionFindings ?? [], prev.untrustedInstructionDetected),
+        } satisfies PlanBody),
         approved_by: null,
         approved_at: null,
         created_at: iso(),

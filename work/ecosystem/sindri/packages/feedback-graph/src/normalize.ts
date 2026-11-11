@@ -50,7 +50,11 @@ export function normalizeLesson(raw: unknown): FgLesson | null {
   const titleRaw = pick("title");
   const title = clean(titleRaw || rule.text.split("\n")[0]!, MAX_TITLE_CHARS);
   const when = clean(pick("appliesWhen"), MAX_APPLIES_WHEN_CHARS);
-  const rawPaths = Array.isArray(r["paths"]) ? r["paths"] : Array.isArray(p["paths"]) ? p["paths"] : [];
+  const rawPaths = Array.isArray(r["paths"])
+    ? r["paths"]
+    : Array.isArray(p["paths"])
+      ? p["paths"]
+      : [];
   let pathInjection = false;
   const paths = rawPaths
     .filter((x): x is string => typeof x === "string" && x.trim() !== "")

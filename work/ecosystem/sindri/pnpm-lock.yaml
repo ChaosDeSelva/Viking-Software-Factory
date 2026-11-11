@@ -163,7 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@mimir/protocol': file:vendor/mimir/mimir-protocol-0.2.0.tgz
+  '@mimir/protocol': file:vendor/mimir/mimir-protocol-0.3.0.tgz
   '@brokkr/adapter-claude-code': file:vendor/brokkr/brokkr-adapter-claude-code-0.1.0.tgz
   '@brokkr/adapter-codex': file:vendor/brokkr/brokkr-adapter-codex-0.1.0.tgz
   '@brokkr/adapter-generic': file:vendor/brokkr/brokkr-adapter-generic-0.1.0.tgz
@@ -497,11 +497,11 @@ importers:
   packages/mimir-client:
     dependencies:
       '@mimir/protocol':
-        specifier: file:../../vendor/mimir/mimir-protocol-0.2.0.tgz
-        version: file:vendor/mimir/mimir-protocol-0.2.0.tgz
+        specifier: file:../../vendor/mimir/mimir-protocol-0.3.0.tgz
+        version: file:vendor/mimir/mimir-protocol-0.3.0.tgz
       '@mimir/sdk':
-        specifier: file:../../vendor/mimir/mimir-sdk-0.2.0.tgz
-        version: file:vendor/mimir/mimir-sdk-0.2.0.tgz
+        specifier: file:../../vendor/mimir/mimir-sdk-0.3.0.tgz
+        version: file:vendor/mimir/mimir-sdk-0.3.0.tgz
       '@sindri/knowledge':
         specifier: workspace:*
         version: link:../knowledge
@@ -591,15 +591,15 @@ importers:
   packages/testing:
     dependencies:
       '@mimir/protocol':
-        specifier: file:../../vendor/mimir/mimir-protocol-0.2.0.tgz
-        version: file:vendor/mimir/mimir-protocol-0.2.0.tgz
+        specifier: file:../../vendor/mimir/mimir-protocol-0.3.0.tgz
+        version: file:vendor/mimir/mimir-protocol-0.3.0.tgz
       zod:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
       '@mimir/sdk':
-        specifier: file:../../vendor/mimir/mimir-sdk-0.2.0.tgz
-        version: file:vendor/mimir/mimir-sdk-0.2.0.tgz
+        specifier: file:../../vendor/mimir/mimir-sdk-0.3.0.tgz
+        version: file:vendor/mimir/mimir-sdk-0.3.0.tgz
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -1036,13 +1036,13 @@ packages:
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
-  '@mimir/protocol@file:vendor/mimir/mimir-protocol-0.2.0.tgz':
-    resolution: {integrity: sha512-PwhR327263wMfPVahGtkeFMES8Ifprn5FeV7k50H/ckOuGy8pbouUldlBwTlLdi2u5g/IOTkOQdNt5S4EHnp9Q==, tarball: file:vendor/mimir/mimir-protocol-0.2.0.tgz}
-    version: 0.2.0
+  '@mimir/protocol@file:vendor/mimir/mimir-protocol-0.3.0.tgz':
+    resolution: {integrity: sha512-Yu2s0x36GDxzVDNQDOo8LEqlajaui6Ywn8WzVVvQHHsiJO5M3iwAzZpKb2YP4tfMq0Bn0GB6zQ5+CPT320guLw==, tarball: file:vendor/mimir/mimir-protocol-0.3.0.tgz}
+    version: 0.3.0
 
-  '@mimir/sdk@file:vendor/mimir/mimir-sdk-0.2.0.tgz':
-    resolution: {integrity: sha512-jmrrs9PI7kjgRC2XGE6JN8vgx4iI8zv/E78crQpaKbl3c37Xa3IfTCrKoAG+oUYKjZ8nfBKsbuEEc8mYctQtrA==, tarball: file:vendor/mimir/mimir-sdk-0.2.0.tgz}
-    version: 0.2.0
+  '@mimir/sdk@file:vendor/mimir/mimir-sdk-0.3.0.tgz':
+    resolution: {integrity: sha512-aitpi/jdEw9hSyJ9GVFcoVz7oAvBSZ04vr8i4D5D8xfal/PW2eXgHBQaNW8QcdawE5Aa/pPoxm5+BKBu71Eo4Q==, tarball: file:vendor/mimir/mimir-sdk-0.3.0.tgz}
+    version: 0.3.0
 
   '@oxc-project/types@0.153.0':
     resolution: {integrity: sha512-jSNrRIyvPVLL5E1z/tS5zLAprosGz/FuI1PWwEOz59j3E4TTTzSpqKb/RDGqJhhW0QHYISGXxq582wGx6T11Tw==}
@@ -2809,15 +2809,15 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@mimir/protocol@file:vendor/mimir/mimir-protocol-0.2.0.tgz':
+  '@mimir/protocol@file:vendor/mimir/mimir-protocol-0.3.0.tgz':
     dependencies:
       '@asteasolutions/zod-to-openapi': 9.1.0(zod@4.6.7)
       ulid: 3.0.2
       zod: 4.6.7
 
-  '@mimir/sdk@file:vendor/mimir/mimir-sdk-0.2.0.tgz':
+  '@mimir/sdk@file:vendor/mimir/mimir-sdk-0.3.0.tgz':
     dependencies:
-      '@mimir/protocol': file:vendor/mimir/mimir-protocol-0.2.0.tgz
+      '@mimir/protocol': file:vendor/mimir/mimir-protocol-0.3.0.tgz
 
   '@oxc-project/types@0.153.0': {}
 

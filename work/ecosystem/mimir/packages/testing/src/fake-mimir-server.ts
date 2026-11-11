@@ -5,6 +5,10 @@ import {
   CrewSchedulingResponseSchema,
   SessionObservationResponseSchema,
   VerifyTaskResponseSchema,
+  UpdateBudgetRequestSchema,
+  UpdateBudgetResponseSchema,
+  type BudgetInput,
+  type BudgetPolicy,
 } from "@mimir/protocol";
 import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -110,6 +114,11 @@ export interface FakeMimirServerOptions {
    * policy) answers `approval_required` and delivers on approval; `allow` delivers at once.
    */
   prPolicy?: "require_approval" | "allow";
+  /**
+   * Whether the runtime reports token usage. Default false, like the real server's default: a
+   * hard budget then needs an explicit `onUnknown` (422 `budget_on_unknown_required`).
+   */
+  runtimeReportsUsage?: boolean;
 }
 
 export interface RecordedRequest {
@@ -142,6 +151,8 @@ export interface FakeMimirState {
   sessionCommands: Map<string, unknown[]>;
   /** Terminal text per session id, served by `GET /v1/sessions/:id/terminal`. */
   terminals: Map<string, string>;
+  /** Budgets set at mission/crew creation or by `PATCH .../budget`, keyed `crew:<id>` / `mission:<id>`. */
+  budgets: Map<string, BudgetPolicy>;
 }
 
 /** `GET /v1/sessions/:id/terminal` body (provisional, T12; the protocol has no schema yet). */
@@ -286,6 +297,7 @@ export async function fakeMimirServer(
     usage: [],
     sessionCommands: new Map(),
     terminals: new Map(),
+    budgets: new Map(),
   };
 
   // ---- events --------------------------------------------------------------
@@ -355,7 +367,13 @@ export async function fakeMimirServer(
         return "([^/]+)";
       })}$`,
     );
-    routes.push({ method, pattern, keys, mutation: method === "POST", handler });
+    routes.push({
+      method,
+      pattern,
+      keys,
+      mutation: method === "POST" || method === "PATCH",
+      handler,
+    });
   }
 
   const ok = (schema: z.ZodType, body: unknown, status = 200): Reply => ({
@@ -379,6 +397,38 @@ export async function fakeMimirServer(
     const at = now();
     return { createdAt: at, updatedAt: at, version: 1 };
   };
+
+  /** The real server's `checkBudgetInput`. */
+  function checkBudget(input: BudgetInput): void {
+    const limited = input.limitTokens !== undefined || input.limitCost !== undefined;
+    if (!limited || options.runtimeReportsUsage) return;
+    if ((input.enforce ?? "hard") === "hard" && input.onUnknown === undefined)
+      throw new MimirError(
+        "validation_failed",
+        "the runtime reports no usage: a hard budget needs an explicit onUnknown (allow or block)",
+        {
+          reason: "budget_on_unknown_required",
+          issues: [{ path: ["budget", "onUnknown"], message: "required", code: "custom" }],
+        },
+      );
+  }
+
+  /** A creation budget, stored where PATCH merges onto it (version 0, as on the real server). */
+  function storeBudget(input: BudgetInput, missionId: string, crewId: string | null): void {
+    const budget: BudgetPolicy = {
+      id: newId("bgt"),
+      ...base(),
+      version: 0,
+      missionId: missionId as BudgetPolicy["missionId"],
+      crewId: crewId as BudgetPolicy["crewId"],
+      limitTokens: input.limitTokens ?? null,
+      limitCost: input.limitCost ?? null,
+      warnAtFraction: input.warnAtFraction ?? 0.8,
+      ...(input.enforce !== undefined ? { enforce: input.enforce } : {}),
+      ...(input.onUnknown !== undefined ? { onUnknown: input.onUnknown } : {}),
+    };
+    state.budgets.set(crewId ? `crew:${crewId}` : `mission:${missionId}`, budget);
+  }
 
   function usageTotals(samples: UsageSample[]): UsageTotals {
     const totals: UsageTotals = {
@@ -437,6 +487,7 @@ export async function fakeMimirServer(
   route("POST", "/v1/missions", ({ body }) => {
     const req = parse(CreateMissionRequestSchema, body);
     need(state.projects, req.projectId, "project");
+    if (req.budget) checkBudget(req.budget);
     const mission = MissionSchema.parse({
       id: newId("msn"),
       ...base(),
@@ -445,6 +496,7 @@ export async function fakeMimirServer(
       status: "draft",
     });
     state.missions.set(mission.id, mission);
+    if (req.budget) storeBudget(req.budget, mission.id, null);
     appendEvent({
       type: "mission.created",
       missionId: mission.id,
@@ -520,6 +572,7 @@ export async function fakeMimirServer(
   route("POST", "/v1/crews", ({ body }) => {
     const req = parse(CreateCrewRequestSchema, body);
     need(state.missions, req.missionId, "mission");
+    if (req.budget) checkBudget(req.budget);
     const crew = CrewSchema.parse({
       id: newId("crw"),
       ...base(),
@@ -540,6 +593,7 @@ export async function fakeMimirServer(
     );
     state.crews.set(crew.id, crew);
     for (const m of members) state.members.set(m.id, m);
+    if (req.budget) storeBudget(req.budget, crew.missionId, crew.id);
     return ok(CreateCrewResponseSchema, { crew, members }, 201);
   });
   route("GET", "/v1/crews", ({ query }) => {
@@ -575,6 +629,67 @@ export async function fakeMimirServer(
         crew: state.crews.get(id),
         semantics: "Scheduling only. Existing agent sessions continue.",
       });
+    });
+  }
+  for (const scope of ["crews", "missions"] as const) {
+    route("PATCH", `/v1/${scope}/:id/budget`, ({ params, body }) => {
+      const { id } = parse(schema.object({ id: schema.string().min(1) }), params);
+      const req = parse(UpdateBudgetRequestSchema, body ?? {});
+      const crew = scope === "crews" ? need(state.crews, id, "crew") : undefined;
+      const mission = need(state.missions, crew?.missionId ?? id, "mission");
+      if (MISSION_TERMINAL.has(mission.status))
+        throw new MimirError("invalid_transition", "mission is terminal");
+      const key = crew ? `crew:${crew.id}` : `mission:${mission.id}`;
+      const current = state.budgets.get(key);
+      if (req.expectedVersion !== undefined && req.expectedVersion !== (current?.version ?? 0))
+        throw new MimirError("conflict", "budget version changed");
+      const limitTokens =
+        req.limitTokens !== undefined ? req.limitTokens : (current?.limitTokens ?? null);
+      const limitCost = req.limitCost !== undefined ? req.limitCost : (current?.limitCost ?? null);
+      if (!current && limitTokens === null && limitCost === null)
+        throw new MimirError("validation_failed", "a new budget needs limitTokens or limitCost", {
+          reason: "budget_limit_required",
+        });
+      const enforce = req.enforce ?? current?.enforce;
+      const onUnknown = req.onUnknown ?? current?.onUnknown;
+      checkBudget({
+        ...(limitTokens !== null ? { limitTokens } : {}),
+        ...(limitCost !== null ? { limitCost } : {}),
+        ...(enforce !== undefined ? { enforce } : {}),
+        ...(onUnknown !== undefined ? { onUnknown } : {}),
+      });
+      const fields = {
+        limitTokens,
+        limitCost,
+        warnAtFraction: req.warnAtFraction ?? current?.warnAtFraction ?? 0.8,
+        ...(enforce !== undefined ? { enforce } : {}),
+        ...(onUnknown !== undefined ? { onUnknown } : {}),
+      };
+      if (
+        current &&
+        Object.entries(fields).every(([k, v]) => current[k as keyof BudgetPolicy] === v)
+      )
+        return ok(UpdateBudgetResponseSchema, { budget: current, changed: false });
+      const budget: BudgetPolicy = current
+        ? bump(current, fields)
+        : // A new budget starts at version 0, as on the real server.
+          {
+            id: newId("bgt"),
+            ...base(),
+            version: 0,
+            missionId: mission.id,
+            crewId: crew?.id ?? null,
+            ...fields,
+          };
+      state.budgets.set(key, budget);
+      appendEvent({
+        type: "budget.updated",
+        streamId: `budget:${budget.id}`,
+        missionId: mission.id,
+        ...(crew ? { crewId: crew.id } : {}),
+        payload: { budget, previous: current ?? null },
+      });
+      return ok(UpdateBudgetResponseSchema, { budget, changed: true });
     });
   }
   route("GET", "/v1/tasks/:id", ({ params }) => {

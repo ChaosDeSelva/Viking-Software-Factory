@@ -78,6 +78,19 @@ export {
   draftSpecSystem,
   WORKSPACE_CONTEXT_ID,
 } from "./prompts.js";
+export {
+  lessonBlockText,
+  lessonCitationId,
+  LESSON_CITATION_PREFIX,
+  LESSONS_RULE,
+  loadLessons,
+  MAX_PROMPT_LESSONS,
+  UPSTREAM_REDACTED_PATTERN,
+  type ExternalLesson,
+  type LessonContext,
+  type LessonsFor,
+  type LoadedLessons,
+} from "./lessons.js";
 export { estimateCost, listRuns, MODEL_PRICES, recordRun, type DirectorRun } from "./runs.js";
 export { DIRECTOR_MIGRATIONS } from "./schema.js";
 

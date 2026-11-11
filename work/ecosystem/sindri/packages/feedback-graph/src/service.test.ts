@@ -132,11 +132,7 @@ describe("lessonsFor", () => {
     ["disabled", () => (config = { ...config!, enabled: false }), /disabled/],
     ["token missing", () => secrets.clear(), /no Feedback Graph token/],
     ["wrong token", () => secrets.set("feedback-graph.token", "wrong"), /rejected the token/],
-    [
-      "malformed JSON",
-      () => (fg.override = () => ({ raw: "{]" })),
-      /invalid JSON/,
-    ],
+    ["malformed JSON", () => (fg.override = () => ({ raw: "{]" })), /invalid JSON/],
     [
       "lessons not a list",
       () =>

@@ -113,7 +113,10 @@ export function claimSettleAssessment(
 
 export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): Factory {
   const now = o.now ?? (() => new Date());
-  const planner = openPlanner(s.db, { now });
+  const planner = openPlanner(s.db, {
+    now,
+    lessonsFor: (id, opts) => s.feedbackGraph.lessonsFor(id, opts),
+  });
   // Delivery tables and their purge hooks exist from startup, so a project purge reaches them
   // even before any execution runs in this process (audit M4).
   ensureDeliverySchema(s.db);

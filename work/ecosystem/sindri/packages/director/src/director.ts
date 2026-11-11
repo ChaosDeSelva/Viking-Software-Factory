@@ -25,6 +25,7 @@ import {
   type Specs,
 } from "@sindri/specs";
 import { z } from "zod";
+import { loadLessons, type LessonsFor } from "./lessons.js";
 import { nullLogger, type Logger } from "./logger.js";
 import {
   classifySystem,
@@ -95,7 +96,7 @@ export type DraftOutput = z.infer<typeof DraftOutputSchema>;
 
 // -------------------------------------------------------------------------------- types
 
-export type ContextKind = "chunk" | "adr" | "knowledge" | "decision" | "intake" | "repo";
+export type ContextKind = "chunk" | "adr" | "knowledge" | "decision" | "intake" | "repo" | "lesson";
 
 export interface ContextItem {
   /** Citation id the model must use, e.g. `chunk:12`, `knowledge:<uuid>`. */
@@ -146,6 +147,8 @@ export interface DirectorSpecMeta {
   unverifiedClaims: UnverifiedClaim[];
   /** Acceptance criteria cited only by decisions; their provenance falls back to the intake. */
   decisionOnlyAcceptanceCriteria: string[];
+  /** Acceptance criteria with no spec ref but a lesson citation, by id: the `fg:` ids cited. */
+  lessonOnlyAcceptanceCriteria: Record<string, string[]>;
   classification: Classification | null;
   contextIds: string[];
   model: string | null;
@@ -195,6 +198,8 @@ export interface OpenDirectorOptions {
     project: { id: string; repoPath: string },
     opts?: { commit?: string; alsoStartsFrom?: readonly string[] },
   ) => Promise<{ path: string; label?: string } | undefined>;
+  /** The project's approved Feedback Graph lessons, cited `fg:<id>`; failures mean none. */
+  lessonsFor?: LessonsFor;
 }
 
 export class DirectorError extends SindriError {
@@ -376,6 +381,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
     injectionFindings: [],
     unverifiedClaims: [],
     decisionOnlyAcceptanceCriteria: [],
+    lessonOnlyAcceptanceCriteria: {},
     classification: null,
     contextIds: [],
     model: null,
@@ -576,6 +582,8 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       };
       const ticket = { title: redact(rec.title), body: redact(rec.body) };
       const request = redact(input.request);
+      // Started now so the lesson fetch overlaps classify and the workspace; never rejects.
+      const lessonsLoad = loadLessons(options.lessonsFor, projectId);
 
       // 2. Classify, load cited context, analyse the repo.
       const classification = input.classification ?? (await api.classify(request, { projectId }));
@@ -633,6 +641,12 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
           text: `The project repository at the working directory.${workspace?.label ? ` ${workspace.label}` : ""} Cite this id for a claim taken from a file you read there, and name the file path in the claim.`,
           ref: null,
         });
+      // Lessons arrive redacted (the scan below skips them), but their injection findings,
+      // including ones redacted at source, still flag the spec.
+      const lessons = await lessonsLoad;
+      findings.push(...lessons.findings);
+      for (const l of lessons.lessons)
+        items.push({ id: l.id, kind: "lesson", title: l.title, text: l.text, ref: null });
       // Audit M7: repo-derived items with secret material never reach the provider.
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
@@ -641,7 +655,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       // Repo-derived text (chunks, ADRs, knowledge, test commands, structure) is untrusted too,
       // including titles (file paths), which travel as block attributes.
       for (const it of items)
-        if (it.kind !== "intake") {
+        if (it.kind !== "intake" && it.kind !== "lesson") {
           scan(it.text, it.id);
           scan(it.title, it.id);
         }
@@ -675,7 +689,10 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         projectId,
         "draft_spec",
         {
-          system: draftSpecSystem(nonce, { repository }),
+          system: draftSpecSystem(nonce, {
+            repository,
+            lessons: items.some((i) => i.kind === "lesson"),
+          }),
           messages: [
             {
               role: "user",
@@ -750,6 +767,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       const acceptanceCriteria: SpecBody["acceptanceCriteria"] = [];
       const acProv: Record<string, ProvenanceRef[]> = {};
       const decisionOnly: string[] = [];
+      const lessonOnly: Record<string, string[]> = {};
       for (const ac of draft.acceptanceCriteria) {
         const text = clean(ac.text);
         if (!text) continue;
@@ -764,6 +782,9 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         // (The repository has no spec ref either, but a file read is not a decision.)
         if (!r.refs.length && ac.citations.some((c) => byId.get(c)?.kind === "decision"))
           decisionOnly.push(ac.id.trim());
+        // Lessons have no spec ref either: name the lessons behind the borrowed intake ref.
+        const cited = ac.citations.filter((c) => byId.get(c)?.kind === "lesson");
+        if (!r.refs.length && cited.length) lessonOnly[ac.id.trim()] = [...new Set(cited)];
         acProv[ac.id.trim()] = r.refs.length ? dedupeRefs(r.refs) : [intakeRef];
       }
       const openQuestions: OpenQuestion[] = draft.openQuestions
@@ -807,6 +828,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         injectionFindings: findings,
         unverifiedClaims: unverified,
         decisionOnlyAcceptanceCriteria: decisionOnly,
+        lessonOnlyAcceptanceCriteria: lessonOnly,
         classification,
         contextIds: items.map((i) => i.id),
         model,

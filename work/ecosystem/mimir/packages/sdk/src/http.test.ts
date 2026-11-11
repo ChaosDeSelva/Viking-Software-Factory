@@ -1,4 +1,13 @@
-import { MimirError, type MissionId, type SessionId, type TaskId } from "@mimir/protocol";
+import {
+  IDEMPOTENCY_HEADER,
+  MimirError,
+  UpdateBudgetResponseSchema,
+  newId,
+  type CrewId,
+  type MissionId,
+  type SessionId,
+  type TaskId,
+} from "@mimir/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMimirClient } from "./client.js";
 import { Http, errorFromResponse, randomKey } from "./http.js";
@@ -27,6 +36,8 @@ describe("request paths built from ids", () => {
         () => client.sessions.stop(id as SessionId, { reason: "x" } as never),
         () => client.tasks.get(id as TaskId),
         () => client.artifacts.content(id as never),
+        () => client.crews.updateBudget(id as CrewId, { limitTokens: 1 }),
+        () => client.missions.updateBudget(id as MissionId, { limitTokens: 1 }),
       ];
       for (const call of calls) {
         const e = await call().then(
@@ -76,6 +87,92 @@ describe("Http", () => {
     const res = await http.fetch("http://mimir.test/v1/health");
     expect(await res.json()).toEqual({ status: "ok" });
     expect(seen).toEqual(["/v1/health"]);
+  });
+
+  describe.each(["post", "patch"] as const)("%s", (verb) => {
+    const schema = UpdateBudgetResponseSchema;
+    const budget = {
+      budget: {
+        id: newId("bgt"),
+        missionId: newId("msn"),
+        crewId: null,
+        limitTokens: 100,
+        limitCost: null,
+        warnAtFraction: 0.8,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        version: 1,
+      },
+      changed: true,
+    };
+    function capture(body: unknown, init: ResponseInit = { status: 200 }) {
+      const sent: { url: string; init: RequestInit }[] = [];
+      const fetch = vi.fn(async (url: string, i?: RequestInit) => {
+        sent.push({ url, init: i ?? {} });
+        return new Response(JSON.stringify(body), init);
+      });
+      return { sent, fetch };
+    }
+
+    it("sends the method, a JSON body, auth and the given idempotency key", async () => {
+      const { sent, fetch } = capture(budget);
+      const http = new Http({ baseUrl: "http://mimir.test", token: "t", fetch });
+      const out = await http[verb](schema, "/v1/x", { limitTokens: 100 }, { idempotencyKey: "k" });
+      expect(out).toEqual(budget);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.init.method).toBe(verb.toUpperCase());
+      expect(sent[0]!.init.body).toBe(JSON.stringify({ limitTokens: 100 }));
+      expect(sent[0]!.init.headers).toEqual({
+        accept: "application/json",
+        "content-type": "application/json",
+        [IDEMPOTENCY_HEADER]: "k",
+        authorization: "Bearer t",
+      });
+    });
+
+    it("generates a fresh key per call from idempotencyKeyFactory and sends {} for no body", async () => {
+      const { sent, fetch } = capture(budget);
+      let n = 0;
+      const http = new Http({
+        baseUrl: "http://mimir.test",
+        fetch,
+        idempotencyKeyFactory: () => `key-${++n}`,
+      });
+      await http[verb](schema, "/v1/x", undefined);
+      await http[verb](schema, "/v1/x", undefined);
+      const keys = sent.map((s) => (s.init.headers as Record<string, string>)[IDEMPOTENCY_HEADER]);
+      expect(keys).toEqual(["key-1", "key-2"]);
+      expect(sent[0]!.init.body).toBe("{}");
+    });
+
+    it("rejects a response that does not match the schema", async () => {
+      const { fetch } = capture({ budget: { id: "nope" }, changed: "yes" });
+      const http = new Http({ baseUrl: "http://mimir.test", fetch });
+      const e = await http[verb](schema, "/v1/x", {}).catch((c: unknown) => c);
+      expect(e).toBeInstanceOf(MimirError);
+      expect((e as MimirError).code).toBe("validation_failed");
+      expect((e as MimirError).details).toMatchObject({ path: "/v1/x", issues: expect.any(Array) });
+    });
+
+    it("maps an error body to a MimirError with the server's code", async () => {
+      const { fetch } = capture(
+        { error: { code: "conflict", message: "budget version changed" } },
+        { status: 409 },
+      );
+      const http = new Http({ baseUrl: "http://mimir.test", fetch });
+      const e = await http[verb](schema, "/v1/x", {}).catch((c: unknown) => c);
+      expect(e).toBeInstanceOf(MimirError);
+      expect((e as MimirError).code).toBe("conflict");
+      expect((e as MimirError).message).toBe("budget version changed");
+    });
+
+    it("passes the abort signal through", async () => {
+      const { sent, fetch } = capture(budget);
+      const http = new Http({ baseUrl: "http://mimir.test", fetch });
+      const ac = new AbortController();
+      await http[verb](schema, "/v1/x", {}, { signal: ac.signal });
+      expect(sent[0]!.init.signal).toBe(ac.signal);
+    });
   });
 
   it("turns a 2xx body that is not JSON into an internal MimirError", async () => {

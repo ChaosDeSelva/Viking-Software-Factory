@@ -74,7 +74,7 @@ export function createFeedbackGraphService(o: FeedbackGraphServiceOptions): Feed
   const ttl = o.cacheTtlMs ?? CACHE_TTL_MS;
   const failureTtl = o.failureTtlMs ?? FAILURE_TTL_MS;
   const cache = new Map<string, Entry<unknown>>();
-  let statusCache: Entry<FgStatus> & { key: string } | undefined;
+  let statusCache: (Entry<FgStatus> & { key: string }) | undefined;
 
   const configKey = (c: FgConfig) => JSON.stringify([c.url, c.tokenSecret, c.enabled]);
 
@@ -236,7 +236,8 @@ export function createFeedbackGraphService(o: FeedbackGraphServiceOptions): Feed
     invalidate(projectId) {
       statusCache = undefined;
       if (!projectId) return cache.clear();
-      for (const k of cache.keys()) if (k.startsWith("link|") && k.includes(`|${projectId}|`)) cache.delete(k);
+      for (const k of cache.keys())
+        if (k.startsWith("link|") && k.includes(`|${projectId}|`)) cache.delete(k);
     },
   };
 }

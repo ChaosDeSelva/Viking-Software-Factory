@@ -102,7 +102,10 @@ describe("FeedbackGraphClient", () => {
       req.url?.startsWith("/api/lessons")
         ? { status: 302, raw: "", headers: { location: `${fg.url}/api/health` } }
         : undefined;
-    expect(await client().lessons("x")).toMatchObject({ ok: false, error: { code: "unreachable" } });
+    expect(await client().lessons("x")).toMatchObject({
+      ok: false,
+      error: { code: "unreachable" },
+    });
     expect(fg.requests.map((r) => r.url)).not.toContain("/api/health");
   });
 

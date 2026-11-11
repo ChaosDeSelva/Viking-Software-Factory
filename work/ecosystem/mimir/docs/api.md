@@ -4,7 +4,7 @@
 
 Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body.
 
-Contract version 0.2.0. Base path `/v1`. The contract is generated from the Zod schemas in `packages/protocol`.
+Contract version 0.3.0. Base path `/v1`. The contract is generated from the Zod schemas in `packages/protocol`.
 
 ## Conventions
 

@@ -4,6 +4,8 @@ import {
   CrewSchedulingResponseSchema,
   SessionObservationResponseSchema,
   VerifyTaskResponseSchema,
+  UpdateBudgetRequestSchema,
+  UpdateBudgetResponseSchema,
 } from "@mimir/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -93,6 +95,8 @@ describe("createMimirClient: every OpenAPI operation", () => {
     > = {
       "POST /v1/crews/{id}/pause": CrewSchedulingRequestSchema,
       "POST /v1/crews/{id}/resume": CrewSchedulingRequestSchema,
+      "PATCH /v1/crews/{id}/budget": UpdateBudgetRequestSchema,
+      "PATCH /v1/missions/{id}/budget": UpdateBudgetRequestSchema,
       "POST /v1/tasks/{id}/verify": RetryTaskRequestSchema,
       "POST /v1/projects": CreateProjectRequestSchema,
       "POST /v1/missions": CreateMissionRequestSchema,
@@ -116,6 +120,14 @@ describe("createMimirClient: every OpenAPI operation", () => {
     const calls: Record<string, () => Promise<unknown>> = {
       "POST /v1/crews/{id}/pause": () => client.crews.pause(controlledCrew.id),
       "POST /v1/crews/{id}/resume": () => client.crews.resume(controlledCrew.id),
+      "PATCH /v1/crews/{id}/budget": () =>
+        client.crews.updateBudget(controlledCrew.id, { limitTokens: 50_000, onUnknown: "allow" }),
+      "PATCH /v1/missions/{id}/budget": () =>
+        client.missions.updateBudget(open.id, {
+          limitCost: 5,
+          enforce: "hard",
+          onUnknown: "allow",
+        }),
       "GET /v1/tasks/{id}": () => client.tasks.get(done.id),
       "POST /v1/tasks/{id}/verify": () => client.tasks.verify(done.id),
       "GET /v1/sessions/{id}": () => client.sessions.get(sessionId),
@@ -167,6 +179,8 @@ describe("createMimirClient: every OpenAPI operation", () => {
     const responseSchemas: Record<string, { safeParse(v: unknown): { success: boolean } }> = {
       "POST /v1/crews/{id}/pause": CrewSchedulingResponseSchema,
       "POST /v1/crews/{id}/resume": CrewSchedulingResponseSchema,
+      "PATCH /v1/crews/{id}/budget": UpdateBudgetResponseSchema,
+      "PATCH /v1/missions/{id}/budget": UpdateBudgetResponseSchema,
       "GET /v1/tasks/{id}": GetTaskResponseSchema,
       "GET /v1/sessions/{id}": SessionObservationResponseSchema,
       "POST /v1/tasks/{id}/verify": VerifyTaskResponseSchema,
@@ -545,6 +559,56 @@ describe("inspection and scheduling controls", () => {
     ).toBe(false);
     await client.missions.cancel(mission.id);
     await expect(client.crews.pause(crew.id)).rejects.toMatchObject({ code: "invalid_transition" });
+  });
+
+  it("updates crew and mission budgets with PATCH, replaying a repeated key", async () => {
+    const { mission } = await seedMission();
+    const { crew } = await client.crews.create({
+      missionId: mission.id,
+      template: "solo",
+      members: [{ role: "implementer", agentKind: "codex" }],
+    });
+    // The fake runtime reports no usage, so a hard budget needs an explicit onUnknown.
+    await expect(client.crews.updateBudget(crew.id, { limitTokens: 1_000 })).rejects.toMatchObject({
+      code: "validation_failed",
+      details: { reason: "budget_on_unknown_required" },
+    });
+    const first = await client.crews.updateBudget(
+      crew.id,
+      { limitTokens: 1_000, onUnknown: "block" },
+      { idempotencyKey: "budget-1" },
+    );
+    expect(first).toMatchObject({ changed: true, budget: { crewId: crew.id, limitTokens: 1_000 } });
+    const req = server.requests.at(-1)!;
+    expect(req).toMatchObject({ method: "PATCH", url: `/v1/crews/${crew.id}/budget` });
+    expect(req.headers[IDEMPOTENCY_HEADER]).toBe("budget-1");
+    expect(
+      await client.crews.updateBudget(
+        crew.id,
+        { limitTokens: 1_000, onUnknown: "block" },
+        { idempotencyKey: "budget-1" },
+      ),
+    ).toEqual(first);
+    await expect(
+      client.crews.updateBudget(
+        crew.id,
+        { limitTokens: 2_000, onUnknown: "block" },
+        { idempotencyKey: "budget-1" },
+      ),
+    ).rejects.toMatchObject({ code: "idempotency_replay_mismatch" });
+    await expect(
+      client.missions.updateBudget(mission.id, {
+        limitCost: 3,
+        onUnknown: "allow",
+        expectedVersion: 7,
+      }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    const m = await client.missions.updateBudget(mission.id, { limitCost: 3, enforce: "soft" });
+    expect(m.budget).toMatchObject({ missionId: mission.id, crewId: null, limitCost: 3 });
+    expect(server.requests.at(-1)).toMatchObject({
+      method: "PATCH",
+      url: `/v1/missions/${mission.id}/budget`,
+    });
   });
 
   it("returns task evidence and keeps fixture verification separate from acceptance", async () => {
