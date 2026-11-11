@@ -1,7 +1,8 @@
-import { explainSelection, TaskDescriptorSchema } from "@sindri/harnesses";
+import { explainSelection, HarnessServiceError, TaskDescriptorSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ApiError, notFound, parseBody } from "../errors.js";
+import { profileHarness } from "../execution-profile.js";
 import type { Factory } from "../factory.js";
 import type { Services } from "../services.js";
 
@@ -20,12 +21,13 @@ const Explain = z
   .refine((v) => !(v.profile && v.harnesses), "give either profile or harnesses, not both");
 
 export function harnessRoutes(app: FastifyInstance, s: Services, f: Factory) {
-  const repoOf = (projectId?: string) => {
+  const projectOf = (projectId?: string) => {
     if (!projectId) return undefined;
     const project = s.knowledge.projects.get(projectId);
     if (!project) throw notFound("project");
-    return project.repoPath;
+    return project;
   };
+  const repoOf = (projectId?: string) => projectOf(projectId)?.repoPath;
 
   app.get("/v1/harnesses", async () => {
     const { service, source } = f.harnesses();
@@ -47,14 +49,26 @@ export function harnessRoutes(app: FastifyInstance, s: Services, f: Factory) {
 
   app.post("/v1/harnesses/explain", async (req) => {
     const body = parseBody(Explain, req.body);
-    const { service, source } = f.harnesses(repoOf(body.projectId));
-    const selection = await service.resolve(
-      body.profile
-        ? { task: body.task, profile: body.profile }
-        : body.harnesses
-          ? { task: body.task, harnesses: body.harnesses }
-          : { task: body.task },
+    // Like the planner: a project's generated profile harness is the default selection.
+    const project = projectOf(body.projectId);
+    const { service, source } = f.harnesses(
+      project?.repoPath,
+      project ? profileHarness(project) : null,
     );
+    const selection = await service
+      .resolve(
+        body.profile
+          ? { task: body.task, profile: body.profile }
+          : body.harnesses
+            ? { task: body.task, harnesses: body.harnesses }
+            : { task: body.task },
+      )
+      .catch((err: unknown) => {
+        // The generic mapping drops the message; a resolve failure should say what Brokkr said.
+        if (err instanceof HarnessServiceError && err.code === "invalid_request")
+          throw new ApiError(422, "validation_failed", err.message);
+        throw err;
+      });
     return { source, selection, explanation: explainSelection(selection) };
   });
 

@@ -603,4 +603,129 @@ describe("Director", () => {
     expect(logger.records.length).toBeGreaterThan(0);
     expect(JSON.stringify(logger.records)).not.toContain("SECRET-REQUEST-TEXT");
   });
+
+  describe("claims taken from the repository", () => {
+    const SECRET = "sk-ant-api03-" + "Z9y8X7w6V5u4T3s2R1q0".repeat(4);
+    /** A provider that is given the repository to read, like the Claude CLI. */
+    const reading = (
+      over: (ctx: Map<string, string>) => Partial<DraftOutput>,
+      opts: { readsWorkspace?: boolean; workspace?: boolean } = {},
+    ) => {
+      const provider = Object.assign(new FakeProvider(drafting(over)), {
+        readsWorkspace: opts.readsWorkspace ?? true,
+      });
+      const d = openDirector(k.db, {
+        provider,
+        now: () => now,
+        ...(opts.workspace === false
+          ? {}
+          : {
+              workspaceFor: () =>
+                Promise.resolve({ path: repo.path, label: "It holds branch main at abc123." }),
+            }),
+      });
+      return { d, provider };
+    };
+    const fromCode = (ctx: Map<string, string>): Partial<DraftOutput> => ({
+      constraints: [
+        {
+          text: "Totals are computed in packages/reports/src/index.ts",
+          citations: ["repo:workspace"],
+        },
+      ],
+      acceptanceCriteria: [
+        {
+          id: "AC1",
+          text: "packages/reports/src/index.ts exports a CSV serialiser",
+          verification: "test",
+          citations: ["repo:workspace"],
+        },
+        {
+          id: "AC2",
+          text: "A CSV download button exists",
+          verification: "test",
+          citations: [[...ctx.keys()].find((x) => x.startsWith("intake:"))!, "repo:workspace"],
+        },
+      ],
+    });
+
+    it("keeps criteria that cite the repository when the provider reads the workspace", async () => {
+      const { d, provider } = reading(fromCode);
+      const { spec, meta } = await d.draftSpec({ projectId, request: "Add CSV export to reports" });
+      const draftCall = provider.calls.find((c) => c.metadata?.purpose === "draft_spec")!;
+      expect(draftCall.workspace).toBe(repo.path);
+      const block = contextIds(draftCall).get("repo:workspace");
+      expect(block).toMatch(/project repository at the working directory/);
+      expect(block).toContain("It holds branch main at abc123.");
+      expect(draftCall.system).toMatch(/cite "repo:workspace" for a claim that comes from a file/);
+      expect(draftCall.system).toMatch(/name that file's path in the claim text/);
+      expect(draftCall.system).not.toMatch(/Use only what appears in the provided context blocks\./);
+
+      expect(spec.body.acceptanceCriteria.map((a) => a.id)).toEqual(["AC1", "AC2"]);
+      expect(spec.body.constraints).toContain(
+        "Totals are computed in packages/reports/src/index.ts",
+      );
+      expect(meta.unverifiedClaims).toEqual([]);
+      expect(meta.contextIds).toContain("repo:workspace");
+      // The repository has no spec ref: provenance falls back to the intake, not flagged as a decision.
+      expect(meta.decisionOnlyAcceptanceCriteria).toEqual([]);
+      expect(spec.provenance.acceptanceCriteria["AC1"]).toEqual([{ intakeId: spec.intakeId }]);
+    });
+
+    it("keeps the old rules, and demotes repository citations, without a readable workspace", async () => {
+      for (const opts of [{ workspace: false }, { readsWorkspace: false }]) {
+        const { d, provider } = reading(fromCode, opts);
+        const { spec, meta } = await d.draftSpec({ projectId, request: "Add CSV export to reports" });
+        const draftCall = provider.calls.find((c) => c.metadata?.purpose === "draft_spec")!;
+        expect(contextIds(draftCall).has("repo:workspace")).toBe(false);
+        expect(draftCall.system).toMatch(/Use only what appears in the provided context blocks\./);
+        expect(draftCall.system).not.toContain("repo:workspace");
+        expect(spec.body.acceptanceCriteria).toEqual([]);
+        expect(meta.unverifiedClaims.map((c) => c.unknownCitations)).toEqual([
+          ["repo:workspace"],
+          ["repo:workspace"],
+          ["repo:workspace"],
+        ]);
+        expect(spec.body.assumptions).toContainEqual({
+          text: "packages/reports/src/index.ts exports a CSV serialiser",
+          risk: "high",
+        });
+      }
+    });
+
+    it("redacts secrets the model copied into drafted text before it is stored", async () => {
+      const { d } = reading((ctx) => {
+        const intakeId = [...ctx.keys()].find((x) => x.startsWith("intake:"))!;
+        return {
+          title: `CSV export ${SECRET}`,
+          problem: { text: `The key ${SECRET} is in config.ts`, citations: [intakeId] },
+          goals: [{ text: `Rotate ${SECRET}`, citations: ["repo:workspace"] }],
+          assumptions: [{ text: `Uses ${SECRET}`, risk: "low" }],
+          acceptanceCriteria: [
+            {
+              id: "AC1",
+              text: `Requests are signed with ${SECRET}`,
+              verification: "test",
+              citations: ["repo:workspace"],
+            },
+          ],
+          openQuestions: [
+            {
+              id: "Q1",
+              text: `Keep ${SECRET}?`,
+              blocking: true,
+              recommendation: `Yes, ${SECRET}`,
+              rationale: `Found ${SECRET} in config.ts`,
+            },
+          ],
+        };
+      });
+      const { spec, meta } = await d.draftSpec({ projectId, request: "Add CSV export to reports" });
+      expect(JSON.stringify(spec)).not.toContain(SECRET);
+      expect(JSON.stringify(meta)).not.toContain(SECRET);
+      expect(spec.body.acceptanceCriteria).toHaveLength(1);
+      expect(meta.secretsRedacted).toBe(8);
+      expect(JSON.stringify(specs.get(spec.id))).not.toContain(SECRET);
+    });
+  });
 });

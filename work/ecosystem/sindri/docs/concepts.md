@@ -14,7 +14,7 @@
 
 **Plan and task DAG.** After approval the planner turns a spec into a dependency aware task graph and selects harnesses. Built as a library (`packages/planner`); not yet exposed by the server.
 
-**Harness.** A versioned definition of how a kind of work is done and verified. Owned by Brokkr; Sindri selects by id and exact version. The Brokkr SDK is not wired yet (ADR-004).
+**Harness.** A versioned definition of how a kind of work is done and verified. Owned by Brokkr; Sindri selects by id and exact version. With Brokkr enabled, harnesses are resolved through the Brokkr SDK; otherwise Sindri uses built-in fixtures (ADR-004).
 
 **Execution and delivery.** Sindri submits missions to Mimir through `@mimir/sdk` and reconciles Mimir's events (`packages/mimir-client`, `packages/delivery`). Quality gates, the delivery report and knowledge write back are task S6, in progress.
 

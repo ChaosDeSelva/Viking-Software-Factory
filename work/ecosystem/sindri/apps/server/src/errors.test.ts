@@ -41,6 +41,25 @@ describe("toApiError maps typed errors by code, never by message text", () => {
     ]);
   });
 
+  it("says why a provider failed and passes on what it reported", () => {
+    const auth = toApiError(
+      new ProviderError("auth", "not signed in", { detail: "Invalid API key · Please run /login" }),
+    );
+    expect([auth.status, auth.code]).toEqual([503, "provider_unavailable"]);
+    expect(auth.message).toMatch(/^LLM provider unavailable \(auth\): .*sign in/);
+    expect(auth.details).toEqual({ reason: "Invalid API key · Please run /login" });
+    expect(toApiError(new ProviderError("rate_limited", "x")).message).toMatch(
+      /\(rate_limited\): .*limit/,
+    );
+    const timeout = toApiError(new ProviderError("timeout", "x"));
+    expect([timeout.status, timeout.code]).toEqual([503, "provider_error"]);
+    expect(timeout.message).toMatch(/\(timeout\): .*time limit/);
+    expect(timeout.details).toBeUndefined();
+    expect(toApiError(new ProviderError("api_error", "x")).message).toBe(
+      "LLM provider error (api_error)",
+    );
+  });
+
   it("maps Zod and Fastify client errors to 422", () => {
     const zerr = z.object({ a: z.string() }).safeParse({}).error;
     expect(map(zerr)[0]).toBe(422);

@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SECRET_PATTERNS } from "@sindri/knowledge";
+import { redactSecrets, SECRET_PATTERNS } from "@sindri/knowledge";
 import { z } from "zod";
 import {
   parseStructured,
@@ -12,6 +12,7 @@ import {
   type CompleteResult,
   type LlmProvider,
   type LlmUsage,
+  type ProviderErrorCode,
 } from "../provider.js";
 
 export type CliProviderKind = "codex-cli" | "claude-cli";
@@ -42,8 +43,11 @@ function isDirectory(path: string | undefined): path is string {
 /** Reuse the operator's installed CLI login; never read or copy its credentials. */
 export class CliProvider implements LlmProvider {
   readonly name: CliProviderKind;
+  /** Only the Claude CLI is given the workspace (see `complete`). */
+  readonly readsWorkspace: boolean;
   constructor(private readonly options: CliProviderOptions) {
     this.name = options.kind;
+    this.readsWorkspace = options.kind === "claude-cli";
   }
 
   async complete<T>(req: CompleteRequest<T>): Promise<CompleteResult<T>> {
@@ -154,10 +158,7 @@ export class CliProvider implements LlmProvider {
           };
         };
         if (result.is_error)
-          throw new ProviderError(
-            "api_error",
-            "Claude Code could not complete the planning request",
-          );
+          throw cliFailure("Claude Code could not complete the planning request", result.result);
         parsed = result.structured_output;
         text = result.result ?? (parsed === undefined ? "" : JSON.stringify(parsed));
         if (
@@ -206,10 +207,11 @@ function runCli(
       stdio: ["pipe", "pipe", "pipe"],
     });
     let out = "";
+    let errTail = "";
     let bytes = 0;
     let failure: ProviderError | undefined;
-    const stop = (message: string) => {
-      failure = new ProviderError("api_error", message);
+    const stop = (code: ProviderErrorCode, message: string) => {
+      failure = new ProviderError(code, message);
       try {
         if (child.pid && process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
         else child.kill("SIGKILL");
@@ -217,11 +219,20 @@ function runCli(
         /* process already exited */
       }
     };
-    const timer = setTimeout(() => stop("CLI planning request exceeded its time limit"), timeoutMs);
+    const timer = setTimeout(
+      () =>
+        stop(
+          "timeout",
+          `CLI planning request exceeded its time limit of ${Math.round(timeoutMs / 1000)} seconds`,
+        ),
+      timeoutMs,
+    );
     const collect = (chunk: Buffer, stdout: boolean) => {
       bytes += chunk.length;
-      if (bytes > 8 * 1024 * 1024) stop("CLI planning response exceeded its output limit");
+      if (bytes > 8 * 1024 * 1024)
+        stop("api_error", "CLI planning response exceeded its output limit");
       else if (stdout) out += chunk.toString("utf8");
+      else errTail = (errTail + chunk.toString("utf8")).slice(-4 * DETAIL_MAX);
     };
     child.stdout.on("data", (c: Buffer) => collect(c, true));
     child.stderr.on("data", (c: Buffer) => collect(c, false));
@@ -239,9 +250,10 @@ function runCli(
       if (failure) reject(failure);
       else if (code !== 0)
         reject(
-          new ProviderError(
-            "api_error",
+          cliFailure(
             `Planning CLI exited with status ${code}; check its login and model settings`,
+            errTail,
+            errorResult(out),
           ),
         );
       else resolve(out);
@@ -251,4 +263,49 @@ function runCli(
     });
     child.stdin.end(input);
   });
+}
+
+const DETAIL_MAX = 600;
+
+/** The error text of a Claude CLI JSON result, else the end of whatever the CLI printed. */
+function errorResult(stdout: string): string {
+  try {
+    const parsed = JSON.parse(stdout) as { is_error?: boolean; result?: unknown };
+    if (typeof parsed.result === "string") return parsed.result;
+  } catch {
+    /* not a single JSON result */
+  }
+  return stdout.slice(-DETAIL_MAX);
+}
+
+const AUTH =
+  /not logged in|\/login\b|log ?in required|sign in|invalid api key|authentication|unauthori[sz]ed|\b401\b|token (has |is )?expired|credentials?/i;
+const RATE_LIMITED = /rate.?limit|\b429\b|too many requests|usage limit|quota|overloaded/i;
+
+/**
+ * A CLI failure with its cause: the end of what the CLI reported (secrets redacted) is kept as
+ * `detail`, and the cases an operator can act on get their own code instead of `api_error`.
+ */
+export function cliFailure(fallback: string, ...reported: (string | undefined)[]): ProviderError {
+  const raw = reported
+    .filter((r): r is string => Boolean(r?.trim()))
+    .join("\n")
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .trim();
+  const detail = redactSecrets(raw).text.replace(/\s+/g, " ").slice(-DETAIL_MAX);
+  const details = detail ? { detail } : {};
+  if (RATE_LIMITED.test(raw))
+    return new ProviderError(
+      "rate_limited",
+      "Planning CLI reached its rate or usage limit; retry later",
+      details,
+    );
+  if (AUTH.test(raw))
+    return new ProviderError(
+      "auth",
+      "Planning CLI is not signed in or its login expired; sign in to the CLI and retry",
+      details,
+    );
+  return new ProviderError("api_error", fallback, details);
 }

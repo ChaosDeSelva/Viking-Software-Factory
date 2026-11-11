@@ -16,6 +16,7 @@ const Decide = z.strictObject({
   decision: z.enum(["approved", "rejected"]),
   reason: z.string().trim().min(1).max(2000).optional(),
 });
+const Cancel = z.strictObject({ reason: z.string().trim().min(1).max(2000).optional() });
 const Resolve = z.strictObject({
   decision: z.enum(["retry", "skip", "replan", "abort"]),
   reason: z.string().trim().min(1).max(2000),
@@ -234,6 +235,33 @@ export function executionRoutes(
       return { approval: find(), execution: hub.reader.get(id) };
     },
   );
+
+  /**
+   * Stops a run for good, whatever state it is in (running, waiting for a human, blocked, or
+   * waiting for a replan): cancels the Mimir mission and ends the execution `cancelled`. Like
+   * aborting from an escalation, the bearer token is enough.
+   */
+  app.post<IdParams>("/v1/executions/:id/cancel", async (req) => {
+    const { id } = req.params;
+    const execution = requireExecution(id);
+    const body = parseBody(Cancel, req.body);
+    if (FINAL_STATUSES.has(execution.status))
+      throw new ApiError(
+        409,
+        "invalid_state",
+        `the execution has finished (${execution.status}); there is nothing to cancel`,
+      );
+    req.log.info({ executionId: id }, "execution cancel requested");
+    try {
+      // Runs as the execution's consumer, so the background run stops before the cancel.
+      await hub.takeover(id, ({ loop }) =>
+        loop.cancelExecution(id, { actor: "user", reason: body.reason ?? "cancelled by the user" }),
+      );
+    } catch (err) {
+      throw asMimirUnavailable(err);
+    }
+    return view(id);
+  });
 
   app.post<{ Params: { id: string; planTaskId: string } }>(
     "/v1/executions/:id/escalations/:planTaskId",

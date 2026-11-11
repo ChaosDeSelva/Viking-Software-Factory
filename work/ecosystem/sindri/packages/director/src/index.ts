@@ -71,7 +71,13 @@ export {
   type InjectionFinding,
   type InjectionPattern,
 } from "./untrusted.js";
-export { classifySystem, dataRules, DRAFT_INSTRUCTIONS, draftSpecSystem } from "./prompts.js";
+export {
+  classifySystem,
+  dataRules,
+  DRAFT_INSTRUCTIONS,
+  draftSpecSystem,
+  WORKSPACE_CONTEXT_ID,
+} from "./prompts.js";
 export { estimateCost, listRuns, MODEL_PRICES, recordRun, type DirectorRun } from "./runs.js";
 export { DIRECTOR_MIGRATIONS } from "./schema.js";
 

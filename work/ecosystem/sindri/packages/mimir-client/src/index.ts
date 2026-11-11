@@ -25,6 +25,11 @@ export {
   type MappedTask,
 } from "./mapping.js";
 export { MIMIR_CLIENT_MIGRATIONS } from "./migrations.js";
+export {
+  profileSettingsFromDb,
+  settingsFromProfile,
+  type ProfileProjectSettings,
+} from "./project-settings.js";
 /** Protocol types Sindri code may name without importing `@mimir/*` itself. */
 export {
   isMimirError,

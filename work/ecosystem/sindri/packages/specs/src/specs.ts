@@ -130,6 +130,14 @@ export function openSpecs(pathOrDb: string | SqliteDatabase, options: OpenSpecsO
     }
   };
 
+  /** A plan is derived from the acceptance criteria, so a spec without any cannot be planned. */
+  const requireCriteria = (r: SpecRow, action: string) => {
+    if (toSpec(r).body.acceptanceCriteria.length === 0)
+      throw new SpecStateError(
+        `a specification with no acceptance criteria cannot be ${action}: revise it to add at least one`,
+      );
+  };
+
   const checkRef = (projectId: string, ref: ProvenanceRef, where: string) => {
     const exists = (sql: string, id: string) => !!db.prepare(sql).get(id, projectId);
     if ("knowledgeEntryId" in ref) {
@@ -259,6 +267,7 @@ export function openSpecs(pathOrDb: string | SqliteDatabase, options: OpenSpecsO
       requireLatest(r, "submit");
       if (r.status !== "draft")
         throw new SpecStateError(`only drafts can be submitted (is ${r.status})`);
+      requireCriteria(r, "submitted for review");
       db.prepare("UPDATE specifications SET status = 'review' WHERE id = ?").run(id);
       return toSpec(mustGet(id));
     },
@@ -275,6 +284,7 @@ export function openSpecs(pathOrDb: string | SqliteDatabase, options: OpenSpecsO
         if (r.status !== "review") {
           throw new SpecStateError(`only specs in review can be approved (is ${r.status})`);
         }
+        requireCriteria(r, "approved");
         const blocking = toSpec(r).body.openQuestions.filter((q) => q.blocking);
         if (blocking.length) {
           throw new SpecStateError(

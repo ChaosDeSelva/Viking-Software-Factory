@@ -1,9 +1,11 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
+import { ExecutionProfileSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { ApiError, notFound, parseBody } from "../errors.js";
+import { PROFILE_KEY, profileHarness, profileOf } from "../execution-profile.js";
 import type { Services } from "../services.js";
 
 const CreateProject = z.strictObject({
@@ -54,6 +56,20 @@ export function projectRoutes(app: FastifyInstance, s: Services) {
   app.get<{ Params: { id: string } }>("/v1/projects/:id", (req) => ({
     project: requireProject(req.params.id),
   }));
+
+  app.get<{ Params: { id: string } }>("/v1/projects/:id/profile", (req) => ({
+    profile: profileOf(requireProject(req.params.id)),
+  }));
+
+  // Operator configuration: how the repository is checked and what its tools need. A profile
+  // with checks gets a generated Brokkr harness, named after its content.
+  app.put<{ Params: { id: string } }>("/v1/projects/:id/profile", (req) => {
+    const project = requireProject(req.params.id);
+    const profile = parseBody(ExecutionProfileSchema, req.body);
+    const harness = profileHarness(project, profile);
+    s.knowledge.projects.setSettings(project.id, { ...project.settings, [PROFILE_KEY]: profile });
+    return { profile, harness };
+  });
 
   app.post<{ Params: { id: string } }>("/v1/projects/:id/bootstrap", (req) => {
     const p = requireProject(req.params.id);

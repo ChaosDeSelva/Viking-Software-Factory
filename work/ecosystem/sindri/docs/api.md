@@ -9,7 +9,8 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 * `POST`, `PUT` and `DELETE` need an `Idempotency-Key` header (422 `idempotency_key_required` otherwise), except `POST /v1/approval-session`, whose response holds a secret and is never stored. The same key with the same request replays the stored response with `Idempotency-Replayed: true`; the same key with a different request is 409 `idempotency_mismatch`; a request still running is 409 `idempotency_in_progress`; 5xx outcomes release the key.
 * Approvals (spec approve, plan approve, PR request) also need `X-Sindri-Approval: <approval secret>` from `POST /v1/approval-session`, which trades the pairing code printed by `sindri start` for a secret. Without it: 403 `approval_required`.
 * A request with an `Origin` outside the allowlist gets 403 `origin_forbidden`; a non loopback `Host` gets 403 `host_forbidden`.
-* Errors use `{ "error": { "code", "message", "details?" } }`. JSON responses (except settings) are display sanitized server side.
+* Errors use `{ "error": { "code", "message", "details?" } }`. JSON responses (except settings) are display sanitized server side: markup is stripped and strings are cut at 64 KB. The one exception inside a response is the `patch` field of `GET /v1/deliveries/:id/local`, which is served byte for byte so it applies; render it as text.
+* A failed LLM provider call is 503 `provider_unavailable` (`provider_unavailable`, `auth`, `rate_limited`) or 503 `provider_error` (`timeout`, `invalid_output`, `refused`, `api_error`). The message names the cause in brackets, and `details.reason`, when present, is the end of what the provider's CLI reported, with secrets redacted.
 
 | Status | Codes                                                                                                         |
 | ------ | ------------------------------------------------------------------------------------------------------------- |
@@ -20,7 +21,8 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | 422    | `validation_failed`, `invalid_json`, `idempotency_key_required`, `confirmation_required`, `no_connector`, `local_only` (settings) |
 | 429    | `approval_locked` (too many wrong pairing codes; restart the server)                                          |
 | 501    | `not_supported` (harness install, pin, verify: Brokkr operations)                                             |
-| 503    | `local_only`, `mimir_unavailable`, `provider_unavailable`, `provider_error`, `not_connected`                  |
+| 502    | `mimir_error` (Mimir answered with a local delivery result Sindri cannot read)                                |
+| 503    | `local_only`, `mimir_unavailable` (not configured or not reachable), `mimir_error`, `provider_unavailable`, `provider_error`, `not_connected` |
 | 500    | `internal`                                                                                                    |
 
 ## Server, approvals, settings
@@ -56,8 +58,8 @@ Source: the routes registered by `buildServer` (`apps/server/src/app.ts` and `ap
 | GET    | `/v1/specs/:id/questions`     |                                                    | `{questions}` (blocking only)                                                            |
 | POST   | `/v1/specs/:id/answer`        | `{questionId, answer, author?}`                    | 201 `{spec, meta}` (a revised version)                                                   |
 | GET    | `/v1/specs/:id/render`        |                                                    | `{markdown}`                                                                             |
-| POST   | `/v1/specs/:id/submit`        | `{}`                                               | `{spec}`                                                                                 |
-| POST   | `/v1/specs/:id/approve`       | `{}` + `X-Sindri-Approval`                         | `{spec}` (approver is the approval session's principal); 409 while blocking questions remain |
+| POST   | `/v1/specs/:id/submit`        | `{}`                                               | `{spec}`; 409 `invalid_state` when the spec has no acceptance criteria                   |
+| POST   | `/v1/specs/:id/approve`       | `{}` + `X-Sindri-Approval`                         | `{spec}` (approver is the approval session's principal); 409 while blocking questions remain or the spec has no acceptance criteria |
 | POST   | `/v1/specs/:id/revise`        | `{title?, body?}`                                  | 201 `{spec}`                                                                             |
 | GET    | `/v1/knowledge`               | `?projectId=&q=`                                   | `{entries}` (each with `sources`)                                                        |
 | POST   | `/v1/knowledge`               | `{projectId, claim, sourceRefs (>=1), confidence}` | 201 `{entry}`                                                                            |
@@ -91,20 +93,32 @@ Executions need a configured Mimir (503 `mimir_unavailable` or `local_only` othe
 
 | Method | Path                                             | Body or query                                                     | Response                                                                 |
 | ------ | ------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| POST   | `/v1/executions`                                 | `{planId}` (an approved plan)                                     | 201 execution view: `{execution, tasks, approvals, artifacts, plan, links, gates, running}` |
+| POST   | `/v1/executions`                                 | `{planId}` (an approved plan)                                     | 201 execution view: `{execution, tasks, approvals, artifacts, plan, links, gates, running}`. A plan version that already has an open execution returns that one, also for concurrent requests. An execution of the same plan lineage that is `replan_requested` is cancelled first (see below) |
 | GET    | `/v1/executions`                                 | `?projectId=`                                                     | `{executions}`                                                           |
 | GET    | `/v1/executions/:id`                             |                                                                   | execution view (as above)                                                |
 | GET    | `/v1/executions/:id/events`                      | `?follow=1&after=`; `Last-Event-ID`                               | `text/event-stream` of stored notices (read only)                        |
 | POST   | `/v1/executions/:id/approvals/:approvalId`       | `{decision:"approved"\|"rejected", reason?}`                      | `{approval, execution}` (relayed to Mimir; a human decision)             |
-| POST   | `/v1/executions/:id/escalations/:planTaskId`     | `{decision:"retry"\|"skip"\|"replan"\|"abort", reason}`           | execution view                                                           |
+| POST   | `/v1/executions/:id/escalations/:planTaskId`     | `{decision:"retry"\|"skip"\|"replan"\|"abort", reason}`           | execution view; 409 `invalid_state` once the execution has finished      |
+| POST   | `/v1/executions/:id/cancel`                      | `{reason?}`                                                       | execution view with `execution.status: "cancelled"`; 409 `invalid_state` when the execution has already finished; 404 unknown id |
 | POST   | `/v1/executions/:id/assess`                      | `{}`                                                              | `{gates}`                                                                |
 | POST   | `/v1/executions/:id/pr`                          | `{}` + `X-Sindri-Approval`                                        | `{pr}`; 409 `invalid_state` until every task's quality gate passed       |
-| GET    | `/v1/reviews`                                    | `?projectId=`                                                     | `{deliveryService, approvals, escalations, budgetAlerts, gateFailures, findings}` |
+| GET    | `/v1/reviews`                                    | `?projectId=`                                                     | `{deliveryService, approvals, escalations, budgetAlerts, gateFailures, findings}`; `escalations` lists open executions only |
 | GET    | `/v1/deliveries`                                 | `?projectId=`                                                     | `{deliveries}`                                                           |
 | GET    | `/v1/deliveries/:id`                             | `:id` is the execution id                                         | `{report, prDescription, deliveryService}`; 409 while running            |
 | GET    | `/v1/deliveries/:id/trace`                       |                                                                   | `{trace}`: ticket, spec version, plan version, mission, tasks with events and artifacts |
+| GET    | `/v1/deliveries/:id/local`                       |                                                                   | `{result}`: `null`, or `{baseSha, resultCommit, patch, repoPath, apply, undo}` from Mimir's local delivery. `patch` is not display sanitized; 502 `mimir_error` when the stored result is unreadable |
+| POST   | `/v1/deliveries/:id/rework`                      | `{feedback}` (1 to 20000 characters)                              | 201 `{rework, spec, meta}`: a draft spec tied to the delivery's verified result commits. 409 `invalid_state` when the delivery has no result commit, or while an earlier rework spec is unapproved (`details: {reworkId, specId, specLineageId}`). 500 with `details: {specId, specLineageId}` when the spec was drafted but its link could not be saved: do not approve that spec |
+| GET    | `/v1/deliveries/:id/reworks`                     |                                                                   | `{reworks}`: each `{id, projectId, sourceExecutionId, specLineageId, baseCommits, feedback, createdAt, specs:[{id, version, status, title}]}` |
 
 Intake responses omit the raw snapshot and add a sanitized `display` view. Settings hold secret names only, never values.
+
+### How a run ends
+
+An execution is final in `verified_pending_review`, `cancelled` or `failed`.
+
+* `failed`: Mimir ended the mission as failed (`mission.failed`). Nothing more can be decided on it.
+* `cancelled`: an escalation was answered with `abort`, the mission was cancelled in Mimir, or the run was cancelled through `POST /v1/executions/:id/cancel`. That route works in every open status (running, awaiting a human, blocked, replan requested). It cancels the Mimir mission (a mission that has already ended counts as stopped), closes open inbox items, marks pending approvals `expired`, and stores an `execution_cancelled` event with the actor and reason. The bearer token is enough, as for `abort`.
+* `replan_requested` is not final. The run continues when a revised plan of the same plan lineage (`POST /v1/plans/:id/revise`, then approve) is executed: `POST /v1/executions` for that plan cancels the old mission and closes the old execution as `cancelled`, with the reason `superseded by revised plan <id> (version <n>)` in its `execution_cancelled` event. A plan proposed anew for the spec is a different lineage and leaves the old run open; cancel that one explicitly.
 
 ## Delivery knowledge proposals
 

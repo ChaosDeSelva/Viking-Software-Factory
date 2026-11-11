@@ -1,10 +1,16 @@
 import { createProvider, type LlmProvider } from "@sindri/director";
-import { BrokkrHarnessService, FakeHarnessService, type HarnessService } from "@sindri/harnesses";
+import {
+  BrokkrHarnessService,
+  FakeHarnessService,
+  type HarnessRequest,
+  type HarnessService,
+} from "@sindri/harnesses";
 import { ensureDeliverySchema, ensureQualitySchema, type PermissionPolicy } from "@sindri/delivery";
 import { applyMigrations } from "@sindri/knowledge";
 import { openPlanner, type Planner } from "@sindri/planner";
 import { S6DeliveryService, type DeliveryService } from "./delivery-service.js";
 import { ExecutionHub } from "./execution-hub.js";
+import { brokkrHome } from "./execution-profile.js";
 import { executionStatuses } from "./queries.js";
 import { FINAL_STATUSES } from "./statuses.js";
 import type { ServiceOptions, Services } from "./services.js";
@@ -39,9 +45,13 @@ export interface Factory {
   /**
    * The HarnessService in effect. `brokkrEnabled: false` (default) uses the fixture-backed
    * `FakeHarnessService`; `true` uses `BrokkrHarnessService`, which rejects `not_wired`
-   * until the Brokkr SDK is wired (S4b).
+   * until the Brokkr SDK is wired (S4b). `contract` (a project's generated profile harness) is
+   * what Brokkr then selects for every task instead of choosing by task type.
    */
-  harnesses(repoPath?: string): { service: HarnessService; source: HarnessSource };
+  harnesses(
+    repoPath?: string,
+    contract?: HarnessRequest | null,
+  ): { service: HarnessService; source: HarnessSource };
   /** Mimir connection, background delivery runs and the notice fan-out. */
   hub: ExecutionHub;
   delivery: DeliveryService;
@@ -219,11 +229,15 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
       retryTimer = undefined;
     },
     provider,
-    harnesses(repoPath) {
+    harnesses(repoPath, contract) {
       if (o.harnessService) return { service: o.harnessService, source: "custom" };
       if (s.settings.get().brokkrEnabled)
         return {
-          service: new BrokkrHarnessService({ cwd: repoPath ?? process.cwd() }),
+          service: new BrokkrHarnessService({
+            cwd: repoPath ?? process.cwd(),
+            homeDir: brokkrHome(),
+            ...(contract ? { harnesses: [contract] } : {}),
+          }),
           source: "brokkr",
         };
       // A fresh fake per request: it records every resolve call in memory.

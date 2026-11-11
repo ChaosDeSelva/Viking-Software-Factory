@@ -138,6 +138,25 @@ describe("specifications", () => {
       expect(() => specs.submitForReview(v1.id)).toThrow(/latest/);
     });
 
+    it("refuses to submit or approve a spec with no acceptance criteria", () => {
+      const empty = draft(body({ acceptanceCriteria: [] }), prov({ acceptanceCriteria: {} }));
+      expect(() => specs.submitForReview(empty.id)).toThrow(/no acceptance criteria/);
+      expect(specs.get(empty.id)?.status).toBe("draft");
+      // A spec already in review (submitted before this check existed) is not approvable either.
+      specs.db.prepare("UPDATE specifications SET status = 'review' WHERE id = ?").run(empty.id);
+      const err = (() => {
+        try {
+          specs.approve(empty.id, { approver: "j" });
+        } catch (e) {
+          return e as { code?: string; message: string };
+        }
+        return undefined;
+      })();
+      expect(err).toMatchObject({ code: "invalid_state" });
+      expect(err?.message).toMatch(/no acceptance criteria cannot be approved/);
+      expect(specs.get(empty.id)?.status).toBe("review");
+    });
+
     it("approval requires review status and rejects blocking open questions", () => {
       const v1 = draft(
         body({ openQuestions: [{ id: "Q1", text: "Which formats?", blocking: true }] }),

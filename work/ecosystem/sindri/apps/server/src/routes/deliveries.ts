@@ -3,13 +3,33 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ApprovalAuthority } from "../approval.js";
 import type { DeliveryService } from "../delivery-service.js";
+import { DISPLAY_SANITIZED, forDisplay } from "../display.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
-import type { ExecutionHub } from "../execution-hub.js";
+import { asMimirUnavailable, type ExecutionHub } from "../execution-hub.js";
 import type { Factory } from "../factory.js";
 import { executionsByProject, projectOfExecution } from "../queries.js";
 import { reworkRequestText } from "../rework.js";
 import type { Services } from "../services.js";
-import { DELIVERED_STATUSES } from "../statuses.js";
+import { DELIVERED_STATUSES, FINAL_STATUSES } from "../statuses.js";
+
+/** What Mimir's `local_delivery` artifact holds. */
+const LocalDelivery = z.object({
+  baseSha: z.string(),
+  resultCommit: z.string(),
+  patch: z.string(),
+  repoPath: z.string(),
+  apply: z.string(),
+  undo: z.string(),
+});
+
+/** Runs a call that talks to Mimir, so an unreachable Mimir is 503 `mimir_unavailable`, not 500. */
+async function withMimir<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    throw asMimirUnavailable(err);
+  }
+}
 
 const ProjectQuery = z.object({ projectId: z.string().min(1) });
 const Rework = z.strictObject({ feedback: z.string().trim().min(1).max(20_000) });
@@ -70,7 +90,9 @@ export function deliveryRoutes(
           .approvals(e.id)
           .filter((a) => a.disposition === "inbox" && a.status === "pending"),
       );
-      for (const t of hub.reader.tasks(e.id))
+      // An escalation can only be answered while its run is open; a finished run keeps the
+      // record on its tasks but has nothing left to decide.
+      for (const t of FINAL_STATUSES.has(e.status) ? [] : hub.reader.tasks(e.id))
         if (t.escalation)
           escalations.push({
             executionId: e.id,
@@ -127,7 +149,7 @@ export function deliveryRoutes(
 
   app.get<{ Params: { id: string } }>("/v1/deliveries/:id", async (req) => {
     requireDelivered(req.params.id);
-    const report = await delivery.report(req.params.id);
+    const report = await withMimir(() => delivery.report(req.params.id));
     return {
       deliveryService: delivery.kind,
       report,
@@ -137,35 +159,46 @@ export function deliveryRoutes(
 
   app.get<{ Params: { id: string } }>("/v1/deliveries/:id/trace", async (req) => {
     requireDelivered(req.params.id);
-    return { trace: await delivery.trace(req.params.id) };
+    return { trace: await withMimir(() => delivery.trace(req.params.id)) };
   });
 
-  app.get<{ Params: { id: string } }>("/v1/deliveries/:id/local", async (req) => {
-    const execution = requireDelivered(req.params.id);
-    const { facade } = await hub.connection();
-    const events = await facade.replayEnvelopes(execution.mimirMissionId!);
-    const artifact = events
-      .filter(
-        (e) =>
-          e.type === "artifact.recorded" &&
-          e.source === "mimir.server" &&
-          (e.payload as { kind?: string }).kind === "local_delivery",
-      )
-      .at(-1);
-    if (!artifact) return { result: null };
-    const payload = artifact.payload as { artifactId: string };
-    const result = z
-      .object({
-        baseSha: z.string(),
-        resultCommit: z.string(),
-        patch: z.string(),
-        repoPath: z.string(),
-        apply: z.string(),
-        undo: z.string(),
-      })
-      .parse(JSON.parse(await facade.artifactContent(payload.artifactId)));
-    return { result };
-  });
+  // The response sanitizer strips markup and cuts strings at 64 KB, which would leave a patch
+  // that does not apply. This route opts out of it and sanitizes every field but `patch` itself.
+  app.get<{ Params: { id: string } }>(
+    "/v1/deliveries/:id/local",
+    { config: { [DISPLAY_SANITIZED]: true } },
+    async (req) => {
+      const execution = requireDelivered(req.params.id);
+      const { facade } = await hub.connection();
+      const content = await withMimir(async () => {
+        const events = await facade.replayEnvelopes(execution.mimirMissionId);
+        const artifact = events
+          .filter(
+            (e) =>
+              e.type === "artifact.recorded" &&
+              e.source === "mimir.server" &&
+              (e.payload as { kind?: string }).kind === "local_delivery",
+          )
+          .at(-1);
+        if (!artifact) return null;
+        return facade.artifactContent((artifact.payload as { artifactId: string }).artifactId);
+      });
+      if (content === null) return { result: null };
+      let parsed: z.infer<typeof LocalDelivery>;
+      try {
+        parsed = LocalDelivery.parse(JSON.parse(content));
+      } catch {
+        // Not something the caller sent: the artifact Mimir stored is not a local delivery.
+        throw new ApiError(
+          502,
+          "mimir_error",
+          "Mimir returned a local delivery result Sindri cannot read (not JSON, or fields are missing)",
+        );
+      }
+      const { patch, ...rest } = parsed;
+      return { result: { ...forDisplay(rest), patch } };
+    },
+  );
 
   /**
    * Request changes to a delivered execution: drafts a spec from the reviewer's feedback and ties
@@ -181,9 +214,23 @@ export function deliveryRoutes(
     if (!plan || !original || !projectId || !s.knowledge.projects.get(projectId))
       throw notFound("delivery");
 
+    // One open rework per delivery: a second request while the first spec is still a draft or
+    // in review would produce two competing specs for the same change.
+    for (const earlier of s.rework.forExecution(execution.id)) {
+      const versions = s.specs.listLineage(earlier.specLineageId);
+      const latest = versions.at(-1);
+      if (latest && !versions.some((v) => v.status === "approved"))
+        throw new ApiError(
+          409,
+          "invalid_state",
+          `a rework of this delivery is already open as specification ${latest.id} (${latest.status}); revise or approve it instead of requesting another`,
+          { reworkId: earlier.id, specId: latest.id, specLineageId: earlier.specLineageId },
+        );
+    }
+
     const { facade } = await hub.connection();
     const results = new Map(
-      (await facade.taskResultCommits(execution.mimirMissionId)).map((r) => [
+      (await withMimir(() => facade.taskResultCommits(execution.mimirMissionId))).map((r) => [
         r.taskId,
         r.resultCommit,
       ]),
@@ -227,13 +274,29 @@ export function deliveryRoutes(
       workspaceCommit: baseCommits[0]!,
       workspaceAlsoStartsFrom: baseCommits.slice(1),
     });
-    const rework = s.rework.create({
-      projectId,
-      sourceExecutionId: execution.id,
-      specLineageId: out.spec.lineageId,
-      baseCommits,
-      feedback: body.feedback,
-    });
+    // The spec is already stored. Without its rework row it is an ordinary spec, and a plan for
+    // it would start from the default branch instead of the delivered change.
+    let rework;
+    try {
+      rework = s.rework.create({
+        projectId,
+        sourceExecutionId: execution.id,
+        specLineageId: out.spec.lineageId,
+        baseCommits,
+        feedback: body.feedback,
+      });
+    } catch (err) {
+      req.log.error(
+        { executionId: execution.id, specId: out.spec.id, err },
+        "rework spec drafted but its link to the delivery could not be saved",
+      );
+      throw new ApiError(
+        500,
+        "internal",
+        `the rework was drafted as specification ${out.spec.id}, but its link to this delivery could not be saved. Do not approve that specification: it would be planned from the default branch, not from the delivered change. Request the rework again.`,
+        { specId: out.spec.id, specLineageId: out.spec.lineageId },
+      );
+    }
     req.log.info({ executionId: execution.id, reworkId: rework.id }, "rework requested");
     return reply.code(201).send({ rework, spec: out.spec, meta: out.meta });
   });
@@ -264,20 +327,20 @@ export function deliveryRoutes(
         "invalid_state",
         `execution is ${execution.status}; a PR can be requested once it is verified`,
       );
-    return { pr: await delivery.requestPr(execution.id) };
+    return { pr: await withMimir(() => delivery.requestPr(execution.id)) };
   });
 
   /** Re-run the quality assessment (reviews, gates, report) of a verified execution. */
   app.post<{ Params: { id: string } }>("/v1/executions/:id/assess", async (req) => {
     requireDelivered(req.params.id);
-    await delivery.assess(req.params.id);
+    await withMimir(() => delivery.assess(req.params.id));
     hub.emit({ type: "quality_assessed", executionId: req.params.id });
     return { gates: delivery.gateResults(req.params.id) };
   });
 
   const updater = async (executionId: string) => {
     requireDelivered(executionId);
-    const report = await delivery.report(executionId);
+    const report = await withMimir(() => delivery.report(executionId));
     return {
       report,
       service: new KnowledgeUpdater({

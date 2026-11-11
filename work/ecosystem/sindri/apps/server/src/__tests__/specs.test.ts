@@ -211,6 +211,23 @@ describe("specs", () => {
     });
   });
 
+  it("refuses to submit a spec that has no acceptance criteria", async () => {
+    // What a draft looks like when every drafted criterion was demoted to an assumption.
+    provider = new FakeProvider((req, i) => {
+      const r = demoResponder()(req, i);
+      return req.metadata?.purpose === "draft_spec"
+        ? { ...r, output: { ...(r.output as object), acceptanceCriteria: [] } }
+        : r;
+    });
+    const { spec } = await draft();
+    expect(spec.body.acceptanceCriteria).toEqual([]);
+    const sub = await h.call({ method: "POST", url: `/v1/specs/${spec.id}/submit`, payload: {} });
+    expect(sub.statusCode).toBe(409);
+    expect(sub.json().error.code).toBe("invalid_state");
+    expect(sub.json().error.message).toMatch(/no acceptance criteria/);
+    expect((await h.call({ url: `/v1/specs/${spec.id}` })).json().spec.status).toBe("draft");
+  });
+
   it("revises a draft into a new version and validates patches", async () => {
     const { spec } = await draft();
     const rev = await h.call({

@@ -1,6 +1,6 @@
 import type { SqliteDatabase } from "@sindri/knowledge";
 import { openDeliveryTestDb } from "./test-db.test-helpers.js";
-import { MimirClientFacade } from "@sindri/mimir-client";
+import { MimirClientFacade, MimirError } from "@sindri/mimir-client";
 import { approvedPlan, planTask } from "@sindri/mimir-client/testing";
 import type { Plan } from "@sindri/planner";
 import { createFakeMimir, type FakeMimir, type TaskStep } from "@sindri/testing";
@@ -545,5 +545,175 @@ describe("DeliveryLoop fix round 1", () => {
         }),
       );
     });
+  });
+});
+
+describe("DeliveryLoop: runs that end outside the happy path", () => {
+  const askPlan = (overrides: Partial<Plan> = {}) =>
+    approvedPlan([planTask("impl", { maxRetries: 1, escalation: "ask" })], overrides);
+  const failTwice = { impl: [{ kind: "fail" }, { kind: "fail" }] as TaskStep[] };
+
+  /** Ends the mission in the fake without the loop knowing (as Mimir or another client would). */
+  async function cancelInMimir(h: Harness, missionId: string) {
+    const res = await fetch(`${h.fake.url}/v1/missions/${missionId}/cancel`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${h.fake.token}`,
+        "content-type": "application/json",
+        "idempotency-key": "test:cancel-elsewhere",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(202);
+  }
+
+  it("mission.failed ends the execution failed", async () => {
+    const h = await boot(failTwice);
+    const exec = await execute(h, askPlan());
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    h.fake.inject(
+      "mission.failed",
+      { from: "active", to: "failed", reason: "task exhausted" },
+      { missionId: exec.mimirMissionId as never },
+    );
+    expect(await h.loop.resume(exec.id)).toEqual({ status: "failed", interrupted: false });
+    const after = h.loop.get(exec.id)!;
+    expect(after.finishedAt).toBeTruthy();
+    expect(h.notices).toContainEqual(
+      expect.objectContaining({ type: "status_changed", executionId: exec.id, to: "failed" }),
+    );
+    await expect(
+      h.loop.resolveEscalation(exec.id, "impl", { decision: "skip", actor: "j", reason: "r" }),
+    ).rejects.toThrow(/is failed/);
+  });
+
+  it("an execution that stored mission.failed before the loop handled it ends failed on resume", async () => {
+    const h = await boot(failTwice);
+    const exec = await execute(h, askPlan());
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    h.db
+      .prepare(
+        `INSERT INTO execution_events (id, execution_id, mimir_event_id, type, payload_json, occurred_at)
+         VALUES ('exv_old', ?, 'evt_old_failed', 'mission.failed', '{}', 'then')`,
+      )
+      .run(exec.id);
+    expect((await h.loop.resume(exec.id)).status).toBe("failed");
+    expect(h.loop.get(exec.id)!.finishedAt).toBeTruthy();
+  });
+
+  it("abort succeeds when Mimir has already ended the mission", async () => {
+    const h = await boot(failTwice);
+    const exec = await execute(h, askPlan());
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    await cancelInMimir(h, exec.mimirMissionId);
+    const result = await h.loop.resolveEscalation(exec.id, "impl", {
+      decision: "abort",
+      actor: "jacob",
+      reason: "stop",
+    });
+    expect(result.status).toBe("cancelled");
+    expect(h.loop.get(exec.id)!.finishedAt).toBeTruthy();
+  });
+
+  it("skipping the last open task finishes even when Mimir refuses the cancel as already ended", async () => {
+    const h = await boot(failTwice);
+    const mimir = new MimirClientFacade({ db: h.db }).connect({
+      baseUrl: h.fake.url,
+      token: h.fake.token,
+    });
+    let refused = 0;
+    mimir.cancel = () => {
+      refused++;
+      return Promise.reject(new MimirError("invalid_transition", "mission is failed"));
+    };
+    const loop = new DeliveryLoop({ db: h.db, mimir, logger: { warn: () => undefined } });
+    const exec = await execute(h, askPlan());
+    expect((await loop.run(exec.id)).status).toBe("awaiting_human");
+    const result = await loop.resolveEscalation(exec.id, "impl", {
+      decision: "skip",
+      actor: "jacob",
+      reason: "not needed",
+    });
+    expect(refused).toBe(1);
+    expect(result.status).toBe("verified_pending_review");
+    // Any other refusal is still an error.
+    mimir.cancel = () => Promise.reject(new MimirError("unauthorized", "no"));
+    const second = await loop.createExecution(askPlan({ id: "plan-other", lineageId: "l2" }), {
+      projectId: (await mimir.ensureProject("/repos/app")).id,
+    });
+    await expect(loop.cancelExecution(second.id, { actor: "j", reason: "r" })).rejects.toThrow();
+    expect(loop.get(second.id)!.status).toBe("pending");
+  });
+
+  it("cancelExecution cancels the mission, closes inbox items and approvals, and records why", async () => {
+    const h = await boot({ impl: [{ kind: "approval", action: "git.push" }] });
+    const exec = await execute(h, approvedPlan([planTask("impl")]));
+    expect((await h.loop.run(exec.id)).status).toBe("awaiting_human");
+    const cancelled = await h.loop.cancelExecution(exec.id, { actor: "jacob", reason: "wrong plan" });
+    expect(cancelled.status).toBe("cancelled");
+    expect(cancelled.finishedAt).toBeTruthy();
+    expect(h.fake.requests.some((r) => r.path.endsWith("/cancel"))).toBe(true);
+    expect(h.loop.approvals(exec.id).map((a) => a.status)).toEqual(["expired"]);
+    expect(h.loop.events(exec.id)).toContainEqual(
+      expect.objectContaining({
+        source: "sindri",
+        type: "execution_cancelled",
+        payload: { actor: "jacob", reason: "wrong plan", previousStatus: "awaiting_human" },
+      }),
+    );
+    // Idempotent, also once Mimir reports the mission cancelled.
+    expect((await h.loop.cancelExecution(exec.id, { actor: "j", reason: "again" })).status).toBe(
+      "cancelled",
+    );
+    expect((await h.loop.resume(exec.id)).status).toBe("cancelled");
+    expect(h.loop.events(exec.id).filter((e) => e.type === "execution_cancelled")).toHaveLength(1);
+  });
+
+  it("a revised plan in the same lineage closes the run that asked for a replan", async () => {
+    const h = await boot({ impl: [{ kind: "fail" }, { kind: "fail" }] });
+    const old = await execute(
+      h,
+      approvedPlan([planTask("impl", { maxRetries: 1, escalation: "replan" })]),
+    );
+    expect((await h.loop.run(old.id)).status).toBe("replan_requested");
+    // A plan of another lineage leaves it alone.
+    const unrelated = await execute(
+      h,
+      approvedPlan([planTask("build")], { id: "plan-x", lineageId: "lineage-x" }),
+    );
+    expect(h.loop.get(old.id)!.status).toBe("replan_requested");
+    const revised = await execute(
+      h,
+      approvedPlan([planTask("build")], { id: "plan-2", version: 2 }),
+    );
+    expect(revised.id).not.toBe(old.id);
+    expect(revised.id).not.toBe(unrelated.id);
+    const closed = h.loop.get(old.id)!;
+    expect(closed.status).toBe("cancelled");
+    expect(closed.finishedAt).toBeTruthy();
+    expect(h.loop.events(old.id)).toContainEqual(
+      expect.objectContaining({
+        type: "execution_cancelled",
+        payload: expect.objectContaining({
+          actor: "sindri",
+          reason: "superseded by revised plan plan-2 (version 2)",
+          previousStatus: "replan_requested",
+        }),
+      }),
+    );
+    expect(
+      h.fake.requests.some((r) => r.path === `/v1/missions/${old.mimirMissionId}/cancel`),
+    ).toBe(true);
+    expect((await h.loop.run(revised.id)).status).toBe("verified_pending_review");
+  });
+
+  it("concurrent createExecution calls for one plan return the same execution", async () => {
+    const h = await boot();
+    const [a, b] = await Promise.all([execute(h, threeTasks()), execute(h, threeTasks())]);
+    expect(a.id).toBe(b.id);
+    expect(h.fake.creates.missions).toBe(1);
+    expect(
+      (h.db.prepare("SELECT COUNT(*) AS n FROM executions").get() as { n: number }).n,
+    ).toBe(1);
   });
 });

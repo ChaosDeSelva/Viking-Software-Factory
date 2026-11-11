@@ -214,3 +214,103 @@ describe("executions with a fake Mimir", () => {
     await until(status(flow, execution.id), (s) => s === "cancelled");
   });
 });
+
+describe("cancelling and racing executions", () => {
+  it("cancels a run that waits for a human: mission cancelled, execution closed with the reason", async () => {
+    const flow = (f = await startMimirFlow({
+      "implement-frontend": [{ kind: "approval", action: "fs.write" }],
+    }));
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const { execution } = (await create(flow, plan.id)).json();
+    await until(status(flow, execution.id), (s) => s === "awaiting_human");
+    expect(
+      (
+        await flow.h.call({
+          method: "POST",
+          url: `/v1/executions/${execution.id}/cancel`,
+          payload: { reason: "wrong plan", extra: 1 },
+        })
+      ).statusCode,
+    ).toBe(422);
+    const res = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/cancel`,
+      payload: { reason: "wrong plan" },
+    });
+    expect(res.statusCode).toBe(200);
+    await until(status(flow, execution.id), (s) => s === "cancelled");
+    const view = await getExec(flow, execution.id);
+    expect(view.execution.finishedAt).toBeTruthy();
+    expect(view.approvals.map((a: { status: string }) => a.status)).toEqual(["expired"]);
+    expect(
+      flow.fake.requests.some((r) => r.path === `/v1/missions/${execution.mimirMissionId}/cancel`),
+    ).toBe(true);
+    const events = await flow.h.call({ url: `/v1/executions/${execution.id}/events?follow=0` });
+    expect(events.body).toMatch(/"type":"execution_cancelled"/);
+    expect(events.body).toMatch(/"reason":"wrong plan"/);
+    expect(
+      (await flow.h.call({ url: `/v1/reviews?projectId=${flow.projectId}` })).json().approvals,
+    ).toEqual([]);
+
+    const again = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/cancel`,
+      payload: {},
+    });
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe("invalid_state");
+    expect(
+      (await flow.h.call({ method: "POST", url: "/v1/executions/nope/cancel", payload: {} }))
+        .statusCode,
+    ).toBe(404);
+  });
+
+  it("gives two concurrent requests for one plan the same execution", async () => {
+    const flow = (f = await startMimirFlow());
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const [a, b] = await Promise.all([create(flow, plan.id), create(flow, plan.id)]);
+    expect([a.statusCode, b.statusCode]).toEqual([201, 201]);
+    expect(a.json().execution.id).toBe(b.json().execution.id);
+    expect(flow.fake.creates.missions).toBe(1);
+    await until(status(flow, a.json().execution.id), (s) => s === "verified_pending_review");
+  });
+
+  it("running the revised plan closes the execution that asked for a replan", async () => {
+    const fail = { kind: "fail" as const, reason: "wrong approach" };
+    const flow = (f = await startMimirFlow({ "implement-frontend": Array(8).fill(fail) }));
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const old = (await create(flow, plan.id)).json().execution;
+    await until(status(flow, old.id), (s) => s === "replan_requested");
+
+    const full = (await flow.h.call({ url: `/v1/plans/${plan.id}` })).json().plan;
+    const revised = await flow.h.call({
+      method: "POST",
+      url: `/v1/plans/${plan.id}/revise`,
+      payload: { tasks: full.tasks },
+    });
+    expect(revised.statusCode).toBe(201);
+    const next = revised.json().plan as { id: string; lineageId: string };
+    expect(next.id).not.toBe(plan.id);
+    expect(next.lineageId).toBe(full.lineageId);
+    await flow.h.call({ method: "POST", url: `/v1/plans/${next.id}/submit`, payload: {} });
+    const approved = await flow.h.call({
+      method: "POST",
+      url: `/v1/plans/${next.id}/approve`,
+      payload: {},
+      headers: await flow.h.approvalHeaders(),
+    });
+    expect(approved.statusCode).toBe(200);
+
+    const second = await create(flow, next.id);
+    expect(second.statusCode).toBe(201);
+    expect(second.json().execution.id).not.toBe(old.id);
+    const closed = (await getExec(flow, old.id)).execution;
+    expect(closed.status).toBe("cancelled");
+    expect(closed.finishedAt).toBeTruthy();
+    expect(
+      flow.fake.requests.some((r) => r.path === `/v1/missions/${old.mimirMissionId}/cancel`),
+    ).toBe(true);
+    const events = await flow.h.call({ url: `/v1/executions/${old.id}/events?follow=0` });
+    expect(events.body).toMatch(/superseded by revised plan/);
+  });
+});

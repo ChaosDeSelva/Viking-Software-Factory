@@ -276,6 +276,20 @@ export class DeliveryLoop {
     plan: Plan,
     { projectId, baseCommits }: { projectId: string; baseCommits?: readonly string[] },
   ): Promise<Execution> {
+    // A revised plan is the continuation of a run that asked for a replan: nothing else reads
+    // `replan_requested`, so the older run of this plan lineage ends here.
+    const replanned = this.db
+      .prepare(
+        `SELECT id FROM executions WHERE status = 'replan_requested'
+         AND NOT (plan_id = ? AND plan_version = ?)
+         AND json_valid(plan_json) AND json_extract(plan_json, '$.lineageId') = ?`,
+      )
+      .all(plan.id, plan.version, plan.lineageId) as { id: string }[];
+    for (const old of replanned)
+      await this.cancelExecution(old.id, {
+        actor: "sindri",
+        reason: `superseded by revised plan ${plan.id} (version ${plan.version})`,
+      });
     const existing = this.db
       .prepare(
         `SELECT * FROM executions WHERE plan_id = ? AND plan_version = ?
@@ -297,6 +311,12 @@ export class DeliveryLoop {
       run,
       ...(baseCommits?.length ? { baseCommits } : {}),
     });
+    // Two concurrent requests both pass the check above and get the same mission (the submission
+    // is idempotent); the one that arrives second adopts the execution the first recorded.
+    const raced = this.db
+      .prepare("SELECT * FROM executions WHERE mimir_mission_id = ?")
+      .get(submission.missionId) as ExecutionRow | undefined;
+    if (raced) return toExecution(raced);
     const id = `exe_${randomUUID()}`;
     const at = this.now().toISOString();
     // Token and cost budgets went to Mimir with the crews; wall-clock limits cannot be enforced there.
@@ -424,7 +444,7 @@ export class DeliveryLoop {
       });
     }
     if (decision === "abort") {
-      await this.mimir.cancel(row.mimir_mission_id, `aborted by ${actor}: ${reason}`);
+      await this.cancelMission(row.mimir_mission_id, `aborted by ${actor}: ${reason}`);
     }
 
     const notices: DeliveryNotice[] = [];
@@ -500,6 +520,48 @@ export class DeliveryLoop {
       return { status: this.row(executionId).status, interrupted: false };
     }
     return this.resume(executionId, input.signal ? { signal: input.signal } : {});
+  }
+
+  /**
+   * Stops a run for good: cancels the Mimir mission (a mission that already ended counts as
+   * stopped) and ends the execution `cancelled`, recording who asked and why as a Sindri
+   * `execution_cancelled` event. Open inbox items and pending approvals are closed with it. A
+   * finished execution is returned unchanged.
+   */
+  async cancelExecution(
+    executionId: string,
+    { actor, reason }: { actor: string; reason: string },
+  ): Promise<Execution> {
+    const row = this.row(executionId);
+    if (FINAL.includes(row.status)) return toExecution(row);
+    await this.cancelMission(row.mimir_mission_id, `cancelled by ${actor}: ${reason}`);
+    const at = this.now().toISOString();
+    const notices: DeliveryNotice[] = [];
+    this.db.transaction(() => {
+      // The run may have ended while Mimir was being asked.
+      if (FINAL.includes(this.row(executionId).status)) return;
+      this.recordSindriEvent(executionId, "execution_cancelled", {
+        actor,
+        reason,
+        previousStatus: row.status,
+      });
+      this.db
+        .prepare(
+          `UPDATE execution_inbox SET status = 'resolved', resolved_at = ?
+           WHERE execution_id = ? AND status = 'open'`,
+        )
+        .run(at, executionId);
+      this.db
+        .prepare(
+          `UPDATE execution_approvals SET status = 'expired'
+           WHERE execution_id = ? AND status = 'pending'`,
+        )
+        .run(executionId);
+      this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
+      this.setStatusIn(executionId, "cancelled", notices);
+    })();
+    for (const n of notices) this.notify(n);
+    return this.get(executionId) as Execution;
   }
 
   /** Open and resolved inbox items that are not Mimir approvals (see `approvals`). */
@@ -873,6 +935,13 @@ export class DeliveryLoop {
         this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
         break;
       }
+      case "mission.failed": {
+        // Mimir gave up on the mission: no task will run again, so the execution ends here.
+        if (FINAL.includes(this.row(executionId).status)) break;
+        this.setStatusIn(executionId, "failed", notices);
+        this.db.prepare("UPDATE executions SET finished_at = ? WHERE id = ?").run(at, executionId);
+        break;
+      }
       case "budget.exceeded": {
         const { unit, used, limit, budgetId } = event.payload;
         const blockedReason = `budget_exceeded: ${unit} ${used}/${limit}`;
@@ -984,6 +1053,17 @@ export class DeliveryLoop {
       this.setStatus(executionId, "verified_pending_review");
       return "verified_pending_review";
     }
+    // An execution that stored `mission.failed` before the loop acted on it ends here too.
+    const failed = this.db
+      .prepare("SELECT 1 FROM execution_events WHERE execution_id = ? AND type = 'mission.failed'")
+      .get(executionId);
+    if (failed) {
+      this.db
+        .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
+        .run(this.now().toISOString(), executionId);
+      this.setStatus(executionId, "failed");
+      return "failed";
+    }
     const tasks = this.tasks(executionId);
     const byPlanId = new Map(tasks.map((t) => [t.planTaskId, t]));
     const pendingApprovalTasks = new Set(
@@ -1012,7 +1092,10 @@ export class DeliveryLoop {
     if (open.length === 0) {
       if (!tasks.some((t) => t.resolution)) return null; // all completed: wait for mission.completed
       // Everything left was skipped by a human: Mimir can never complete this mission.
-      await this.mimir.cancel(row.mimir_mission_id, "remaining tasks skipped by a human in Sindri");
+      await this.cancelMission(
+        row.mimir_mission_id,
+        "remaining tasks skipped by a human in Sindri",
+      );
       await this.collectArtifacts(executionId);
       this.db
         .prepare("UPDATE executions SET finished_at = ? WHERE id = ?")
@@ -1045,6 +1128,19 @@ export class DeliveryLoop {
       this.db
         .prepare("UPDATE artifacts_refs SET sha256 = ?, uri = ?, kind = ? WHERE id = ?")
         .run(artifact.hash, artifact.uri, artifact.kind, ref.id);
+    }
+  }
+
+  /**
+   * Cancels a mission, treating `invalid_transition` as done: Mimir only cancels draft, active
+   * and paused missions, so that answer means the mission already completed, failed or was
+   * cancelled.
+   */
+  private async cancelMission(missionId: string, reason: string): Promise<void> {
+    try {
+      await this.mimir.cancel(missionId, reason);
+    } catch (err) {
+      if (!isMimirError(err) || err.code !== "invalid_transition") throw err;
     }
   }
 

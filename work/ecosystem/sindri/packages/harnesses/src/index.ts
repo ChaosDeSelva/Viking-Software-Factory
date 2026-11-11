@@ -33,3 +33,12 @@ export {
   type FakeSkill,
 } from "./fixtures.js";
 export { BrokkrHarnessService, type BrokkrHarnessServiceOptions } from "./brokkr.js";
+export {
+  ensureProfileHarness,
+  ExecutionProfileSchema,
+  PROFILE_HARNESS_VERSION,
+  ProfileCheckSchema,
+  profileHarnessManifest,
+  type ExecutionProfile,
+  type ProfileCheck,
+} from "./profile.js";

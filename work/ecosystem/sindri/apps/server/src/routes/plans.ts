@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import type { ApprovalAuthority } from "../approval.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
+import { profileHarness } from "../execution-profile.js";
 import type { Factory } from "../factory.js";
 import type { Services } from "../services.js";
 
@@ -40,8 +41,11 @@ export function planRoutes(
     return plan;
   };
   const versions = (p: Plan) => f.planner.listLineage(p.lineageId).map(versionOf);
-  const harnessesFor = (projectId: string) =>
-    f.harnesses(s.knowledge.projects.get(projectId)?.repoPath);
+  // A project whose execution profile has checks is planned against its generated harness.
+  const harnessesFor = (projectId: string) => {
+    const project = s.knowledge.projects.get(projectId);
+    return f.harnesses(project?.repoPath, project ? profileHarness(project) : null);
+  };
 
   app.post("/v1/plans/propose", async (req, reply) => {
     const body = parseBody(Propose, req.body);

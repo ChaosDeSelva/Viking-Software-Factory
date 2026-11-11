@@ -26,7 +26,12 @@ import {
 } from "@sindri/specs";
 import { z } from "zod";
 import { nullLogger, type Logger } from "./logger.js";
-import { classifySystem, DRAFT_INSTRUCTIONS, draftSpecSystem } from "./prompts.js";
+import {
+  classifySystem,
+  DRAFT_INSTRUCTIONS,
+  draftSpecSystem,
+  WORKSPACE_CONTEXT_ID,
+} from "./prompts.js";
 import {
   ProviderError,
   type CompleteRequest,
@@ -146,7 +151,10 @@ export interface DirectorSpecMeta {
   model: string | null;
   runId: string | null;
   answers: AnswerRecord[];
-  /** Secrets redacted from ticket and request text before prompting (ticket text is not changed). */
+  /**
+   * Secrets redacted from ticket and request text before prompting (ticket text is not changed)
+   * and from the drafted text before it was stored.
+   */
   secretsRedacted: number;
 }
 
@@ -264,28 +272,57 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
   const topK = options.topK ?? 8;
   const maxTokens = options.maxTokens ?? 16000;
 
+  const recordFailure = (projectId: string | null, purpose: string, e: unknown) => {
+    // Every provider call is accounted for, including failed validation and refusals.
+    const pe = e instanceof ProviderError ? e : null;
+    recordRun(
+      db,
+      {
+        projectId,
+        purpose,
+        model: pe?.model ?? provider.name,
+        usage: pe?.usage ?? null,
+        outcome: pe?.code ?? "error",
+      },
+      iso(),
+    );
+    log.warn("director.llm.failed", {
+      purpose,
+      projectId,
+      code: pe?.code ?? "error",
+      ...(pe?.detail ? { detail: pe.detail } : {}),
+    });
+  };
+
+  /** Where the provider may read the project's code for this draft, if anywhere. */
+  const draftWorkspace = async (
+    projectId: string,
+    commit?: string,
+    alsoStartsFrom?: readonly string[],
+  ) => {
+    const project = knowledge.projects.get(projectId);
+    if (!project || !options.workspaceFor) return undefined;
+    try {
+      return await options.workspaceFor(
+        { id: project.id, repoPath: project.repoPath },
+        commit ? { commit, alsoStartsFrom: alsoStartsFrom ?? [] } : {},
+      );
+    } catch (e) {
+      recordFailure(projectId, "draft_spec", e);
+      throw e;
+    }
+  };
+
+  // Classification is a quick label; only drafting is worth a read of the repository.
   const call = async <T>(
     projectId: string | null,
     purpose: string,
     req: Omit<CompleteRequest<T>, "metadata">,
-    workspaceCommit?: string,
-    workspaceAlsoStartsFrom?: readonly string[],
+    workspace?: { path: string; label?: string },
   ) => {
     log.info("director.llm", { purpose, provider: provider.name, projectId });
     let res: CompleteResult<T>;
     try {
-      // Classification is a quick label; only drafting is worth a read of the repository.
-      const project =
-        projectId && purpose !== "classify" ? knowledge.projects.get(projectId) : undefined;
-      const workspace =
-        project && options.workspaceFor
-          ? await options.workspaceFor(
-              { id: project.id, repoPath: project.repoPath },
-              workspaceCommit
-                ? { commit: workspaceCommit, alsoStartsFrom: workspaceAlsoStartsFrom ?? [] }
-                : {},
-            )
-          : undefined;
       res = await provider.complete<T>({
         ...req,
         metadata: { purpose },
@@ -293,20 +330,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         ...(workspace?.label ? { workspaceLabel: workspace.label } : {}),
       });
     } catch (e) {
-      // Every provider call is accounted for, including failed validation and refusals.
-      const pe = e instanceof ProviderError ? e : null;
-      recordRun(
-        db,
-        {
-          projectId,
-          purpose,
-          model: pe?.model ?? provider.name,
-          usage: pe?.usage ?? null,
-          outcome: pe?.code ?? "error",
-        },
-        iso(),
-      );
-      log.warn("director.llm.failed", { purpose, projectId, code: pe?.code ?? "error" });
+      recordFailure(projectId, purpose, e);
       throw e;
     }
     if (res.parsed === undefined) {
@@ -591,6 +615,23 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
           text: analysis.structure,
           ref: { documentId: analysis.structureDocumentId },
         });
+      // What the model reads in the repository has no block of its own to cite, so the
+      // repository gets one: without it every claim taken from the code would be demoted to an
+      // unverified assumption. Only when this provider is really given the files.
+      const workspace = await draftWorkspace(
+        projectId,
+        input.workspaceCommit,
+        input.workspaceAlsoStartsFrom,
+      );
+      const repository = Boolean(workspace && provider.readsWorkspace);
+      if (repository)
+        items.push({
+          id: WORKSPACE_CONTEXT_ID,
+          kind: "repo",
+          title: "project repository",
+          text: `The project repository at the working directory.${workspace?.label ? ` ${workspace.label}` : ""} Cite this id for a claim taken from a file you read there, and name the file path in the claim.`,
+          ref: null,
+        });
       // Audit M7: repo-derived items with secret material never reach the provider.
       for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
@@ -633,7 +674,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         projectId,
         "draft_spec",
         {
-          system: draftSpecSystem(nonce),
+          system: draftSpecSystem(nonce, { repository }),
           messages: [
             {
               role: "user",
@@ -644,12 +685,16 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
           temperature: 0,
           responseSchema: DraftOutputSchema,
         },
-        input.workspaceCommit,
-        input.workspaceAlsoStartsFrom,
+        workspace,
       );
 
       // 4. Resolve citations deterministically; uncited or unknown-cited claims become assumptions.
-      const clean = (s: string) => redactInjections(s.trim());
+      // The drafter reads files, so its text is scanned for secrets like any other repo text.
+      const clean = (s: string) => {
+        const r = redactSecrets(s.trim());
+        secretsRedacted += r.count;
+        return redactInjections(r.text);
+      };
       const unverified: UnverifiedClaim[] = [];
       const assumptions: SpecBody["assumptions"] = draft.assumptions
         .map((a) => ({ text: clean(a.text), risk: a.risk }))
@@ -715,7 +760,9 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         }
         acceptanceCriteria.push({ id: ac.id.trim(), text, verification: ac.verification });
         // Decisions are citable but specs cannot reference them; flag the borrowed intake ref.
-        if (!r.refs.length) decisionOnly.push(ac.id.trim());
+        // (The repository has no spec ref either, but a file read is not a decision.)
+        if (!r.refs.length && ac.citations.some((c) => byId.get(c)?.kind === "decision"))
+          decisionOnly.push(ac.id.trim());
         acProv[ac.id.trim()] = r.refs.length ? dedupeRefs(r.refs) : [intakeRef];
       }
       const openQuestions: OpenQuestion[] = draft.openQuestions
@@ -753,6 +800,7 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         openQuestions: openQuestions.length ? [intakeRef] : [],
         acceptanceCriteria: acProv,
       };
+      const title = clean(draft.title) || clean(ticket.title) || "Untitled specification";
       const meta: DirectorSpecMeta = {
         untrustedInstructionDetected: findings.length > 0,
         injectionFindings: findings,
@@ -765,7 +813,6 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         answers: [],
         secretsRedacted,
       };
-      const title = clean(draft.title) || clean(ticket.title) || "Untitled specification";
       let spec: Specification;
       try {
         spec = db.transaction(() => {

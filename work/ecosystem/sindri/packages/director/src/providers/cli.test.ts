@@ -160,3 +160,43 @@ it("keeps a Codex planner on the supplied context: it gets no workspace to read"
   });
   expect((JSON.parse(result.text) as { cwd: string }).cwd).toContain("sindri-director-");
 });
+
+it("says why a CLI failed: not signed in, rate limited, timed out, or the CLI's own words", async () => {
+  const claude = (source: string, timeoutMs?: number) =>
+    new CliProvider({
+      kind: "claude-cli",
+      executable: executable(source),
+      ...(timeoutMs ? { timeoutMs } : {}),
+    })
+      .complete(request)
+      .catch((e: unknown) => e);
+
+  expect(
+    await claude(`console.error('Invalid API key · Please run /login'); process.exit(1);`),
+  ).toMatchObject({ code: "auth", detail: "Invalid API key · Please run /login" });
+  // The Claude CLI reports errors as a JSON result, with or without a failing exit status.
+  expect(
+    await claude(
+      `console.log(JSON.stringify({is_error:true,result:'OAuth token has expired. Please run /login'})); process.exit(1);`,
+    ),
+  ).toMatchObject({ code: "auth", detail: "OAuth token has expired. Please run /login" });
+  expect(
+    await claude(
+      `console.log(JSON.stringify({is_error:true,result:'API Error: 429 rate_limit_error: usage limit reached'}));`,
+    ),
+  ).toMatchObject({ code: "rate_limited", detail: expect.stringContaining("429") });
+  expect(await claude(`setInterval(()=>{},1000);`, 100)).toMatchObject({
+    code: "timeout",
+    message: expect.stringMatching(/time limit/),
+  });
+
+  const secret = "sk-ant-api03-" + "Z9y8X7w6V5u4T3s2R1q0".repeat(4);
+  const other = (await claude(
+    `console.error('x'.repeat(5000) + ' model not found: opus-9 key ${secret}'); process.exit(3);`,
+  )) as { code: string; message: string; detail: string };
+  expect(other.code).toBe("api_error");
+  expect(other.message).toMatch(/exited with status 3/);
+  expect(other.detail).toContain("model not found: opus-9");
+  expect(other.detail).not.toContain(secret);
+  expect(other.detail.length).toBeLessThanOrEqual(600);
+}, 30_000);

@@ -81,4 +81,33 @@ describe("deriveWorkAreas", () => {
       deriveWorkAreas({ acceptanceCriteria: [ac("AC-1", "Update README examples")] }),
     ).toMatchObject([{ kind: "docs", acceptanceCriteria: ["AC-1"] }]);
   });
+
+  it("gives a security-only ticket an implementation area, so someone builds the fix", () => {
+    const areas = deriveWorkAreas({
+      acceptanceCriteria: [
+        ac("AC-1", "The session secret is rotated on every deploy"),
+        ac("AC-2", "The threat model in the documentation covers credential stuffing"),
+        ac("AC-3", "The changelog mentions it"),
+      ],
+    });
+    expect(areas.map((a) => [a.kind, a.acceptanceCriteria])).toEqual([
+      ["backend", ["AC-1", "AC-2"]],
+      ["security", ["AC-1", "AC-2"]],
+      ["docs", ["AC-2", "AC-3"]],
+    ]);
+    expect(areas[0]!.reasons).toContain("AC-1 matches no implementation area; assigned to backend");
+    // A path-derived docs area does not count as implementation either.
+    expect(
+      deriveWorkAreas(
+        { acceptanceCriteria: [ac("AC-1", "No XSS in rendered names")] },
+        { impactedSystems: [{ area: "docs", paths: ["docs/security.md"] }] },
+      ).map((a) => a.kind),
+    ).toEqual(["backend", "security", "docs"]);
+    // An implementation area that was derived is left alone.
+    expect(
+      deriveWorkAreas({
+        acceptanceCriteria: [ac("AC-1", "The button escapes input against XSS")],
+      }).map((a) => a.kind),
+    ).toEqual(["frontend", "security"]);
+  });
 });

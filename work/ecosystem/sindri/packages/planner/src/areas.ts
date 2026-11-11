@@ -118,12 +118,15 @@ export function deriveWorkAreas(spec: AreaInput, repoIndex: RepoIndex = {}): Wor
   };
 
   const unmatched: string[] = [];
+  /** Criteria that mention something other than documentation: someone has to build them. */
+  const toBuild: string[] = [];
   for (const c of spec.acceptanceCriteria) {
     let hit = false;
     for (const kind of AREA_KINDS) {
       const word = keywordHit(kind, c.text);
       if (!word) continue;
       hit = true;
+      if (kind !== "docs" && !toBuild.includes(c.id)) toBuild.push(c.id);
       const a = area(kind);
       a.acceptanceCriteria.push(c.id);
       a.reasons.push(`${c.id} mentions "${word}"`);
@@ -159,6 +162,16 @@ export function deriveWorkAreas(spec: AreaInput, repoIndex: RepoIndex = {}): Wor
         a.acceptanceCriteria.push(id);
         a.reasons.push(`${id} has no area keyword; assigned to ${kind}`);
       }
+    }
+  }
+
+  // Security and docs areas only review and document. When the criteria matched nothing but
+  // those (a security-only ticket), the work itself still needs an implementer.
+  if (toBuild.length > 0 && !IMPLEMENTATION.some((k) => areas.has(k))) {
+    const a = area("backend");
+    for (const id of toBuild) {
+      a.acceptanceCriteria.push(id);
+      a.reasons.push(`${id} matches no implementation area; assigned to backend`);
     }
   }
 

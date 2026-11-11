@@ -172,6 +172,14 @@ export function createStores(db: SqliteDatabase, clock: () => Date) {
       const rows = db.prepare("SELECT * FROM projects ORDER BY created_at, rowid").all();
       return (rows as ProjectRow[]).map(toProject);
     },
+    /** Replaces the project's settings object. */
+    setSettings(id: string, settings: Record<string, unknown>): Project {
+      const done = db
+        .prepare("UPDATE projects SET settings_json = ?, updated_at = ? WHERE id = ?")
+        .run(JSON.stringify(settings), iso(), id);
+      if (done.changes === 0) throw new SindriError("not_found", `unknown project ${id}`);
+      return projects.get(id) as Project;
+    },
     /**
      * Delete a project and every row that holds its content. Rows in other Sindri packages
      * go with it through `ON DELETE CASCADE` or the purge hooks they register

@@ -53,24 +53,35 @@ export interface StreamChunk {
 /** Provider-neutral LLM interface. Output is advisory; callers validate it. */
 export interface LlmProvider {
   readonly name: string;
+  /** True when `complete` lets the model read the files under `workspace`. */
+  readonly readsWorkspace?: boolean;
   complete<T = unknown>(req: CompleteRequest<T>): Promise<CompleteResult<T>>;
   stream?(req: CompleteRequest): AsyncIterable<StreamChunk>;
 }
 
 export type ProviderErrorCode =
-  "provider_unavailable" | "invalid_output" | "refused" | "auth" | "rate_limited" | "api_error";
+  | "provider_unavailable"
+  | "invalid_output"
+  | "refused"
+  | "auth"
+  | "rate_limited"
+  | "timeout"
+  | "api_error";
 
 export interface ProviderErrorDetails {
   /** Tokens consumed by the failed call, when the provider measured them. */
   usage?: LlmUsage | null;
   /** Model that served the failed call. */
   model?: string;
+  /** What the provider itself reported (a bounded, secret-redacted excerpt), for the operator. */
+  detail?: string;
 }
 
 export class ProviderError extends Error {
   override readonly name = "ProviderError";
   readonly usage: LlmUsage | null;
   readonly model: string | undefined;
+  readonly detail: string | undefined;
   constructor(
     readonly code: ProviderErrorCode,
     message: string,
@@ -79,6 +90,7 @@ export class ProviderError extends Error {
     super(message);
     this.usage = details.usage ?? null;
     this.model = details.model;
+    this.detail = details.detail;
   }
 
   /** Same error with usage/model attached (keeps the code and message). */
@@ -86,6 +98,7 @@ export class ProviderError extends Error {
     return new ProviderError(this.code, this.message, {
       usage: this.usage ?? details.usage ?? null,
       ...((this.model ?? details.model) ? { model: (this.model ?? details.model)! } : {}),
+      ...((this.detail ?? details.detail) ? { detail: (this.detail ?? details.detail)! } : {}),
     });
   }
 }

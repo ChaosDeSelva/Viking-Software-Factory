@@ -346,6 +346,211 @@ describe("requesting changes to a delivery", () => {
   });
 });
 
+describe("requesting changes: one open rework, and a failed link is not silent", () => {
+  it("refuses a second rework while the first spec is unapproved, naming that spec", async () => {
+    const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const rework = (feedback: string) =>
+      flow.h.call({
+        method: "POST",
+        url: `/v1/deliveries/${execution.id}/rework`,
+        payload: { feedback },
+      });
+    const first = await rework("Use ISO dates in the export.");
+    expect(first.statusCode).toBe(201);
+    const { rework: saved, spec } = first.json();
+
+    const again = await rework("Also quote every field.");
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error).toMatchObject({
+      code: "invalid_state",
+      details: { reworkId: saved.id, specId: spec.id, specLineageId: spec.lineageId },
+    });
+    expect(again.json().error.message).toContain(spec.id);
+    expect(
+      (await flow.h.call({ url: `/v1/deliveries/${execution.id}/reworks` })).json().reworks,
+    ).toHaveLength(1);
+
+    // Once that spec is approved the delivery can be sent back again.
+    await approveDraft(flow, spec.id);
+    expect((await rework("Also quote every field.")).statusCode).toBe(201);
+  });
+
+  it("names the orphaned spec and warns against approving it when the link cannot be saved", async () => {
+    const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    flow.h.db.exec(
+      `CREATE TRIGGER rework_insert_fails BEFORE INSERT ON rework_requests
+       BEGIN SELECT RAISE(ABORT, 'disk full'); END`,
+    );
+    const before = (await flow.h.call({ url: `/v1/specs?projectId=${flow.projectId}` })).json()
+      .specs as { id: string }[];
+    const res = await flow.h.call({
+      method: "POST",
+      url: `/v1/deliveries/${execution.id}/rework`,
+      payload: { feedback: "Use ISO dates in the export." },
+    });
+    expect(res.statusCode).toBe(500);
+    const after = (await flow.h.call({ url: `/v1/specs?projectId=${flow.projectId}` })).json()
+      .specs as { id: string; lineageId: string }[];
+    const orphan = after.find((sp) => !before.some((b) => b.id === sp.id))!;
+    expect(res.json().error).toMatchObject({
+      code: "internal",
+      details: { specId: orphan.id, specLineageId: orphan.lineageId },
+    });
+    expect(res.json().error.message).toContain(orphan.id);
+    expect(res.json().error.message).toMatch(/Do not approve/);
+    expect(res.json().error.message).not.toMatch(/disk full/);
+    expect(
+      (await flow.h.call({ url: `/v1/deliveries/${execution.id}/reworks` })).json().reworks,
+    ).toEqual([]);
+  });
+});
+
+describe("reviews inbox: finished runs", () => {
+  it("drops the escalations of a run once it is cancelled", async () => {
+    const flow = (f = await startMimirFlow({
+      qa: [
+        { kind: "fail", reason: "flaky" },
+        { kind: "fail", reason: "flaky" },
+      ],
+    }));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "awaiting_human");
+    expect((await reviews(flow)).escalations).toHaveLength(1);
+    const res = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/escalations/qa`,
+      payload: { decision: "abort", reason: "not worth it" },
+    });
+    expect(res.statusCode).toBe(200);
+    await until(statusOf(flow, execution.id), (s) => s === "cancelled");
+    // The task keeps its escalation as a record; the inbox no longer offers it.
+    const view = (await flow.h.call({ url: `/v1/executions/${execution.id}` })).json();
+    expect(view.tasks.find((t: { planTaskId: string }) => t.planTaskId === "qa").escalation).toBe(
+      "ask",
+    );
+    expect((await reviews(flow)).escalations).toEqual([]);
+  });
+});
+
+describe("deliveries when Mimir cannot be reached or answers badly", () => {
+  it("answers 503 mimir_unavailable instead of 500", async () => {
+    const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
+    const { plan, execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    await assessed(flow, execution.id, plan.tasks.length);
+    await until(
+      async () => (await flow.h.call({ url: `/v1/deliveries/${execution.id}` })).statusCode,
+      (c) => c === 200,
+    );
+    await flow.fake.stop();
+    for (const req of [
+      { url: `/v1/deliveries/${execution.id}/local` },
+      { url: `/v1/deliveries/${execution.id}/trace` },
+      {
+        method: "POST" as const,
+        url: `/v1/deliveries/${execution.id}/rework`,
+        payload: { feedback: "Use ISO dates." },
+      },
+      { method: "POST" as const, url: `/v1/executions/${execution.id}/assess`, payload: {} },
+    ]) {
+      const res = await flow.h.call(req);
+      expect([req.url, res.statusCode, res.json().error?.code]).toEqual([
+        req.url,
+        503,
+        "mimir_unavailable",
+      ]);
+    }
+  });
+
+  it("answers 503 when the PR request cannot reach Mimir", async () => {
+    // With the fake Mimir the quality gates never pass, so the connection failure is injected
+    // where the S6 service would make the request.
+    const stub: Partial<DeliveryService> = {
+      kind: "s6",
+      assess: () => Promise.resolve(),
+      gateResults: () => [],
+      reviews: () => [],
+      requestPr: () => Promise.reject(new TypeError("fetch failed")),
+    };
+    const flow = (f = await startMimirFlow({}, { deliveryService: stub as DeliveryService }));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const pr = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/pr`,
+      headers: await flow.h.approvalHeaders(),
+    });
+    expect(pr.statusCode).toBe(503);
+    expect(pr.json().error.code).toBe("mimir_unavailable");
+  });
+
+  /** The fake labels its events `fake-mimir`; `/local` only trusts Mimir's own server. */
+  const asMimirServer: typeof fetch = async (input, init) => {
+    const res = await fetch(input, init);
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (!new URL(url).pathname.endsWith("/v1/events")) return res;
+    const text = (await res.text()).replaceAll('"source":"fake-mimir"', '"source":"mimir.server"');
+    return new Response(text, { status: res.status, headers: res.headers });
+  };
+  const withLocalDelivery = (content: string) =>
+    startMimirFlow(
+      {
+        qa: [
+          {
+            kind: "complete",
+            artifacts: ["diff", "changed-files", "test.output", "local_delivery"],
+            contents: { local_delivery: content },
+          },
+        ],
+      },
+      { mimirFetch: asMimirServer },
+    );
+
+  it("serves the local patch byte for byte, past the display limit, and sanitizes the rest", async () => {
+    const patch =
+      "diff --git a/index.html b/index.html\n--- a/index.html\n+++ b/index.html\n@@ -1 +1,2 @@\n" +
+      " <div>\n+<script>render()</script>\n" +
+      "+<!-- pad -->\n".repeat(6000);
+    expect(patch.length).toBeGreaterThan(64 * 1024);
+    const flow = (f = await withLocalDelivery(
+      JSON.stringify({
+        baseSha: "a".repeat(40),
+        resultCommit: "b".repeat(40),
+        patch,
+        repoPath: "/repos/app<script>x</script>",
+        apply: "git apply change.patch",
+        undo: "git apply -R change.patch",
+      }),
+    ));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const res = await flow.h.call({ url: `/v1/deliveries/${execution.id}/local` });
+    expect(res.statusCode).toBe(200);
+    const { result } = res.json();
+    expect(result.patch).toBe(patch);
+    expect(result.repoPath).not.toContain("<script>");
+    expect(result.apply).toBe("git apply change.patch");
+    // Still behind the bearer token.
+    expect(
+      (await flow.h.app.inject({ url: `/v1/deliveries/${execution.id}/local` })).statusCode,
+    ).toBe(401);
+  });
+
+  it("answers 502 when the stored local delivery result is not readable", async () => {
+    const flow = (f = await withLocalDelivery("this is not json"));
+    const { execution } = await run(flow);
+    await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    const res = await flow.h.call({ url: `/v1/deliveries/${execution.id}/local` });
+    expect(res.statusCode).toBe(502);
+    expect(res.json().error.code).toBe("mimir_error");
+    expect(res.json().error.message).toMatch(/local delivery result Sindri cannot read/);
+  });
+});
+
 describe("mimir status", () => {
   it("reports configuration and reachability", async () => {
     const flow = (f = await startMimirFlow());

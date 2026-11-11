@@ -55,6 +55,12 @@ export function parseBody<T>(schema: ZodType<T>, value: unknown): T {
   return r.data;
 }
 
+const PROVIDER_HINTS: Partial<Record<ProviderError["code"], string>> = {
+  auth: "the provider is not signed in or its credentials expired; sign in and retry",
+  rate_limited: "the provider's rate or usage limit was reached; retry later",
+  timeout: "the provider did not answer within its time limit; retry, or narrow the request",
+};
+
 /**
  * Map errors to API errors by type and stable code only. Package errors are `SindriError`s
  * (`not_found` / `validation_failed` / `invalid_state` / `no_connector`); provider and
@@ -67,9 +73,19 @@ export function toApiError(err: unknown): ApiError {
     return new ApiError(422, "validation_failed", "validation failed", err.issues);
   if (isSindriError(err)) return new ApiError(err.status, err.code, err.message);
   if (err instanceof ProviderError) {
+    // The code says why; `detail` is what the provider itself reported (bounded and
+    // secret-redacted where it is made), so an operator can tell a login from a limit.
+    const hint = PROVIDER_HINTS[err.code];
+    const suffix = `(${err.code})${hint ? `: ${hint}` : ""}`;
+    const details = err.detail ? { reason: err.detail } : undefined;
     if (err.code === "provider_unavailable" || err.code === "auth" || err.code === "rate_limited")
-      return new ApiError(503, "provider_unavailable", `LLM provider unavailable (${err.code})`);
-    return new ApiError(503, "provider_error", `LLM provider error (${err.code})`);
+      return new ApiError(
+        503,
+        "provider_unavailable",
+        `LLM provider unavailable ${suffix}`,
+        details,
+      );
+    return new ApiError(503, "provider_error", `LLM provider error ${suffix}`, details);
   }
   if (err instanceof ConnectorError)
     return new ApiError(503, "connector_failed", "the ticket system request failed");

@@ -15,15 +15,26 @@ ${dataRules(nonce)}
 
 Choose exactly one kind: feature, bug, investigation, refactor or docs. List the impacted areas (short names of subsystems, packages or directories) that the request clearly touches. Give a confidence between 0 and 1.`;
 
+/**
+ * Citation id for claims that come from files the model read in the workspace: the one source
+ * that has no block text of its own.
+ */
+export const WORKSPACE_CONTEXT_ID = "repo:workspace";
+
+/**
+ * `repository` is set when the provider can read the project's files: such claims then have a
+ * citable source of their own, so reading the code and the citation rule do not contradict.
+ */
 export const draftSpecSystem = (
   nonce: string,
+  opts: { repository?: boolean } = {},
 ) => `You draft software specifications for an engineering planning tool. Your output is advisory; it is validated and reviewed by people.
 
 ${dataRules(nonce)}
 
 Rules:
-1. Do not invent facts. Use only what appears in the provided context blocks. If you do not know something, do not state it as fact.
-2. Every claim (problem, goals, non-goals, constraints, risks, acceptance criteria) must cite one or more context ids, using the exact id attribute of the block it came from (for example "chunk:12" or "knowledge:..."). Never cite an id that is not in the context. Claims without valid citations will be treated as unverified assumptions.
+1. Do not invent facts. Use only what appears in the provided context blocks${opts.repository ? " and in the files you read in the project repository" : ""}. If you do not know something, do not state it as fact.
+2. Every claim (problem, goals, non-goals, constraints, risks, acceptance criteria) must cite one or more context ids, using the exact id attribute of the block it came from (for example "chunk:12" or "knowledge:..."). Never cite an id that is not in the context. Claims without valid citations will be treated as unverified assumptions.${opts.repository ? ` The block "${WORKSPACE_CONTEXT_ID}" stands for the project repository at the working directory: cite "${WORKSPACE_CONTEXT_ID}" for a claim that comes from a file you read there, and name that file's path in the claim text. Do not cite it for anything you did not read in a file.` : ""}
 3. When something needed is unknown but a safe default exists, record it as a labelled assumption with a risk level (low, medium or high) instead of asking.
 4. Open questions are only for material blockers: ask a question only when no safe assumption exists and the answer would change the work. Mark such questions blocking: true. Keep non-blocking questions to a minimum. For every question give a recommendation: the answer you would choose, written so it can be accepted as the answer unchanged, and a rationale: one to three sentences on why, naming the files or context that point that way. When the decision belongs to a named person, recommend the option the evidence favours and say who must confirm it. Leave both empty only when nothing in the context or the repository favours any answer.
 5. Acceptance criteria must be verifiable; give each a short unique id like "AC1" and a verification method (test, manual or screenshot).
