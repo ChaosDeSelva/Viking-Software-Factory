@@ -15,6 +15,7 @@ export type MockApi = { [K in keyof ApiClient]: Mock };
 export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): MockApi {
   const names: (keyof ApiClient)[] = [
     "health",
+    "streamChanges",
     "askGuide",
     "capabilities",
     "listProjects",
@@ -69,6 +70,12 @@ export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): M
           : () => Promise.resolve(impl),
     );
   }
+  // The change stream connects (version 0) and stays open unless a test says otherwise.
+  if (over.streamChanges === undefined)
+    api.streamChanges = vi.fn((onChange: (v: number) => void) => {
+      onChange(0);
+      return new Promise<void>(() => undefined);
+    });
   // Approvals are unlocked unless a test says otherwise (audit M9 has its own tests).
   if (over.hasApprovalSession === undefined) api.hasApprovalSession = vi.fn(() => true);
   if (over.forgetApproval === undefined) api.forgetApproval = vi.fn();

@@ -20,7 +20,7 @@ import {
 } from "@factory/ui";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { switcherApps } from "../config.js";
-import { useApi, useReportError, useStore } from "../store/context.js";
+import { useApi, useLive, useReportError, useStore } from "../store/context.js";
 import type { View } from "../store/reducer.js";
 import { appHref, routeHash } from "../store/route.js";
 import { ApprovalUnlock } from "./ApprovalUnlock.js";
@@ -126,43 +126,28 @@ export function SindriLinks(props: { children: ReactNode }) {
   );
 }
 
-/** Polls `/v1/health` so the bottom bar can say Live / Offline; Reconnect re-checks now. */
+/** The bottom bar's state is the change stream's: Live means pages update as Sindri changes. */
 function useConnection(): { state: ConnectionState; detail: string; reconnect: () => void } {
-  const api = useApi();
-  const [state, setState] = useState<ConnectionState>("connecting");
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let live = true;
-    const check = () =>
-      api.health().then(
-        () => live && setState("live"),
-        () => live && setState("offline"),
-      );
-    void check();
-    const t = setInterval(check, 30_000);
-    return () => {
-      live = false;
-      clearInterval(t);
-    };
-  }, [api, tick]);
+  const live = useLive();
+  const host = location.host || "local";
   return {
-    state,
+    state: live.state,
     detail:
-      state === "live"
-        ? `Connected to the Sindri server (${location.host || "local"})`
-        : state === "offline"
+      live.state === "live"
+        ? `Live: pages update as Sindri changes (${host})`
+        : live.state === "offline"
           ? "Cannot reach the Sindri server; showing what was loaded last"
-          : "Checking the Sindri server…",
-    reconnect: () => {
-      setState("connecting");
-      setTick((n) => n + 1);
-    },
+          : live.state === "reconnecting"
+            ? "Lost the live connection to Sindri; reconnecting"
+            : "Connecting to the Sindri server…",
+    reconnect: live.reconnect,
   };
 }
 
 /** Items waiting for the operator in this project (approvals, escalations, budget blocks). */
 function useNeedsYouCount(projectId: string | null, view: View): number | undefined {
   const api = useApi();
+  const { version } = useLive();
   const [count, setCount] = useState<number>();
   useEffect(() => {
     if (!projectId) return setCount(undefined);
@@ -179,8 +164,8 @@ function useNeedsYouCount(projectId: string | null, view: View): number | undefi
     return () => {
       live = false;
     };
-    // Refreshed on every navigation: cheap, and the count follows decisions made elsewhere.
-  }, [api, projectId, view]);
+    // Refreshed on every navigation and every change Sindri reports.
+  }, [api, projectId, view, version]);
   return count;
 }
 
@@ -281,11 +266,12 @@ export function Layout(props: { children: ReactNode }) {
   const narrow = useNarrow();
 
   // The project picker needs the list on every screen, not only on Projects (which loads and
-  // refreshes it itself). Layout mounts once per sign-in.
+  // refreshes it itself). Reloaded when Sindri reports a change, so new projects appear.
+  const { version } = useLive();
   useEffect(() => {
     if (state.view === "projects") return;
     api.listProjects().then((projects) => dispatch({ type: "projects/loaded", projects }), report);
-  }, [api]);
+  }, [api, version]);
 
   // A Guide link (or any navigation) closes the Ask drawer so the screen is visible.
   useEffect(() => setAskOpen(false), [state.view, state.projectId]);

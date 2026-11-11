@@ -10,10 +10,10 @@ import {
   Toolbar,
   type Column,
 } from "@factory/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BootstrapResult, Project } from "../api/types.js";
 import { Badge, Button, Field, inputClass, ScreenHeader, Card } from "../components/ui.js";
-import { useApi, useReportError, useStore } from "../store/context.js";
+import { useApi, useLive, useReportError, useStore } from "../store/context.js";
 
 const PAGE_SIZE = 15;
 
@@ -50,6 +50,16 @@ export function ProjectsScreen() {
     );
   };
   useEffect(load, []);
+  // Quiet refresh when Sindri reports a change: the list stays on screen while it reloads.
+  const { version } = useLive();
+  const firstVersion = useRef(version);
+  useEffect(() => {
+    if (version === firstVersion.current) return;
+    api.listProjects().then(
+      (projects) => dispatch({ type: "projects/loaded", projects }),
+      () => undefined,
+    );
+  }, [version]);
   useEffect(() => setPage(1), [filter]);
 
   const create = async () => {

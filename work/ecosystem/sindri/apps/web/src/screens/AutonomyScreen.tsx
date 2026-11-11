@@ -4,8 +4,6 @@ import {
   acceptNeedsApproval,
   type Decision,
   type FeedbackGraphStatus,
-  type StewardNote,
-  type StewardStatus,
   type StewardType,
 } from "../api/steward-types.js";
 import { Callout, Cluster, InfoHint, Page, Stack, Toolbar } from "@factory/ui";
@@ -22,7 +20,7 @@ import {
   textareaClass,
   Card,
 } from "../components/ui.js";
-import { useApi, useReportError, useStore, type Loadable } from "../store/context.js";
+import { useApi, useLoad, useReportError, useStore, type Loadable } from "../store/context.js";
 import type { Action } from "../store/reducer.js";
 
 /** How often the decision log refreshes while the page is visible. */
@@ -186,26 +184,13 @@ function fgLine(fg: FeedbackGraphStatus | undefined): { text: string; status: st
 function StewardPanel() {
   const api = useApi();
   const report = useReportError();
-  const [status, setStatus] = useState<Loadable<StewardStatus>>({ status: "loading" });
   const [tick, setTick] = useState(0);
+  // useLoad also refreshes it quietly when Sindri reports a change.
+  const statusLoad = useLoad(() => api.stewardStatus(), [api, tick]);
+  const status = statusLoad.state;
+  const setStatus = statusLoad.setState;
   const [busy, setBusy] = useState(false);
   const [, setUnlockTick] = useState(0);
-
-  useEffect(() => {
-    let live = true;
-    setStatus({ status: "loading" });
-    api.stewardStatus().then(
-      (data) => live && setStatus({ status: "ready", data }),
-      (e: unknown) => {
-        if (!live) return;
-        if (e instanceof ApiError && e.status === 401) report(e);
-        setStatus({ status: "error", error: message(e) });
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [api, tick]);
 
   const run = (fn: () => Promise<void>) => {
     setBusy(true);
@@ -788,28 +773,14 @@ function NotesFeed({ projectId }: { projectId: string | null }) {
   const api = useApi();
   const report = useReportError();
   const { state, dispatch } = useStore();
-  const [notes, setNotes] = useState<Loadable<StewardNote[]>>({ status: "loading" });
   const [tick, setTick] = useState(0);
+  const notesLoad = useLoad(() => api.listStewardNotes(projectId), [api, projectId, tick]);
+  const notes = notesLoad.state;
+  const setNotes = notesLoad.setState;
   const [text, setText] = useState("");
   const [target, setTarget] = useState<"project" | "global">(projectId ? "project" : "global");
   const [busy, setBusy] = useState(false);
   const noteProject = target === "project" ? (projectId ?? state.projectId) : null;
-
-  useEffect(() => {
-    let live = true;
-    setNotes({ status: "loading" });
-    api.listStewardNotes(projectId).then(
-      (data) => live && setNotes({ status: "ready", data }),
-      (e: unknown) => {
-        if (!live) return;
-        if (e instanceof ApiError && e.status === 401) report(e);
-        setNotes({ status: "error", error: message(e) });
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [api, projectId, tick]);
 
   return (
     <Card title="Notes for the steward" term="Notes for the steward">

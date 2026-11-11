@@ -4,10 +4,12 @@ import {
   useContext,
   useEffect,
   useReducer,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
 } from "react";
+import type { ConnectionState } from "@factory/ui";
 import { ApiError, type ApiClient } from "../api/client.js";
 import { initialState, reducer, type Action, type State } from "./reducer.js";
 import { parseHash, routeHash } from "./route.js";
@@ -21,6 +23,96 @@ const StoreContext = createContext<Store | null>(null);
 const ApiContext = createContext<ApiClient | null>(null);
 
 export const TOKEN_KEY = "sindri.token";
+
+/** The server's change stream: its connection state, and a version that moves after any write. */
+export interface LiveChanges {
+  state: ConnectionState;
+  version: number;
+  reconnect: () => void;
+}
+const LiveContext = createContext<LiveChanges>({
+  state: "connecting",
+  version: 0,
+  reconnect: () => undefined,
+});
+/** Backoff between reconnect attempts; after the third failure the bar says Offline. */
+const RETRY_MS = [1_000, 2_000, 5_000, 10_000];
+/** Writes during a run arrive several times a second; pages refresh at most this often. */
+export const REFRESH_THROTTLE_MS = 1_000;
+
+/** Keeps `/v1/changes` open while signed in, reconnecting with backoff when it drops. */
+function useChangeStream(
+  api: ApiClient,
+  token: string | null,
+  onRejected: () => void,
+): LiveChanges {
+  const [state, setState] = useState<ConnectionState>("connecting");
+  const [version, setVersion] = useState(0);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!token) return;
+    const ctrl = new AbortController();
+    let latest: number | null = null;
+    let shown: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    // Trailing throttle: the first change shows at once, a burst collapses into one refresh.
+    const publish = () => {
+      timer = undefined;
+      if (latest === null || latest === shown) return;
+      shown = latest;
+      setVersion((v) => v + 1);
+      timer = setTimeout(publish, REFRESH_THROTTLE_MS);
+    };
+    const connect = () => {
+      setState(failures === 0 ? "connecting" : failures < 3 ? "reconnecting" : "offline");
+      api
+        .streamChanges((v) => {
+          failures = 0;
+          setState("live");
+          // The first version after (re)connecting only sets the baseline, unless a change was
+          // missed while disconnected: then the pages catch up.
+          if (shown === null) {
+            shown = latest = v;
+            return;
+          }
+          latest = v;
+          if (!timer) publish();
+        }, ctrl.signal)
+        .then(
+          () => undefined,
+          (err: unknown) => {
+            if (err instanceof ApiError && err.status === 401) {
+              onRejected();
+              return "stop";
+            }
+            return undefined;
+          },
+        )
+        .then((outcome) => {
+          if (ctrl.signal.aborted || outcome === "stop") return;
+          // A server restart resets its version, so the next connect re-baselines and refreshes.
+          shown = shown === null ? null : -1;
+          failures += 1;
+          setState(failures < 3 ? "reconnecting" : "offline");
+          retry = setTimeout(connect, RETRY_MS[Math.min(failures - 1, RETRY_MS.length - 1)]);
+        });
+    };
+    connect();
+    return () => {
+      ctrl.abort();
+      clearTimeout(timer);
+      clearTimeout(retry);
+    };
+  }, [api, token, attempt]);
+  return { state, version, reconnect: () => setAttempt((n) => n + 1) };
+}
+
+/** Live connection state and the change version, for the bottom bar and useLoad. */
+export function useLive(): LiveChanges {
+  return useContext(LiveContext);
+}
 /** Pre-redesign theme key; moved once to the shared `factory-theme` the bottom bar owns. */
 const LEGACY_THEME_KEY = "sindri.theme";
 
@@ -86,9 +178,13 @@ export function AppProviders(props: {
     };
   }, []);
 
+  const live = useChangeStream(props.api, state.token, () => dispatch({ type: "auth/rejected" }));
+
   return (
     <ApiContext.Provider value={props.api}>
-      <StoreContext.Provider value={{ state, dispatch }}>{props.children}</StoreContext.Provider>
+      <StoreContext.Provider value={{ state, dispatch }}>
+        <LiveContext.Provider value={live}>{props.children}</LiveContext.Provider>
+      </StoreContext.Provider>
     </ApiContext.Provider>
   );
 }
@@ -124,26 +220,57 @@ export function useReportError() {
 export type Loadable<T> =
   { status: "loading" } | { status: "error"; error: string } | { status: "ready"; data: T };
 
-/** Load data for a screen; `reload()` re-runs the loader. A null loader stays idle (loading). */
+/**
+ * Load data for a screen; `reload()` re-runs the loader. A null loader stays idle (loading).
+ * When the server reports a change the loader re-runs quietly: the current data stays on screen,
+ * a failed refresh keeps it, and an unchanged answer keeps the same object so nothing re-renders
+ * (forms seeded from it are not reset).
+ */
 export function useLoad<T>(loader: (() => Promise<T>) | null, deps: unknown[]) {
   const [state, setState] = useState<Loadable<T>>({ status: "loading" });
   const [tick, setTick] = useState(0);
+  const { version } = useLive();
   const report = useReportError();
+  const current = useRef(state);
+  current.current = state;
+  const seen = useRef({ deps, tick, version });
   useEffect(() => {
     if (!loader) return;
+    const prev = seen.current;
+    seen.current = { deps, tick, version };
+    const quiet =
+      prev.version !== version &&
+      prev.tick === tick &&
+      prev.deps.length === deps.length &&
+      prev.deps.every((d, i) => Object.is(d, deps[i])) &&
+      current.current.status === "ready";
     let live = true;
-    setState({ status: "loading" });
+    if (!quiet) setState({ status: "loading" });
     loader().then(
-      (data) => live && setState({ status: "ready", data }),
+      (data) => {
+        if (!live) return;
+        setState((s) =>
+          quiet && s.status === "ready" && sameJson(s.data, data) ? s : { status: "ready", data },
+        );
+      },
       (err: unknown) => {
         if (!live) return;
         if (err instanceof ApiError && err.status === 401) report(err);
+        if (quiet) return;
         setState({ status: "error", error: err instanceof Error ? err.message : String(err) });
       },
     );
     return () => {
       live = false;
     };
-  }, [...deps, tick]);
+  }, [...deps, tick, version]);
   return { state, reload: () => setTick((t) => t + 1), setState };
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
 }

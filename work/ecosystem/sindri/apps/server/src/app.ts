@@ -5,6 +5,7 @@ import { deliveryPurgeTargets } from "./delivery-purge.js";
 import { DISPLAY_SANITIZED, forDisplay } from "./display.js";
 import { ApiError, envelope, toApiError } from "./errors.js";
 import { createFactory, type FactoryOptions } from "./factory.js";
+import { changeRoutes } from "./routes/changes.js";
 import { deliveryRoutes } from "./routes/deliveries.js";
 import { executionRoutes } from "./routes/executions.js";
 import { feedbackGraphRoutes } from "./routes/feedback-graph.js";
@@ -266,6 +267,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     ...(opts.now ? { now: opts.now } : {}),
   });
   executionRoutes(app, services, factory, factory.hub, factory.delivery, approvals);
+  changeRoutes(app, services.db);
   // Resume runs interrupted by a restart, without waiting for a client (review I2).
   app.addHook("onReady", async () => {
     if (opts.resumeOnReady !== false) void factory.resume();

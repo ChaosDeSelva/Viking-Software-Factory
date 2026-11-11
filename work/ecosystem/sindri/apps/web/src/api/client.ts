@@ -156,6 +156,48 @@ export function createApiClient(opts: ClientOptions) {
       (await call<{ reworks: ReworkSummary[] }>("GET", `/v1/deliveries/${enc(id)}/reworks`))
         .reworks,
     health: () => call<{ status: string }>("GET", "/v1/health"),
+    /**
+     * Reads `/v1/changes` until it ends or `signal` aborts, calling `onChange` with the server's
+     * change version on connect and after every write. Read with fetch so the token stays in a
+     * header. Resolves when the server closes the stream; throws if it cannot be opened.
+     */
+    async streamChanges(onChange: (version: number) => void, signal: AbortSignal): Promise<void> {
+      const res = await send("GET", "/v1/changes");
+      const reader = res.body?.getReader();
+      if (!reader) return;
+      if (signal.aborted) {
+        await reader.cancel().catch(() => undefined);
+        return;
+      }
+      const onAbort = () => void reader.cancel().catch(() => undefined);
+      signal.addEventListener("abort", onAbort, { once: true });
+      const dec = new TextDecoder();
+      let buf = "";
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+          let i: number;
+          while ((i = buf.indexOf("\n\n")) !== -1) {
+            const frame = buf.slice(0, i);
+            buf = buf.slice(i + 2);
+            const data = /^data: ?(.*)$/m.exec(frame)?.[1];
+            if (!/^event: ?changed$/m.test(frame) || !data || signal.aborted) continue;
+            try {
+              const version = (JSON.parse(data) as { version?: unknown }).version;
+              if (typeof version === "number") onChange(version);
+            } catch {
+              /* a malformed frame is skipped; the next one carries the current version */
+            }
+          }
+        }
+      } catch (err) {
+        if (!signal.aborted) throw err;
+      } finally {
+        signal.removeEventListener("abort", onAbort);
+      }
+    },
     /** The read-only Guide (docs + a redacted state snapshot); it never acts. */
     askGuide: (question: string, context: GuideContext) =>
       call<{ answer: string; links: { label: string; href: string }[]; sources: string[] }>(
