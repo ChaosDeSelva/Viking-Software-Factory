@@ -350,18 +350,31 @@ export class GitManager {
     await assertNoSymlinkBelow(root, path);
 
     await git(repoPath, ["worktree", "add", "--no-track", "-b", branch, path, baseSha]);
-    if ((await realpath(path)) !== path) {
-      await git(repoPath, ["worktree", "remove", "--force", path]).catch(() => undefined);
-      throw new MimirError("validation_failed", "worktree path resolved through a symlink", {
-        path,
+    try {
+      if ((await realpath(path)) !== path) {
+        throw new MimirError("validation_failed", "worktree path resolved through a symlink", {
+          path,
+        });
+      }
+      await this.ensureOwnerFileIgnored(repoPath);
+      const claim: OwnerClaim = { taskId, createdAt: nowIso() };
+      await writeFile(join(path, OWNER_FILE), `${JSON.stringify(claim, null, 2)}\n`, {
+        flag: "wx",
+        mode: 0o600,
+      }).catch((err: unknown) => {
+        if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        throw new MimirError(
+          "conflict",
+          `the repository has a file at the worktree claim path ${OWNER_FILE}`,
+          { path: OWNER_FILE },
+        );
       });
+    } catch (err) {
+      // Nothing records this worktree yet: left behind, its branch would block every retry.
+      await git(repoPath, ["worktree", "remove", "--force", path]).catch(() => undefined);
+      await git(repoPath, ["branch", "-D", "--", branch]).catch(() => undefined);
+      throw err;
     }
-    await this.ensureOwnerFileIgnored(repoPath);
-    const claim: OwnerClaim = { taskId, createdAt: nowIso() };
-    await writeFile(join(path, OWNER_FILE), `${JSON.stringify(claim, null, 2)}\n`, {
-      flag: "wx",
-      mode: 0o600,
-    });
 
     const ts = nowIso();
     const worktree: Worktree = {
@@ -699,18 +712,26 @@ export class GitManager {
       shas.length === 1
         ? shas[0]!
         : (await scratch.run(["merge-base", "--octopus", ...shas])).stdout.trim();
-    const patchFrom = async (base: string) =>
-      (
+    const patchFrom = async (base: string) => {
+      const diff = ["diff", ...DIFF_FLAGS, "--binary", "--full-index", base, resultCommit, "--"];
+      const text = (await scratch.run(diff)).stdout;
+      // U+FFFD: bytes that are not UTF-8 (a Latin-1 source file) were lost in decoding and the
+      // patch would not apply. Those files are exported as binary patches, which are ASCII.
+      if (!text.includes("\uFFFD")) return text;
+      const binary = (
         await scratch.run([
-          "diff",
-          ...DIFF_FLAGS,
-          "--binary",
-          "--full-index",
-          base,
-          resultCommit,
-          "--",
+          "-c",
+          `core.attributesFile=${await scratch.binaryAttributes()}`,
+          "-c",
+          "core.quotePath=true",
+          ...diff,
         ])
       ).stdout;
+      const perFile = (patch: string) => patch.split(/^(?=diff --git )/m);
+      const [readable, safe] = [perFile(text), perFile(binary)];
+      if (readable.length !== safe.length) return binary;
+      return readable.map((part, i) => (part.includes("\uFFFD") ? safe[i] : part)).join("");
+    };
     const ownBase = await mergeBase([...new Set(bases)].map((sha) => GitShaSchema.parse(sha)));
     const own = { baseSha: ownBase, patch: await patchFrom(ownBase) };
     if (!opts.fromDefaultBranch) return { ...own, resultCommit };
@@ -778,6 +799,8 @@ export class GitManager {
       "fetch",
       "--no-tags",
       "--no-write-fetch-head",
+      // `fetch.recurseSubmodules` in the repo config would fetch with each submodule's config.
+      "--no-recurse-submodules",
       scratch.gitDir,
       sha,
     ]);
@@ -794,24 +817,26 @@ export class GitManager {
       "sinceSha",
       { env: { GIT_DIR: scratch.gitDir, GIT_CONFIG_GLOBAL: "/dev/null" } },
     );
+    // NUL is the only byte a commit's author or subject cannot carry, so it alone separates
+    // both fields and records.
     const r = await scratch.run([
       "log",
       "--no-show-signature",
       "--reverse",
       "--no-color",
-      "--format=%H%x00%an%x00%ae%x00%aI%x00%s%x1e",
+      "-z",
+      "--format=%H%x00%an%x00%ae%x00%aI%x00%s",
       `${since}..${headSha}`,
       "--",
     ]);
-    return r.stdout
-      .split("\x1e")
-      .map((s) => s.replace(/^\n/, ""))
-      .filter(Boolean)
-      .map((line) => {
-        const [sha = "", authorName = "", authorEmail = "", authoredAt = "", subject = ""] =
-          line.split("\0");
-        return { sha, authorName, authorEmail, authoredAt, subject };
-      });
+    const fields = r.stdout.split("\0");
+    const commits: CommitInfo[] = [];
+    for (let i = 0; i + 4 < fields.length; i += 5) {
+      const [sha = "", authorName = "", authorEmail = "", authoredAt = "", subject = ""] =
+        fields.slice(i, i + 5);
+      commits.push({ sha, authorName, authorEmail, authoredAt, subject });
+    }
+    return commits;
   }
 
   /**

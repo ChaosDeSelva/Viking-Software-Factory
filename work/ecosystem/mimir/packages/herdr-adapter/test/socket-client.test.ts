@@ -1,10 +1,11 @@
 // Ported from spikes/herdr-spike/test/client.test.ts (same author, local work),
 // extended with MimirError mapping and socket path resolution.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import { isMimirError } from "@mimir/protocol";
 import {
   HerdrError,
@@ -53,6 +54,7 @@ async function rejection(p: Promise<unknown>): Promise<HerdrError> {
 const send = (s: net.Socket, obj: unknown) => s.write(JSON.stringify(obj) + "\n");
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const s of subs.splice(0)) s.close();
   await Promise.all(servers.splice(0).map((s) => new Promise((r) => s.close(() => r(null)))));
 });
@@ -352,5 +354,205 @@ describe("hardening (audit M4)", () => {
     await expect(new HerdrSocketClient(link).request("ping")).rejects.toMatchObject({
       code: "socket_untrusted",
     });
+  });
+});
+
+describe("framing edge cases", () => {
+  it("skips blank lines and JSON values that are not objects", async () => {
+    const { path: p } = await rawServer((s, m) => {
+      s.write('\n   \n42\nnull\n"text"\n');
+      send(s, { id: m.id, result: { ok: true } });
+    });
+    await expect(new HerdrSocketClient(p).request("x")).resolves.toEqual({ ok: true });
+  });
+
+  it("several frames in one chunk are all delivered, in order", async () => {
+    const { path: p } = await rawServer((s, m) => {
+      s.write(
+        [
+          { id: m.id, result: { type: "subscription_started" } },
+          { id: m.id, result: { type: "subscription_started" } }, // a repeated ack is ignored
+          { event: "pane_created", data: { n: 1 } },
+          { event: "pane_closed" }, // no data
+          { data: { n: 3 } }, // no event name: not an envelope
+          { event: "pane_exited", data: { n: 4 } },
+        ]
+          .map((o) => JSON.stringify(o) + "\n")
+          .join(""),
+      );
+    });
+    const seen: unknown[] = [];
+    const sub = await new HerdrSocketClient(p).subscribe(["pane.created"], (e) => seen.push(e));
+    subs.push(sub);
+    await vi.waitFor(() => expect(seen).toHaveLength(3));
+    expect(seen).toEqual([
+      { event: "pane_created", data: { n: 1 } },
+      { event: "pane_closed", data: {} },
+      { event: "pane_exited", data: { n: 4 } },
+    ]);
+  });
+
+  it("events pushed before the ack are not delivered", async () => {
+    const { path: p } = await rawServer((s, m) => {
+      send(s, { event: "pane_created", data: { early: true } });
+      send(s, { id: m.id, result: { type: "subscription_started" } });
+      send(s, { event: "pane_created", data: { early: false } });
+    });
+    const seen: unknown[] = [];
+    const sub = await new HerdrSocketClient(p).subscribe(["pane.created"], (e) => seen.push(e));
+    subs.push(sub);
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen).toEqual([{ event: "pane_created", data: { early: false } }]);
+  });
+
+  it("after an oversized line nothing further on that connection is parsed", async () => {
+    const { path: p } = await rawServer((s, m) => {
+      send(s, { id: m.id, result: { type: "subscription_started" } });
+      setTimeout(() => {
+        s.write("z".repeat(4096));
+        s.write("\n" + JSON.stringify({ event: "pane_created", data: {} }) + "\n");
+      }, 10);
+    });
+    const seen: unknown[] = [];
+    const client = new HerdrSocketClient(p, { maxLineBytes: 1024 });
+    const sub = await client.subscribe(["pane.created"], (e) => seen.push(e));
+    subs.push(sub);
+    expect((await sub.closed).error?.code).toBe("line_too_long");
+    expect(seen).toEqual([]);
+  });
+
+  it("an oversized line before the subscription ack rejects subscribe with line_too_long", async () => {
+    const { path: p } = await rawServer((s) => {
+      s.write("q".repeat(4096));
+    });
+    const client = new HerdrSocketClient(p, { maxLineBytes: 1024 });
+    const err = await rejection(client.subscribe(["pane.created"], () => {}));
+    expect(err.code).toBe("line_too_long");
+  });
+
+  it("a late response to a request that already timed out is ignored", async () => {
+    const { path: p, sockets } = await rawServer((s, m) => {
+      setTimeout(() => {
+        if (!s.destroyed) send(s, { id: m.id, result: { late: true } });
+      }, 150);
+    });
+    const err = await rejection(new HerdrSocketClient(p).request("slow", {}, { timeoutMs: 30 }));
+    expect(err.code).toBe("timeout");
+    // the client closed its side: the server's socket ends, so nothing is left pending
+    await vi.waitFor(() => expect(sockets[0]!.destroyed || sockets[0]!.readableEnded).toBe(true));
+  });
+
+  it("a subscription whose socket errors after the ack reports eof and does not throw", async () => {
+    const real = net.createConnection.bind(net);
+    const clientSockets: net.Socket[] = [];
+    vi.spyOn(net, "createConnection").mockImplementation(((target: string) => {
+      const s = real(target);
+      clientSockets.push(s);
+      return s;
+    }) as typeof net.createConnection);
+    const { path: p } = await rawServer((s, m) => {
+      send(s, { id: m.id, result: { type: "subscription_started" } });
+    });
+    const sub = await new HerdrSocketClient(p).subscribe(["pane.created"], () => {});
+    subs.push(sub);
+    clientSockets[0]!.destroy(new Error("ECONNRESET"));
+    expect(await sub.closed).toEqual({ reason: "eof" });
+  });
+});
+
+describe("error shapes", () => {
+  it("an error body without code or message becomes unknown_error with the raw body", async () => {
+    const { path: p } = await rawServer((s, m) => {
+      if (m.method === "a") send(s, { id: m.id, error: "boom" });
+      else send(s, { id: m.id, error: { detail: 1 } });
+    });
+    const c = new HerdrSocketClient(p);
+    const a = await rejection(c.request("a"));
+    expect(a).toMatchObject({ code: "unknown_error", method: "a" });
+    expect(a.message).toContain('"boom"');
+    const b = await rejection(c.request("b"));
+    expect(b.message).toBe('unknown_error: {"detail":1}');
+    expect(toMimirError(b)).toMatchObject({
+      code: "internal",
+      details: { herdrCode: "unknown_error", method: "b", retryable: false },
+    });
+  });
+
+  it("toMimirError: a HerdrError without a method has no method detail; a thrown string is its text", () => {
+    const m = toMimirError(new HerdrError("timeout", "slow"));
+    expect(m.details).toEqual({ herdrCode: "timeout", retryable: true });
+    expect(toMimirError("just text")).toMatchObject({ code: "internal", message: "just text" });
+  });
+
+  it("times out connecting when the socket never becomes connected", async () => {
+    const { path: p } = await rawServer(() => {});
+    const destroyed: boolean[] = [];
+    vi.spyOn(net, "createConnection").mockImplementation((() => {
+      const never = new net.Socket();
+      const destroy = never.destroy.bind(never);
+      never.destroy = (e?: Error) => {
+        destroyed.push(true);
+        return destroy(e);
+      };
+      return never;
+    }) as unknown as typeof net.createConnection);
+    const err = await rejection(new HerdrSocketClient(p, { connectTimeoutMs: 30 }).request("ping"));
+    expect(err.code).toBe("connect_failed");
+    expect(err.message).toContain("timed out connecting");
+    expect(destroyed).toEqual([true]);
+  });
+});
+
+describe("assertTrustedSocket ownership and modes", () => {
+  it("refuses a socket that is itself group/other writable", async () => {
+    const { path: p } = await rawServer(() => {});
+    fs.chmodSync(p, 0o777);
+    const err = await rejection(new HerdrSocketClient(p).request("ping"));
+    expect(err.code).toBe("socket_untrusted");
+    expect(err.message).toContain("socket is group/other writable");
+  });
+
+  it("refuses a socket owned by another user", async () => {
+    const { path: p } = await rawServer(() => {});
+    const st = fs.lstatSync(p);
+    vi.spyOn(fsp, "lstat").mockResolvedValueOnce(
+      Object.assign(Object.create(st) as fs.Stats, { uid: st.uid + 1 }),
+    );
+    const err = await rejection(new HerdrSocketClient(p).request("ping"));
+    expect(err.code).toBe("socket_untrusted");
+    expect(err.message).toContain(`owned by uid ${st.uid + 1}, not ${st.uid}`);
+  });
+
+  it("refuses a socket in a directory owned by another user", async () => {
+    const { path: p } = await rawServer(() => {});
+    const dir = fs.statSync(path.dirname(p));
+    vi.spyOn(fsp, "stat").mockResolvedValueOnce(
+      Object.assign(Object.create(dir) as fs.Stats, { uid: dir.uid + 1 }),
+    );
+    const err = await rejection(new HerdrSocketClient(p).request("ping"));
+    expect(err.code).toBe("socket_untrusted");
+    expect(err.message).toContain(`directory owned by uid ${dir.uid + 1}`);
+  });
+
+  it("on a platform without getuid, ownership is not checked but the modes still are", async () => {
+    const getuid = process.getuid;
+    vi.resetModules();
+    // @ts-expect-error simulating a platform (Windows) where process.getuid does not exist
+    process.getuid = undefined;
+    let fresh: typeof import("../src/socket-client.js");
+    try {
+      fresh = await import("../src/socket-client.js");
+    } finally {
+      process.getuid = getuid as () => number;
+      vi.resetModules();
+    }
+    const { path: p } = await rawServer((s, m) => send(s, { id: m.id, result: { ok: true } }));
+    const st = fs.lstatSync(p);
+    vi.spyOn(fsp, "lstat").mockResolvedValueOnce(
+      Object.assign(Object.create(st) as fs.Stats, { uid: st.uid + 1 }),
+    );
+    await expect(fresh.assertTrustedSocket(p)).resolves.toBeUndefined();
+    fs.chmodSync(path.dirname(p), 0o777);
+    await expect(fresh.assertTrustedSocket(p)).rejects.toMatchObject({ code: "socket_untrusted" });
   });
 });

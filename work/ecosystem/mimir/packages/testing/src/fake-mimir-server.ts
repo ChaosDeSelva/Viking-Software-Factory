@@ -1025,12 +1025,16 @@ export async function fakeMimirServer(
   });
   route("GET", "/v1/usage", ({ query }) => {
     const q = parse(UsageQuerySchema, query);
+    // Attributed agent -> crew -> mission -> project and filtered by any of them, like the server.
     const samples = state.usage.filter((s) => {
-      if (q.agentId !== undefined && s.agentId !== q.agentId) return false;
-      if (q.missionId === undefined) return true;
       const agent = state.agents.get(s.agentId);
       const crew = agent ? state.crews.get(agent.crewId) : undefined;
-      return crew?.missionId === q.missionId;
+      const mission = crew ? state.missions.get(crew.missionId) : undefined;
+      if (q.agentId !== undefined && s.agentId !== q.agentId) return false;
+      if (q.crewId !== undefined && agent?.crewId !== q.crewId) return false;
+      if (q.missionId !== undefined && crew?.missionId !== q.missionId) return false;
+      if (q.projectId !== undefined && mission?.projectId !== q.projectId) return false;
+      return true;
     });
     return ok(UsageResponseSchema, { totals: usageTotals(samples), samples });
   });

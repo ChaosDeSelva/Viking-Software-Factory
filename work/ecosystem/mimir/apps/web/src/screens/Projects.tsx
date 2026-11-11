@@ -7,7 +7,7 @@ import { StoreGate } from "../components/StoreGate.js";
 import { useStore } from "../store/StoreProvider.js";
 
 function ProjectForm() {
-  const { client, refresh } = useStore();
+  const { client, refresh, reportError } = useStore();
   const [name, setName] = useState("");
   const [repoPath, setRepoPath] = useState("");
   const [testCommand, setTestCommand] = useState("");
@@ -44,6 +44,7 @@ function ProjectForm() {
       setBranches("");
       void refresh();
     } catch (err) {
+      reportError(err);
       setOutcome({ kind: "error", error: describeError(err) });
     } finally {
       setBusy(false);

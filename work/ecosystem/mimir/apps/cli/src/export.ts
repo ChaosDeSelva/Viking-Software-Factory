@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { openEventStore, redactPayload } from "@mimir/core";
 import { CliError, EXIT_CONFIG, EXIT_INFRA, dataDir, dbPath } from "./env.js";
@@ -39,6 +39,8 @@ export function exportMission(
         JSON.stringify({ missionId, exportedAt: new Date().toISOString(), events }, null, 2) + "\n",
         { mode: 0o600, flag: options.force ? "w" : "wx" },
       );
+      // `mode` only applies to a new file; an overwritten one keeps its old permissions.
+      if (options.force) chmodSync(out, 0o600);
       return { missionId, out, count: events.length };
     } finally {
       store.close();

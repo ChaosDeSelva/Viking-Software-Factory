@@ -113,15 +113,15 @@ export async function runTests(
       } catch {
         child.kill("SIGKILL");
       }
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree();
       // A descendant that escaped the process group could hold the pipes open; stop waiting.
       setTimeout(() => {
         child.stdout.destroy();
         child.stderr.destroy();
       }, 2000).unref();
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree();
     }, timeoutMs);
     const onAbort = () => killTree();
     if (options.signal?.aborted) onAbort();

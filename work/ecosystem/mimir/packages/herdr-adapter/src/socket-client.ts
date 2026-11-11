@@ -13,6 +13,7 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { MimirError, isMimirError, type ErrorCode } from "@mimir/protocol";
 
 export class HerdrError extends Error {
@@ -69,8 +70,8 @@ const newRequestId = (prefix: string) => `${prefix}_${process.pid}_${++nextId}`;
 type Line = { id?: unknown; result?: unknown; error?: unknown; event?: unknown; data?: unknown };
 
 /**
- * Splits a byte stream into parsed JSON lines; malformed lines are dropped. A pending line
- * longer than `maxLineBytes` calls `onOverflow` once and stops reading.
+ * Splits a byte stream into parsed JSON lines; malformed lines are dropped. A line (complete or
+ * pending) longer than `maxLineBytes` calls `onOverflow` once and stops reading.
  */
 function lineReader(
   onLine: (msg: Line) => void,
@@ -79,18 +80,22 @@ function lineReader(
 ) {
   let buf = "";
   let failed = false;
+  // Keeps a UTF-8 sequence cut by a chunk boundary until its remaining bytes arrive.
+  const decoder = new StringDecoder("utf8");
+  const overflow = () => {
+    failed = true;
+    buf = "";
+    onOverflow(new HerdrError("line_too_long", `NDJSON line exceeds ${maxLineBytes} bytes`));
+  };
   return (chunk: Buffer) => {
     if (failed) return;
-    buf += chunk.toString("utf8");
+    buf += decoder.write(chunk);
     const tail = buf.length - (buf.lastIndexOf("\n") + 1);
-    if (tail > maxLineBytes) {
-      failed = true;
-      buf = "";
-      onOverflow(new HerdrError("line_too_long", `NDJSON line exceeds ${maxLineBytes} bytes`));
-      return;
-    }
+    if (tail > maxLineBytes) return overflow();
     let i: number;
     while ((i = buf.indexOf("\n")) >= 0) {
+      // A complete line arriving in one chunk with its newline is never a pending tail.
+      if (i > maxLineBytes) return overflow();
       const line = buf.slice(0, i).trim();
       buf = buf.slice(i + 1);
       if (!line) continue;

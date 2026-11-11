@@ -42,4 +42,13 @@ describe("@mimir/testing", () => {
       /session\.exited/,
     );
   });
+
+  it("collectEvents waits for live delivery when no clock is given", async () => {
+    const { fake, clock } = withFakeRuntime();
+    await fake.createSession(spec);
+    const pending = collectEvents(fake, "session.exited");
+    clock.advance(10_000);
+    const events = await pending;
+    expect(events.at(-1)?.kind).toBe("session.exited");
+  });
 });

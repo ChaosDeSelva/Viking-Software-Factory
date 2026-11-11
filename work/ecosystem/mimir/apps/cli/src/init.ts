@@ -19,11 +19,17 @@ export function init(env: NodeJS.ProcessEnv = process.env): InitResult {
       const config = { host: "127.0.0.1", port: 7700, dataDir: dir, herdrSession: "mimir" };
       writeFileSync(cfg, JSON.stringify(config, null, 2) + "\n", { mode: 0o600, flag: "wx" });
     }
-    if (existsSync(path)) {
+    const exists = existsSync(path);
+    // An empty token file is replaced, as the server does on start.
+    if (exists && readFileSync(path, "utf8").trim() !== "") {
       chmodSync(path, 0o600);
       return { dataDir: dir, tokenPath: path, tokenCreated: false };
     }
-    writeFileSync(path, randomBytes(32).toString("hex") + "\n", { mode: 0o600, flag: "wx" });
+    writeFileSync(path, randomBytes(32).toString("hex") + "\n", {
+      mode: 0o600,
+      flag: exists ? "w" : "wx",
+    });
+    chmodSync(path, 0o600);
     return { dataDir: dir, tokenPath: path, tokenCreated: true };
   } catch (e) {
     throw new CliError(`cannot initialise ${dir}: ${(e as Error).message}`, EXIT_INFRA);
@@ -37,5 +43,9 @@ export function showToken(env: NodeJS.ProcessEnv = process.env): string {
   if (!existsSync(path)) {
     throw new CliError(`no auth token at ${path}; run \`mimir init\``, EXIT_CONFIG);
   }
-  return readFileSync(path, "utf8").trim();
+  const token = readFileSync(path, "utf8").trim();
+  if (token === "") {
+    throw new CliError(`auth token at ${path} is empty; run \`mimir init\``, EXIT_CONFIG);
+  }
+  return token;
 }

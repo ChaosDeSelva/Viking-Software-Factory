@@ -62,21 +62,28 @@ export class MemoryBindingStore implements BindingStore {
 
 /** JSON file store (`{bindings: {[idempotencyKey]: SessionBinding}}`), written atomically. */
 export class JsonFileBindingStore implements BindingStore {
-  private cache: Map<string, SessionBinding> | null = null;
+  private cache: Promise<Map<string, SessionBinding>> | null = null;
   private writing: Promise<void> = Promise.resolve();
 
   constructor(readonly filePath: string) {}
 
-  private async load(): Promise<Map<string, SessionBinding>> {
-    if (this.cache) return this.cache;
+  /** One shared read: concurrent first callers must all see (and mutate) the same map. */
+  private load(): Promise<Map<string, SessionBinding>> {
+    this.cache ??= this.read().catch((e: unknown) => {
+      this.cache = null;
+      throw e;
+    });
+    return this.cache;
+  }
+
+  private async read(): Promise<Map<string, SessionBinding>> {
     let parsed: { bindings?: Record<string, SessionBinding> } = {};
     try {
       parsed = JSON.parse(await fs.readFile(this.filePath, "utf8")) as typeof parsed;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
     }
-    this.cache = new Map(Object.entries(parsed.bindings ?? {}));
-    return this.cache;
+    return new Map(Object.entries(parsed.bindings ?? {}));
   }
 
   async get(idempotencyKey: string): Promise<SessionBinding | undefined> {
@@ -97,14 +104,17 @@ export class JsonFileBindingStore implements BindingStore {
     const map = await this.load();
     map.set(binding.idempotencyKey, { ...binding });
     const body = JSON.stringify({ bindings: Object.fromEntries(map) }, null, 2) + "\n";
-    this.writing = this.writing.then(async () => {
-      // The data dir also holds the operator token: never create it world-readable (audit L6).
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-      const tmp = `${this.filePath}.${process.pid}.tmp`;
-      await fs.writeFile(tmp, body, { mode: 0o600 });
-      await fs.chmod(tmp, 0o600);
-      await fs.rename(tmp, this.filePath);
-    });
+    // A failed write must not reject every later one.
+    this.writing = this.writing
+      .catch(() => undefined)
+      .then(async () => {
+        // The data dir also holds the operator token: never create it world-readable (audit L6).
+        await fs.mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
+        const tmp = `${this.filePath}.${process.pid}.tmp`;
+        await fs.writeFile(tmp, body, { mode: 0o600 });
+        await fs.chmod(tmp, 0o600);
+        await fs.rename(tmp, this.filePath);
+      });
     await this.writing;
   }
 }

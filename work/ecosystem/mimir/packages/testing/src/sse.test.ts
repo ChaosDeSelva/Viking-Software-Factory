@@ -40,4 +40,30 @@ describe("openSse", () => {
     await sse.ended;
     await expect(sse.next(50)).rejects.toThrow(/ended/);
   });
+
+  it("times out waiting, exposes the raw text, and can pause, resume and close", async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.flushHeaders();
+    });
+    await new Promise<void>((r) => server?.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    const sse = await openSse(`http://127.0.0.1:${port}/`);
+    await expect(sse.next(30)).rejects.toThrow(/no SSE message within 30ms/);
+    expect(sse.text()).toBe("");
+    sse.pause();
+    sse.resume();
+    sse.close();
+    await sse.ended;
+    await expect(sse.next(10)).rejects.toThrow(/ended/);
+  });
+
+  it("rejects when the connection cannot be made", async () => {
+    server = createServer();
+    await new Promise<void>((r) => server?.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    await new Promise<void>((r) => server?.close(() => r()));
+    server = undefined;
+    await expect(openSse(`http://127.0.0.1:${port}/`)).rejects.toThrow(/ECONNREFUSED/);
+  });
 });

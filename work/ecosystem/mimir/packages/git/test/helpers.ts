@@ -19,6 +19,13 @@ export function sh(cwd: string, ...args: string[]): string {
       GIT_COMMITTER_NAME: "Test",
       GIT_COMMITTER_EMAIL: "test@example.com",
       GIT_CONFIG_NOSYSTEM: "1",
+      // `git commit` otherwise leaves a detached `git maintenance run --auto` behind that still
+      // holds objects/maintenance.lock while a test copies or deletes the repository.
+      GIT_CONFIG_COUNT: "2",
+      GIT_CONFIG_KEY_0: "maintenance.auto",
+      GIT_CONFIG_VALUE_0: "false",
+      GIT_CONFIG_KEY_1: "gc.auto",
+      GIT_CONFIG_VALUE_1: "0",
     },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -57,7 +64,8 @@ function templateRepo(): string {
 /** Creates a disposable repo on branch `main` with files a.txt (3 lines) and b.txt. */
 export async function makeRepo(dirs: TempDirs): Promise<string> {
   const repo = await dirs.make("repo");
-  await cp(templateRepo(), repo, { recursive: true });
+  // Lock files are transient (a background git can delete one mid-copy) and never needed.
+  await cp(templateRepo(), repo, { recursive: true, filter: (src) => !src.endsWith(".lock") });
   return repo;
 }
 

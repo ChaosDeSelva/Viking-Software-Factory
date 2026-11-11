@@ -20,7 +20,7 @@ import { Tabs } from "../components/Tabs.js";
 import { filterEvents, taskProgress, type EventFilter } from "../lib/derive.js";
 import { useAction } from "../lib/useAction.js";
 import { useAsync } from "../lib/useAsync.js";
-import { useMissionEvents } from "../lib/useEventHistory.js";
+import { HISTORY_MAX_PAGES, HISTORY_PAGE, useMissionEvents } from "../lib/useEventHistory.js";
 import { useStore } from "../store/StoreProvider.js";
 
 const TABS = [
@@ -35,13 +35,13 @@ const TABS = [
 
 type ArtifactEvent = EventEnvelope & { payload: EventPayloadMap["artifact.recorded"] };
 type TestEvent = EventEnvelope & {
-  payload: EventPayloadMap["test.run_completed"] & { exitCode?: number; output?: string };
+  payload: EventPayloadMap["test.run_completed"];
 };
 
 const isFileArtifact = (kind: string) => /diff|patch|manifest|files/i.test(kind);
 
 function ArtifactTable({ items }: { items: ArtifactEvent[] }) {
-  const { client } = useStore();
+  const { client, reportError } = useStore();
   const [open, setOpen] = useState<Record<string, Artifact | string>>({});
   if (items.length === 0) return <EmptyState>No artifacts recorded yet.</EmptyState>;
   const view = async (id: ArtifactId) => {
@@ -49,6 +49,7 @@ function ArtifactTable({ items }: { items: ArtifactEvent[] }) {
       const r = await client.artifacts.get(id);
       setOpen((o) => ({ ...o, [id]: r.artifact }));
     } catch (e) {
+      reportError(e);
       setOpen((o) => ({ ...o, [id]: describeError(e).message }));
     }
   };
@@ -110,7 +111,13 @@ function TestsTable({ items }: { items: TestEvent[] }) {
             <code>{e.payload.command}</code>
             <StatusBadge status={e.payload.passed ? "completed" : "failed"} />
             <span>{e.payload.passed ? "passed" : "failed"}</span>
-            {e.payload.exitCode !== undefined && <span>exit code {e.payload.exitCode}</span>}
+            {e.payload.exitCode !== undefined && (
+              <span>
+                {e.payload.exitCode === null
+                  ? "no exit code (killed)"
+                  : `exit code ${e.payload.exitCode}`}
+              </span>
+            )}
             {e.payload.total !== undefined && (
               <span>
                 {e.payload.failed ?? 0} of {e.payload.total} failed
@@ -147,7 +154,7 @@ export function MissionDetail() {
 }
 
 function MissionDetailView({ id }: { id: string }) {
-  const { state, client } = useStore();
+  const { state, client, reportError } = useStore();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
@@ -161,7 +168,7 @@ function MissionDetailView({ id }: { id: string }) {
   }, [confirmCancel]);
   const [tab, setTab] = useState<string>("plan");
   const [filter, setFilter] = useState<EventFilter>({});
-  const history = useMissionEvents(client, id, state.events);
+  const history = useMissionEvents(client, id, state.events, reportError);
   const action = useAction();
 
   const mission = state.missions.find((m) => m.id === id);
@@ -289,6 +296,12 @@ function MissionDetailView({ id }: { id: string }) {
                 {history.status === "loading" && <LoadingState label="timeline" />}
                 {history.status === "error" && (
                   <ErrorState message={history.error ?? "failed"} onRetry={history.reload} />
+                )}
+                {history.truncated && (
+                  <p role="status" className="text-sm">
+                    Showing the first {HISTORY_MAX_PAGES * HISTORY_PAGE} recorded events and the
+                    live ones: older events only. Use Activity to replay from a cursor.
+                  </p>
                 )}
                 <Section title="Events">
                   <EventList events={filterEvents(history.events, filter)} />

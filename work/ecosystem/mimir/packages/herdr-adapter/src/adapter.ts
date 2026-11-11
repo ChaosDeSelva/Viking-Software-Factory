@@ -241,8 +241,12 @@ export function paneMatchesBinding(
 const hasControlChar = (v: string) =>
   [...v].some((ch) => ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f);
 
+/** Shell text built from the session id (the sentinel line) is typed unquoted. */
+const SHELL_SAFE_SESSION_ID = /^[A-Za-z0-9_.-]+$/;
+
+// `=` is quoted: zsh expands a leading `=cmd` and any shell reads a leading `NAME=value` as an assignment.
 function shellQuote(word: string): string {
-  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
+  return /^[A-Za-z0-9_@%+:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 }
 
 export class HerdrAdapter implements RuntimeAdapter {
@@ -256,6 +260,7 @@ export class HerdrAdapter implements RuntimeAdapter {
   private ingress: Promise<void> = Promise.resolve();
   private readonly paneSubs = new Map<string, HerdrSubscription | "pending">();
   private readonly shellWatches = new Set<string>();
+  private readonly creating = new Map<string, Promise<RuntimeSession>>();
   private lifecycleSub: HerdrSubscription | null = null;
   private monitorActive = false;
   private generation = 0;
@@ -330,6 +335,17 @@ export class HerdrAdapter implements RuntimeAdapter {
 
   async createSession(spec: RuntimeSessionSpec): Promise<RuntimeSession> {
     this.assertNotDisposed();
+    // Concurrent calls with one key share one launch; otherwise each would create a workspace.
+    const inFlight = this.creating.get(spec.idempotencyKey);
+    if (inFlight) return inFlight;
+    const launch = this.createSessionOnce(spec).finally(() =>
+      this.creating.delete(spec.idempotencyKey),
+    );
+    this.creating.set(spec.idempotencyKey, launch);
+    return launch;
+  }
+
+  private async createSessionOnce(spec: RuntimeSessionSpec): Promise<RuntimeSession> {
     const existing = await this.bindings.get(spec.idempotencyKey);
     if (existing) {
       return (
@@ -342,6 +358,13 @@ export class HerdrAdapter implements RuntimeAdapter {
       throw new MimirError("validation_failed", "argv must not contain control characters", {
         sessionId: spec.sessionId,
       });
+    }
+    if (isShell && !SHELL_SAFE_SESSION_ID.test(spec.sessionId)) {
+      throw new MimirError(
+        "validation_failed",
+        "sessionId of a shell session may only contain letters, digits, `_`, `.` and `-`",
+        { sessionId: spec.sessionId },
+      );
     }
     const created = await this.call<{ root_pane: PaneInfo }>("workspace.create", {
       cwd: spec.cwd,
@@ -624,7 +647,11 @@ export class HerdrAdapter implements RuntimeAdapter {
       try {
         await this.client.request("pane.close", { pane_id: b.paneId });
       } catch (e) {
-        if (!isHerdrCode(e, "pane_not_found")) throw toMimirError(e);
+        if (!isHerdrCode(e, "pane_not_found")) {
+          // The pane is still there: keep observing it.
+          if (this.monitorActive) await this.ensurePaneWatch(b, this.generation);
+          throw toMimirError(e);
+        }
       }
       await this.transition(sessionId, "stopped", { runtimeStatus: "force_closed" });
       return;
@@ -634,27 +661,14 @@ export class HerdrAdapter implements RuntimeAdapter {
     const before = this.live.get(sessionId);
     const priorState = before?.state ?? "unknown";
     await this.transition(sessionId, "stopping", { runtimeStatus: "ctrl_c_sent" });
-    await this.call("pane.send_keys", { pane_id: b.paneId, keys: ["ctrl+c"] });
-    const half = Math.ceil(this.timing.stopPollAttempts / 2);
-    for (let i = 1; i <= this.timing.stopPollAttempts; i++) {
-      await sleep(this.timing.stopPollIntervalMs);
-      let info: ProcessInfo;
-      try {
-        info = await this.processInfo(b.paneId);
-      } catch (e) {
-        if (!(e instanceof MimirError && e.code === "not_found")) throw e;
-        await this.transition(sessionId, "stopped", { runtimeStatus: "pane_gone" });
-        return;
+    try {
+      if (await this.confirmSoftStop(sessionId, b)) return;
+    } catch (e) {
+      // While `stopping`, status events are ignored: never stay there after a failed attempt.
+      if (this.live.get(sessionId)?.state === "stopping") {
+        await this.transition(sessionId, priorState, { runtimeStatus: "stop_failed" });
       }
-      if (isBareShell(info)) {
-        const state = this.live.get(sessionId)?.state;
-        if (state === "stopping" || (state && !TERMINAL_STATES.has(state))) {
-          await this.transition(sessionId, "stopped", { runtimeStatus: "process_exited" });
-        }
-        return;
-      }
-      // Interactive agents (claude) ask for a second Ctrl-C.
-      if (i === half) await this.call("pane.send_keys", { pane_id: b.paneId, keys: ["ctrl+c"] });
+      throw e;
     }
     // Not confirmed: go back to the last observed state so later status events are not ignored.
     if (this.live.get(sessionId)?.state === "stopping") {
@@ -669,6 +683,33 @@ export class HerdrAdapter implements RuntimeAdapter {
         paneId: b.paneId,
       },
     );
+  }
+
+  /** Ctrl-C, then poll `pane.process_info`; true once the pane is gone or back at a bare shell. */
+  private async confirmSoftStop(sessionId: string, b: SessionBinding): Promise<boolean> {
+    await this.call("pane.send_keys", { pane_id: b.paneId, keys: ["ctrl+c"] });
+    const half = Math.ceil(this.timing.stopPollAttempts / 2);
+    for (let i = 1; i <= this.timing.stopPollAttempts; i++) {
+      await sleep(this.timing.stopPollIntervalMs);
+      let info: ProcessInfo;
+      try {
+        info = await this.processInfo(b.paneId);
+      } catch (e) {
+        if (!(e instanceof MimirError && e.code === "not_found")) throw e;
+        await this.transition(sessionId, "stopped", { runtimeStatus: "pane_gone" });
+        return true;
+      }
+      if (isBareShell(info)) {
+        const state = this.live.get(sessionId)?.state;
+        if (state === "stopping" || (state && !TERMINAL_STATES.has(state))) {
+          await this.transition(sessionId, "stopped", { runtimeStatus: "process_exited" });
+        }
+        return true;
+      }
+      // Interactive agents (claude) ask for a second Ctrl-C.
+      if (i === half) await this.call("pane.send_keys", { pane_id: b.paneId, keys: ["ctrl+c"] });
+    }
+    return false;
   }
 
   /** Snapshot + `pane.process_info` per bound session → current sessions and confirmed losses. */
@@ -879,7 +920,8 @@ export class HerdrAdapter implements RuntimeAdapter {
   }
 
   private async ensurePaneWatch(b: SessionBinding, gen: number): Promise<void> {
-    if (this.paneSubs.has(b.paneId) || !this.monitorActive) return;
+    // A superseded generation must not leave a `pending` entry: it would block the next bootstrap.
+    if (gen !== this.generation || this.paneSubs.has(b.paneId) || !this.monitorActive) return;
     this.paneSubs.set(b.paneId, "pending");
     const specs: { type: string; [k: string]: unknown }[] = [
       { type: "pane.agent_status_changed", pane_id: b.paneId },
@@ -897,7 +939,8 @@ export class HerdrAdapter implements RuntimeAdapter {
     try {
       sub = await this.client.subscribe(specs, (e) => this.onEnvelope(e, gen));
     } catch (e) {
-      if (this.paneSubs.get(b.paneId) === "pending") this.paneSubs.delete(b.paneId);
+      if (gen === this.generation && this.paneSubs.get(b.paneId) === "pending")
+        this.paneSubs.delete(b.paneId);
       if (isHerdrCode(e, "pane_not_found")) {
         // Pane vanished between snapshot and subscribe: drop it; reconcile decides if it is lost.
         const live = this.live.get(b.sessionId);
@@ -1015,8 +1058,11 @@ export class HerdrAdapter implements RuntimeAdapter {
         const pane = e.data.pane as PaneInfo;
         live.terminalId = pane.terminal_id;
         const agentSessionId = pane.agent_session?.value;
-        if (agentSessionId && agentSessionId !== b.agentSessionId)
-          await this.bindings.put({ ...b, agentSessionId });
+        if (agentSessionId && agentSessionId !== b.agentSessionId) {
+          // `b` was read when the envelope arrived; a final state may have been persisted since.
+          const fresh = (await this.bindings.getBySessionId(b.sessionId)) ?? b;
+          await this.bindings.put({ ...fresh, agentSessionId });
+        }
         return;
       }
       case "pane_agent_detected":

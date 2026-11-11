@@ -9,7 +9,20 @@ export const SERVER_MAIN = fileURLToPath(new URL("../../server/dist/main.js", im
 /** The built web app, laid out the same way (`apps/web/dist` / `app/web/dist`). */
 export const DEFAULT_WEB_ROOT = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-const RUNTIMES = ["fake", "herdr", "cli", "none"] as const;
+/** The server's `MIMIR_RUNTIME` choices (apps/server `config.ts`). */
+const RUNTIMES = [
+  "fake",
+  "herdr",
+  "cli",
+  "ssh",
+  "tmux",
+  "fleet",
+  "tmux-interactive",
+  "zellij",
+  "cmux",
+  "orca",
+  "none",
+] as const;
 
 export function checkRuntime(runtime: string | undefined): void {
   if (runtime !== undefined && !(RUNTIMES as readonly string[]).includes(runtime)) {
@@ -90,16 +103,27 @@ export function spawnServer(
   void exited.then((code) => rejectUrl(new Error(`server exited with code ${code}`)));
   for (const stream of ["stdout", "stderr"] as const) {
     let buf = "";
-    child[stream]?.on("data", (d: Buffer) => {
-      buf += d.toString();
+    const emit = (line: string) => {
+      const m = /listening on (https?:\/\/\S+)/.exec(line);
+      if (m) resolveUrl(m[1] as string);
+      onLine(line, stream);
+    };
+    const pipe = child[stream];
+    // Decoded as a stream so a multi-byte character split across chunks survives.
+    pipe?.setEncoding("utf8");
+    pipe?.on("data", (d: string) => {
+      buf += d;
       let i;
       while ((i = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, i);
         buf = buf.slice(i + 1);
-        const m = /listening on (https?:\/\/\S+)/.exec(line);
-        if (m) resolveUrl(m[1] as string);
-        onLine(line, stream);
+        emit(line);
       }
+    });
+    // A last line without a newline (a crash message, say) is still delivered.
+    pipe?.on("end", () => {
+      if (buf !== "") emit(buf);
+      buf = "";
     });
   }
   return { child, url, exited, stop: () => void child.kill("SIGTERM") };

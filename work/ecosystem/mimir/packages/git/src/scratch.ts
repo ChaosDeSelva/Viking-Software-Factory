@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readlink, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readlink, realpath, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { MimirError } from "@mimir/protocol";
 import { git, type GitOptions, type GitResult } from "./git.js";
@@ -31,6 +31,13 @@ async function hasSymlinkedAncestor(root: string, abs: string): Promise<boolean>
   return false;
 }
 
+const opening = new Map<string, Promise<unknown>>();
+
+async function writeIfChanged(file: string, content: string): Promise<void> {
+  const current = await readFile(file, "utf8").catch(() => undefined);
+  if (current !== content) await writeFile(file, content);
+}
+
 /**
  * A Mimir-owned bare repository that borrows a project's objects through
  * `objects/info/alternates`. Read-only analysis (diff, log, merge-tree) runs here so git never
@@ -40,8 +47,28 @@ async function hasSymlinkedAncestor(root: string, abs: string): Promise<boolean>
 export class ScratchRepo {
   private constructor(readonly gitDir: string) {}
 
-  static async open(scratchRoot: string, name: string, repoPath: string): Promise<ScratchRepo> {
+  /**
+   * Opens are serialised per directory and leave unchanged files alone: a second caller must not
+   * re-create, or truncate the config and alternates of, a repository another caller is using.
+   */
+  static open(scratchRoot: string, name: string, repoPath: string): Promise<ScratchRepo> {
     const gitDir = join(scratchRoot, `${name}.git`);
+    const opened = (opening.get(gitDir) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => ScratchRepo.prepare(scratchRoot, gitDir, repoPath));
+    opening.set(gitDir, opened);
+    const forget = () => {
+      if (opening.get(gitDir) === opened) opening.delete(gitDir);
+    };
+    opened.then(forget, forget);
+    return opened;
+  }
+
+  private static async prepare(
+    scratchRoot: string,
+    gitDir: string,
+    repoPath: string,
+  ): Promise<ScratchRepo> {
     await mkdir(scratchRoot, { recursive: true, mode: 0o700 });
     const scratch = new ScratchRepo(gitDir);
     const head = await lstat(join(gitDir, "HEAD")).catch(() => undefined);
@@ -51,19 +78,19 @@ export class ScratchRepo {
         env: { GIT_CONFIG_GLOBAL: "/dev/null" },
       });
     }
-    // Rewrite config and alternates every time we open: the scratch repo is ours alone.
-    await writeFile(
+    // Reset config and alternates every time we open: the scratch repo is ours alone.
+    await writeIfChanged(
       join(gitDir, "config"),
       "[core]\n\trepositoryformatversion = 0\n\tbare = true\n",
     );
     await mkdir(join(gitDir, "info"), { recursive: true });
-    await writeFile(join(gitDir, "info", "attributes"), "");
+    await writeIfChanged(join(gitDir, "info", "attributes"), "");
     const common = (await git(repoPath, ["rev-parse", "--git-common-dir"])).stdout.trim();
     const objects = await realpath(
       join(isAbsolute(common) ? common : resolve(repoPath, common), "objects"),
     );
     await mkdir(join(gitDir, "objects", "info"), { recursive: true });
-    await writeFile(join(gitDir, "objects", "info", "alternates"), `${objects}\n`);
+    await writeIfChanged(join(gitDir, "objects", "info", "alternates"), `${objects}\n`);
     return scratch;
   }
 
@@ -77,6 +104,13 @@ export class ScratchRepo {
         GIT_DIR: this.gitDir,
       },
     });
+  }
+
+  /** Path of an attributes file that makes `git diff --binary` emit every file as binary. */
+  async binaryAttributes(): Promise<string> {
+    const file = join(this.gitDir, "info", "binary-attributes");
+    await writeIfChanged(file, "* -diff\n");
+    return file;
   }
 
   /** Every blob/gitlink entry of `treeish`, keyed by path. */

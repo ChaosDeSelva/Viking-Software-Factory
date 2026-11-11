@@ -5,7 +5,8 @@ import { MimirError } from "@mimir/protocol";
  * Config overrides applied to every git invocation. They neutralise the command-running knobs
  * that git consults during the operations Mimir performs (hooks, fsmonitor, signature
  * verification, ssh/credential helpers). Repo-local filter/merge/diff drivers are handled by the
- * config audit and by running analysis in a Mimir-owned scratch repository.
+ * config audit and by running analysis in a Mimir-owned scratch repository; transports by
+ * {@link gitEnv}.
  */
 export const SAFE_CONFIG = [
   "-c",
@@ -59,6 +60,10 @@ export function gitEnv(extra: Record<string, string> = {}): Record<string, strin
     GIT_ATTR_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_OPTIONAL_LOCKS: "0",
+    // Repo config can name a promisor remote (any missing object is then fetched from it) and
+    // rewrite URLs; both reach a command through `remote.*.uploadpack` or the ext transport.
+    GIT_NO_LAZY_FETCH: "1",
+    GIT_ALLOW_PROTOCOL: "file",
     ...extra,
   };
 }

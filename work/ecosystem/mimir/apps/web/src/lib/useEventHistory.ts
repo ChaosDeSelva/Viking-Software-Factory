@@ -24,6 +24,10 @@ export async function loadHistory(
     if (!res.hasMore || res.nextCursor === null || res.events.length === 0) {
       return { events, truncated: false, nextCursor: res.lastCursor };
     }
+    // A server that reports more without advancing would only repeat the same page.
+    if (res.nextCursor === cursor) {
+      return { events, truncated: false, nextCursor: res.lastCursor };
+    }
     cursor = res.nextCursor;
   }
   return { events, truncated: true, nextCursor: cursor ?? null };
@@ -51,10 +55,14 @@ export function useMissionEvents(
   client: MimirClient,
   missionId: string,
   live: readonly EventEnvelope[],
+  /** Called with a load failure (the store's `reportError`: a 401 returns to the token prompt). */
+  onError?: (error: unknown) => void,
 ) {
   const [history, setHistory] = useState<EventEnvelope[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
+  /** The history stopped at the paging limit: newer recorded events were not loaded. */
+  const [truncated, setTruncated] = useState(false);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => {
@@ -65,16 +73,18 @@ export function useMissionEvents(
       (r) => {
         if (ctrl.signal.aborted) return;
         setHistory(r.events);
+        setTruncated(r.truncated);
         setStatus("ready");
       },
       (e: unknown) => {
         if (ctrl.signal.aborted) return;
+        onError?.(e);
         setError(describeError(e).message);
         setStatus("error");
       },
     );
     return () => ctrl.abort();
-  }, [client, missionId, tick]);
+  }, [client, missionId, onError, tick]);
   const events = useMemo(
     () =>
       mergeEvents(
@@ -83,5 +93,5 @@ export function useMissionEvents(
       ),
     [history, live, missionId],
   );
-  return { events, status, error, reload };
+  return { events, status, error, truncated, reload };
 }

@@ -143,7 +143,8 @@ describe("reducer: events", () => {
       ),
     });
     expect(s.tasks[0]?.status).toBe("leased");
-    expect(s.tasks[0]?.attempt).toBe(1);
+    // The payload's attempt number is 1-based; Task.attempt is the 0-based index.
+    expect(s.tasks[0]?.attempt).toBe(0);
     expect(s.tasks[0]?.agentId).toBe(agentId);
     expect(s.tasks[0]?.leaseExpiresAt).toBe("2026-10-14T11:00:00.000Z");
   });

@@ -106,6 +106,9 @@ const CONFIG_PATTERNS = [
   /^\.(?:eslintrc|prettierrc|babelrc|mocharc)(?:\..*)?$/,
   // N2: `outDir`, `declarationDir`, `tsBuildInfoFile` and `-p` targets come from these.
   /^tsconfig(?:\..*)?\.json$/,
+  // Read by the shared `.git/hooks/*` of pre-commit and lefthook users, so `git commit` runs them.
+  /^\.pre-commit-config\.ya?ml$/,
+  /^\.?lefthook(?:-local)?\.(?:ya?ml|json|toml)$/,
 ];
 const CONFIG_DIRS = [".git", ".husky", ".claude", ".github", ".vscode", ".idea", ".devcontainer"];
 
@@ -209,6 +212,10 @@ export function isSecretPath(text: string): boolean {
   const colon = text.lastIndexOf(":");
   if (colon >= 0) candidates.add(text.slice(colon + 1)); // `git show REV:path`, `scp host:path`
   if (text.startsWith("file://")) candidates.add(text.slice("file://".length));
+  // `-F/etc/shadow`, `-rf~/.mimir/x`: a value attached to a short option (cluster) may start
+  // after any of the cluster's letters.
+  const cluster = /^-[a-z0-9]+/.exec(text);
+  if (cluster) for (let k = 2; k <= cluster[0].length; k++) candidates.add(text.slice(k));
   for (const c of [...candidates]) candidates.add(lexical(c));
   for (const c of candidates) {
     const t = c.replace(/\/+$/, "");

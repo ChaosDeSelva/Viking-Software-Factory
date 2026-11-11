@@ -160,7 +160,8 @@ export function Missions() {
                         </Link>
                         <div className="text-xs text-zinc-700 dark:text-zinc-300">
                           {t.status}
-                          {t.attempt > 0 ? ` · attempt ${t.attempt}/${t.maxAttempts}` : ""}
+                          {/* `attempt` is a 0-based index. */}
+                          {t.attempt > 0 ? ` · attempt ${t.attempt + 1}/${t.maxAttempts}` : ""}
                           {t.blockedReason ? ` · ${t.blockedReason}` : ""}
                         </div>
                       </li>

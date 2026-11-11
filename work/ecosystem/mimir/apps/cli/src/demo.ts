@@ -73,7 +73,13 @@ export async function runDemo(
     const opts: ServerOptions = {
       ignoreConfig: true,
       runtime: "fake",
-      extraEnv: { MIMIR_DATA_DIR: data, MIMIR_RUNTIME: "fake", MIMIR_ALLOWED_ROOTS: "" },
+      extraEnv: {
+        MIMIR_DATA_DIR: data,
+        // Otherwise task worktrees land in the user's ~/.mimir-work and outlive the demo.
+        MIMIR_WORKTREE_ROOT: join(root, "worktrees"),
+        MIMIR_RUNTIME: "fake",
+        MIMIR_ALLOWED_ROOTS: "",
+      },
     };
     server = spawnServer({ ...env, MIMIR_AUTH_TOKEN: "" }, opts, (line, stream) => {
       if (stream === "stderr") err(line);
@@ -136,6 +142,10 @@ export async function runDemo(
     );
     const code = await server.exited;
     return interrupted || code === 0 ? 0 : EXIT_INFRA;
+  } catch (e) {
+    // Ctrl-C during setup kills the server, which fails the pending step: that is a clean stop.
+    if (interrupted) return 0;
+    throw e;
   } finally {
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);

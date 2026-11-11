@@ -12,7 +12,7 @@ const STATUS_MAP: Record<HerdrAgentStatus, RuntimeSessionState> = {
 
 /** Maps a HerdR `agent_status` to a Mimir session state; anything unrecognised is `unknown`. */
 export function mapAgentStatus(status: unknown): RuntimeSessionState {
-  return typeof status === "string" && status in STATUS_MAP
+  return typeof status === "string" && Object.hasOwn(STATUS_MAP, status)
     ? STATUS_MAP[status as HerdrAgentStatus]
     : "unknown";
 }

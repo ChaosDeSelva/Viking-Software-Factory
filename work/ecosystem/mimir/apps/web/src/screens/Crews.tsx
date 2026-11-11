@@ -25,7 +25,14 @@ function CrewForm() {
   const [invalid, setInvalid] = useState<string | null>(null);
   const { busy, outcome, run } = useAction();
 
-  const defaultKind = kinds[0] ?? "shell";
+  const offered = kinds.length > 0 ? kinds : ["shell"];
+  const defaultKind = offered[0] as string;
+  // A role ticked before the capabilities loaded holds a kind that may not be offered any more;
+  // the select then shows its first option, so that is what is sent.
+  const kindFor = (role: CrewRole): string | undefined => {
+    const kind = roles[role];
+    return kind === undefined || offered.includes(kind) ? kind : defaultKind;
+  };
   const toggle = (role: CrewRole) =>
     setRoles((r) => {
       const next = { ...r };
@@ -37,10 +44,11 @@ function CrewForm() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const members = ROLES.flatMap((role) => {
-      const kind = roles[role];
+      const kind = kindFor(role);
       return kind !== undefined ? [{ role, agentKind: kind }] : [];
     });
-    const max = Number.parseInt(maxConcurrent, 10);
+    // Not parseInt: it reads "1.5" and "1e3" as 1.
+    const max = Number(maxConcurrent.trim() || Number.NaN);
     const mission = state.missions.find((m) => m.id === missionId);
     if (!mission) return setInvalid("Choose a mission.");
     if (members.length === 0) return setInvalid("Pick at least one role.");
@@ -95,10 +103,10 @@ function CrewForm() {
               <select
                 className="input"
                 aria-label={`Agent kind for ${role}`}
-                value={roles[role]}
+                value={kindFor(role)}
                 onChange={(e) => setRoles((r) => ({ ...r, [role]: e.target.value }))}
               >
-                {(kinds.length > 0 ? kinds : ["shell"]).map((k) => (
+                {offered.map((k) => (
                   <option key={k} value={k}>
                     {k}
                   </option>

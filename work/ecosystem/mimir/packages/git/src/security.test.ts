@@ -104,6 +104,8 @@ describe("gitEnv", () => {
       GIT_ATTR_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
       GIT_INDEX_FILE: "/x",
+      GIT_NO_LAZY_FETCH: "1",
+      GIT_ALLOW_PROTOCOL: "file",
     });
     const allowed = new Set([
       "PATH",
@@ -116,6 +118,8 @@ describe("gitEnv", () => {
       "GIT_ATTR_NOSYSTEM",
       "GIT_TERMINAL_PROMPT",
       "GIT_OPTIONAL_LOCKS",
+      "GIT_NO_LAZY_FETCH",
+      "GIT_ALLOW_PROTOCOL",
       "GIT_INDEX_FILE",
     ]);
     expect(Object.keys(env).filter((k) => !allowed.has(k))).toEqual([]);

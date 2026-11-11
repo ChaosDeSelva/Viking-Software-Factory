@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isMimirError } from "@mimir/protocol";
@@ -68,6 +68,13 @@ describe("isInside", () => {
     expect(isInside("/a/bc", "/a/b")).toBe(false);
     expect(isInside("/a", "/a/b")).toBe(false);
   });
+  it("counts a child whose name merely starts with two dots as inside", () => {
+    expect(isInside("/a/b/..hidden", "/a/b")).toBe(true);
+    expect(isInside("/a/b/..hidden/c", "/a/b")).toBe(true);
+    expect(isInside("/a/b/...", "/a/b")).toBe(true);
+    expect(isInside("/a", "/a/b")).toBe(false);
+    expect(isInside("/a/c", "/a/b")).toBe(false);
+  });
 });
 
 describe("assertNoSymlinkBelow", () => {
@@ -82,6 +89,26 @@ describe("assertNoSymlinkBelow", () => {
   it("passes when components are real dirs or missing", async () => {
     await mkdir(join(dir, "a"));
     await expect(assertNoSymlinkBelow(dir, join(dir, "a", "b", "c"))).resolves.toBeUndefined();
+  });
+  it("rejects a target outside the root", async () => {
+    await expect(assertNoSymlinkBelow(join(dir, "a"), join(dir, "b"))).rejects.toMatchObject({
+      code: "validation_failed",
+      details: { root: join(dir, "a"), target: join(dir, "b") },
+    });
+  });
+  it("accepts a dot-dot-prefixed name below the root and still checks it for symlinks", async () => {
+    await expect(assertNoSymlinkBelow(dir, join(dir, "..x", "y"))).resolves.toBeUndefined();
+    await symlink(dir, join(dir, "..link"));
+    await expect(assertNoSymlinkBelow(dir, join(dir, "..link", "y"))).rejects.toMatchObject({
+      code: "validation_failed",
+      details: { path: join(dir, "..link") },
+    });
+  });
+  it("surfaces a component that cannot be inspected (a file where a directory is expected)", async () => {
+    await writeFile(join(dir, "file"), "");
+    await expect(assertNoSymlinkBelow(dir, join(dir, "file", "below"))).rejects.toMatchObject({
+      code: "ENOTDIR",
+    });
   });
   it("rejects a symlinked intermediate component", async () => {
     const outside = await mkdtemp(join(tmpdir(), "mimir-git-outside-"));

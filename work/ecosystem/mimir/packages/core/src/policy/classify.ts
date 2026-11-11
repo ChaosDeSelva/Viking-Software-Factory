@@ -794,12 +794,12 @@ function declaration(table: OptTable): Handler {
 
 function subcommandIs(args: readonly ShellWord[], table: Record<string, readonly string[] | true>) {
   const positional = args.filter((w) => !w.text.startsWith("-")).map((w) => w.text);
-  for (const [first, seconds] of Object.entries(table)) {
-    if (positional[0] !== first) continue;
-    if (seconds === true) return true;
-    if (seconds.includes(positional[1] ?? "")) return true;
-  }
-  return false;
+  // Global options can take a separate value (`aws --region us-east-1 ssm ...`), so the
+  // subcommand may follow other positional words: match it anywhere (the strict direction).
+  return positional.some((word, i) => {
+    const seconds = Object.hasOwn(table, word) ? table[word] : undefined;
+    return seconds === true || (seconds !== undefined && seconds.includes(positional[i + 1] ?? ""));
+  });
 }
 
 const SECRET_TOOLS: Record<string, Handler> = {

@@ -26,7 +26,7 @@ export function downloadJson(events: readonly EventEnvelope[], filename: string)
 }
 
 export function Activity() {
-  const { state, client } = useStore();
+  const { state, client, reportError } = useStore();
   const [filter, setFilter] = useState<EventFilter>({});
   const [search, setSearch] = useState("");
   const [cursor, setCursor] = useState("");
@@ -52,6 +52,7 @@ export function Activity() {
         }.`,
       });
     } catch (err) {
+      reportError(err);
       setOutcome({ kind: "error", error: describeError(err) });
     } finally {
       setBusy(false);

@@ -68,3 +68,18 @@ describe("SseParser id-only blocks", () => {
     expect(out).toEqual([{ id: "c8", event: "message", data: "x" }]);
   });
 });
+
+describe("SseParser field edge cases", () => {
+  it("treats a line without a colon as a field with an empty value", () => {
+    expect(parseAll(["data\ndata\n\n"])).toEqual([{ id: undefined, event: "message", data: "\n" }]);
+  });
+
+  it("ignores an id containing NUL and a retry that is not all digits", () => {
+    const retries: number[] = [];
+    const out: SseMessage[] = [];
+    const p = new SseParser((m) => out.push(m), { onRetry: (ms) => retries.push(ms) });
+    p.feed("id: ok\ndata: a\n\nid: b\0d\nretry: 10s\nretry: -1\ndata: b\n\n");
+    expect(out.map((m) => m.id)).toEqual(["ok", "ok"]);
+    expect(retries).toEqual([]);
+  });
+});

@@ -54,3 +54,77 @@ describe("FixtureReplayRuntime", () => {
     expect(await rt.listSessions()).toEqual([]);
   });
 });
+
+describe("FixtureReplayRuntime adapter surface", () => {
+  const line = (id: string, t?: unknown) =>
+    JSON.stringify({
+      ...(t === undefined ? {} : { t_ms: t }),
+      kind: "event",
+      msg: { event: "pane_created", data: { pane: { pane_id: id } } },
+    });
+
+  it("advertises only subscribe and is always healthy with no sessions", async () => {
+    const rt = new FixtureReplayRuntime({ lines: [], normalize });
+    const caps = await rt.capabilities();
+    expect(caps.runtime).toBe("fixture-replay");
+    expect(Object.entries(caps.features).filter(([, v]) => v)).toEqual([["subscribe", true]]);
+    expect(await rt.health()).toEqual({ ok: true });
+    expect(await rt.getSession()).toBeNull();
+    expect(await rt.reconcile()).toEqual({ sessions: [], lost: [] });
+  });
+
+  it("rejects input and stop as unsupported", async () => {
+    const rt = new FixtureReplayRuntime({ lines: [], normalize });
+    await expect(rt.sendInput()).rejects.toMatchObject({
+      code: "capability_unavailable",
+      details: { runtime: "fixture-replay", feature: "sendInput" },
+    });
+    await expect(rt.requestStop()).rejects.toMatchObject({
+      details: { feature: "requestStop" },
+    });
+  });
+
+  it("stops delivering after close or dispose", async () => {
+    const rt = new FixtureReplayRuntime({ lines: [line("a")], normalize });
+    const a: RuntimeEvent[] = [];
+    const b: RuntimeEvent[] = [];
+    const sub = await rt.subscribe((e) => a.push(e));
+    await rt.subscribe((e) => b.push(e));
+    await rt.play();
+    sub.close();
+    await rt.play();
+    await rt.dispose();
+    await rt.play();
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(2);
+  });
+
+  it("only paces forward steps between lines that carry a numeric t_ms", async () => {
+    const sleeps: number[] = [];
+    const rt = new FixtureReplayRuntime({
+      lines: [line("a", 100), "not json", line("b", "200"), line("c", 50), line("d", 80), "  "],
+      normalize: (l) => (l.startsWith("{") ? normalize(l) : null),
+      speed: 1,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    const got: RuntimeEvent[] = [];
+    await rt.subscribe((e) => got.push(e));
+    await rt.play();
+    expect(sleeps).toEqual([30]);
+    expect(got).toHaveLength(4);
+  });
+
+  it("sleeps for real by default", async () => {
+    const rt = new FixtureReplayRuntime({
+      lines: [line("a", 0), line("b", 5)],
+      normalize,
+      speed: 1,
+    });
+    const got: RuntimeEvent[] = [];
+    await rt.subscribe((e) => got.push(e));
+    await rt.play();
+    expect(got).toHaveLength(2);
+  });
+});

@@ -81,6 +81,14 @@ export class Http {
   }
 
   url(path: string, query?: Query): string {
+    // An id of "", "." or ".." survives encodeURIComponent and the URL parser would resolve it
+    // away, sending e.g. `tasks.retry("..")` to `/v1/retry`.
+    if (path.split("/").some((s, i) => i > 0 && (s === "" || s === "." || s === ".."))) {
+      throw new MimirError("validation_failed", `invalid request path ${path}`, {
+        path,
+        issues: [{ path: ["id"], message: "an id must not be empty, '.' or '..'" }],
+      });
+    }
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(query ?? {})) {
       if (v === undefined) continue;

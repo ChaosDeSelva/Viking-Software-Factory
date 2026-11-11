@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { accessSync, constants, existsSync } from "node:fs";
+import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { dataDir } from "./env.js";
@@ -104,8 +104,9 @@ export function doctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   try {
     let probe = dir;
     while (!existsSync(probe) && dirname(probe) !== probe) probe = dirname(probe);
-    accessSync(probe, constants.W_OK);
-    writable = true;
+    accessSync(probe, constants.W_OK | constants.X_OK);
+    // A file where the data dir (or an ancestor) should be cannot hold it.
+    writable = statSync(probe).isDirectory();
   } catch {
     writable = false;
   }

@@ -171,19 +171,41 @@ function foldEvent(state: State, e: EventEnvelope): State {
   if (type.startsWith("task.") && type !== "task.created") {
     const to = p["to"] as Task["status"] | undefined;
     if (to === undefined) return state;
+    // Mirrors the server read model's task projection, so a live fold and a snapshot agree.
     const tasks = updateById(state.tasks, e.taskId, (t) => {
       let next: Task = { ...withoutBlockedReason(t), status: to, updatedAt: e.occurredAt };
-      if (typeof p["attempt"] === "number") next = { ...next, attempt: p["attempt"] };
       if (type === "task.leased") {
         const pl = p as EventPayloadMap["task.leased"];
-        next = { ...next, agentId: pl.agentId, leaseExpiresAt: pl.leaseExpiresAt };
-      }
-      if (type === "task.started") {
-        next = { ...next, agentId: (p as EventPayloadMap["task.started"]).agentId };
-      }
-      if (type === "task.blocked") {
+        // The payload's attempt number is 1-based; `Task.attempt` is the 0-based index.
+        next = {
+          ...next,
+          agentId: pl.agentId,
+          attempt: pl.attempt - 1,
+          leaseExpiresAt: pl.leaseExpiresAt,
+        };
+      } else if (type === "task.started") {
+        const pl = p as EventPayloadMap["task.started"];
+        next = { ...next, agentId: pl.agentId };
+        // verifying -> running is a verification retry: the next attempt starts. Only from a task
+        // still verifying: a refresh re-folds events over a snapshot that may already count it.
+        if (pl.from === "verifying" && t.status === "verifying") {
+          next = { ...next, attempt: t.attempt + 1 };
+        }
+      } else if (type === "task.failed") {
+        next = { ...next, attempt: (p as EventPayloadMap["task.failed"]).attempt };
+      } else if (type === "task.retried") {
+        next = { ...next, attempt: (p as EventPayloadMap["task.retried"]).attempt, agentId: null };
+      } else if (type === "task.blocked") {
         next = { ...next, blockedReason: (p as EventPayloadMap["task.blocked"]).reason };
+      } else if (type === "task.completed") {
+        const commit = (p as EventPayloadMap["task.completed"]).resultCommit;
+        if (commit !== undefined) next = { ...next, resultCommit: commit };
       }
+      if (to === "completed" || to === "failed" || to === "cancelled" || to === "ready") {
+        next = { ...next, leaseExpiresAt: null };
+      }
+      // A lease given back (`launch_deferred`) leaves no agent on the task.
+      if (type === "task.ready") next = { ...next, agentId: null };
       return next;
     });
     return tasks === state.tasks ? state : { ...state, tasks };

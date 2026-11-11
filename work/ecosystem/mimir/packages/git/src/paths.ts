@@ -46,7 +46,8 @@ export function branchNameFor(crewSlug: string, taskId: string, taskSlug: string
 /** True when `child` equals `parent` or is a descendant of it (both absolute, normalized). */
 export function isInside(child: string, parent: string): boolean {
   const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+  // `..hidden` is a child; only a `..` segment leaves the parent.
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /**

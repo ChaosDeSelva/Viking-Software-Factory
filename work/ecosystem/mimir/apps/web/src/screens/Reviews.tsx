@@ -124,7 +124,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
 }
 
 export function Reviews() {
-  const { state, client } = useStore();
+  const { state, client, reportError } = useStore();
   const [history, setHistory] = useState<EventEnvelope[]>([]);
   const [histStatus, setHistStatus] = useState<"loading" | "ready" | "error">("loading");
   const [histError, setHistError] = useState<string | null>(null);
@@ -144,12 +144,13 @@ export function Reviews() {
       },
       (e: unknown) => {
         if (ctrl.signal.aborted) return;
+        reportError(e);
         setHistError(describeError(e).message);
         setHistStatus("error");
       },
     );
     return () => ctrl.abort();
-  }, [client, tick]);
+  }, [client, reportError, tick]);
 
   const events = useMemo(
     () =>

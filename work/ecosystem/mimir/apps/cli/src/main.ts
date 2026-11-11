@@ -65,7 +65,10 @@ withJson(program.command("export").description("export a mission's events as JSO
 program
   .command("start")
   .description("start the server and serve the web app on the same origin")
-  .option("--runtime <runtime>", "fake | herdr | none (default: MIMIR_RUNTIME, else fake)")
+  .option(
+    "--runtime <runtime>",
+    "fake | herdr | cli | ssh | tmux | fleet | tmux-interactive | zellij | cmux | orca | none (default: MIMIR_RUNTIME, else fake)",
+  )
   .action(async function (this: Command) {
     const o = this.opts<{ runtime?: string }>();
     checkRuntime(o.runtime);

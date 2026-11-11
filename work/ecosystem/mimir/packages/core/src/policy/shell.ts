@@ -493,7 +493,8 @@ function readAnsiC(src: string, start: number): { text: string; end: number } {
       const m = /^[0-7]{0,2}/.exec(src.slice(i, i + 2)) as RegExpExecArray;
       text += String.fromCharCode(parseInt(e + m[0], 8) & 0xff);
       i += m[0].length;
-    } else if (e === "c" && i < src.length) {
+    } else if (e === "c" && i < src.length && src[i] !== "'") {
+      // `\c'` is `\c` then the closing quote, as the shell's lexer reads it.
       text += String.fromCharCode((src.charCodeAt(i) as number) & 0x1f);
       i += 1;
     } else {

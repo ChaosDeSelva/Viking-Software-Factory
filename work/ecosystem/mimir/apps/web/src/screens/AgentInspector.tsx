@@ -17,7 +17,7 @@ export const TERMINAL_MIN_INTERVAL_MS = 2000;
 const TERMINAL_LINES = 200;
 
 function Terminal({ sessionId }: { sessionId: SessionId }) {
-  const { client } = useStore();
+  const { client, reportError } = useStore();
   const [data, setData] = useState<TerminalReadResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cooling, setCooling] = useState(false);
@@ -40,6 +40,7 @@ function Terminal({ sessionId }: { sessionId: SessionId }) {
     try {
       setData(await client.sessions.terminal(sessionId, { lines: TERMINAL_LINES }));
     } catch (e) {
+      reportError(e);
       setError(describeError(e).message);
     } finally {
       setBusy(false);
