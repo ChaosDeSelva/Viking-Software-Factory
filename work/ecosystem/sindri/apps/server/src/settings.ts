@@ -27,8 +27,44 @@ const HttpUrl = z
 export const SettingsSchema = z.strictObject({
   provider: z.enum(["anthropic", "codex-cli", "claude-cli", "fake", "null"]),
   model: z.string().min(1).max(200),
-  workerAgent: z.enum(["codex", "claude", "opencode", "gemini", "pi", "pi-signed", "grok", "kimi", "cursor", "muse", "rovo", "omp", "agy", "devin", "commandcode"]).optional(),
-  reviewerAgent: z.enum(["codex", "claude", "opencode", "gemini", "pi", "pi-signed", "grok", "kimi", "cursor", "muse", "rovo", "omp", "agy", "devin", "commandcode"]).optional(),
+  workerAgent: z
+    .enum([
+      "codex",
+      "claude",
+      "opencode",
+      "gemini",
+      "pi",
+      "pi-signed",
+      "grok",
+      "kimi",
+      "cursor",
+      "muse",
+      "rovo",
+      "omp",
+      "agy",
+      "devin",
+      "commandcode",
+    ])
+    .optional(),
+  reviewerAgent: z
+    .enum([
+      "codex",
+      "claude",
+      "opencode",
+      "gemini",
+      "pi",
+      "pi-signed",
+      "grok",
+      "kimi",
+      "cursor",
+      "muse",
+      "rovo",
+      "omp",
+      "agy",
+      "devin",
+      "commandcode",
+    ])
+    .optional(),
   localOnly: z.boolean(),
   mimirUrl: HttpUrl.optional(),
   /** SecretStore key holding the Mimir bearer token. */

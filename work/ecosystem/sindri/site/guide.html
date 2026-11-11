@@ -1,6 +1,109 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101716"><meta name="color-scheme" content="dark"><meta name="description" content="Versioned specifications, dependency plans, human approvals and evidence based delivery reviews."><title>Sindri</title><link rel="stylesheet" href="style.css?v=20261018c"><link rel="icon" href="assets/icon.svg" type="image/svg+xml"></head><body><a class="skip" href="#main">Skip to content</a><header><nav aria-label="Main"><a class="brand" href="index.html"><span class="initial" aria-hidden="true">S</span>Sindri</a><div class="navlinks"><a href="index.html#capabilities">Capabilities</a><a href="index.html#start">Get started</a><a href="index.html#status">Release status</a></div></nav></header><main id="main"><section class="intro"><h1>Sindri setup guide</h1><p class="lead">Versioned specifications, dependency plans, human approvals and evidence based delivery reviews.</p><h2>Before you begin</h2><p>Sindri owns specifications, plans and delivery decisions. Mimir runs the agents and Brokkr defines verification. Sindri does not automatically merge or deploy the result.</p><h2>Requirements</h2><p>Node.js 25 or newer, pnpm and Git 2.38 or newer.</p><h2>Get the source</h2><pre class="commands"><code>git clone https://github.com/ChaosDeSelva/Sindri.git
-cd Sindri</code></pre><h2>Build and run</h2><pre class="commands"><code>pnpm install --frozen-lockfile
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#101716" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Versioned specifications, dependency plans, human approvals and evidence based delivery reviews."
+    />
+    <title>Sindri</title>
+    <link rel="stylesheet" href="style.css?v=20261018c" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <nav aria-label="Main">
+        <a class="brand" href="index.html"
+          ><span class="initial" aria-hidden="true">S</span>Sindri</a
+        >
+        <div class="navlinks">
+          <a href="index.html#capabilities">Capabilities</a
+          ><a href="index.html#start">Get started</a><a href="index.html#status">Release status</a>
+        </div>
+      </nav>
+    </header>
+    <main id="main">
+      <section class="intro">
+        <h1>Sindri setup guide</h1>
+        <p class="lead">
+          Versioned specifications, dependency plans, human approvals and evidence based delivery
+          reviews.
+        </p>
+        <h2>Before you begin</h2>
+        <p>
+          Sindri owns specifications, plans and delivery decisions. Mimir runs the agents and Brokkr
+          defines verification. Sindri does not automatically merge or deploy the result.
+        </p>
+        <h2>Requirements</h2>
+        <p>Node.js 25 or newer, pnpm and Git 2.38 or newer.</p>
+        <h2>Get the source</h2>
+        <pre class="commands"><code>git clone https://github.com/ChaosDeSelva/Sindri.git
+cd Sindri</code></pre>
+        <h2>Build and run</h2>
+        <pre class="commands"><code>pnpm install --frozen-lockfile
 pnpm build
 node apps/cli/dist/main.js init
 node apps/cli/dist/main.js doctor
-node apps/cli/dist/main.js start</code></pre><p>Run these commands from the repository root. Keep local state and credentials outside version control.</p><div class="actions"><a class="button" href="https://github.com/ChaosDeSelva/Sindri#readme">Complete README</a><a class="button secondary" href="release.html">Release notes</a></div></section><section class="section"><h2>Your first session</h2><ol class="steps"><li>Initialize the local configuration, run doctor and start the service. Configure Mimir before submitting a plan for execution.</li><li>Register a project and capture a small request. Draft a specification, inspect its assumptions and approve the revision you want to build.</li><li>Review the task plan and approve it separately. Start the approved plan from Heimdall or the documented API.</li><li>Inspect verification artifacts and the independent review. Export a local delivery or proposed PR text; GitHub is optional.</li></ol></section><section class="section"><h2>Operating boundaries</h2><p>Delivery depends on the configured execution runtime and reviewer. A passing example is not a guarantee for arbitrary projects. External tracker credentials and agent logins are configured separately. Manual accessibility acceptance remains pending.</p></section><section class="section"><h2>Go deeper</h2><ul class="resources"><li><a href="https://github.com/ChaosDeSelva/Sindri/blob/main/README.md">Project setup</a></li><li><a href="https://github.com/ChaosDeSelva/Sindri/blob/main/SECURITY.md">Security and untrusted input</a></li></ul></section></main><footer>Sindri · Apache 2.0 and retained dependency licenses.<br>Independent open source development. Upstream attribution retained. No tracking or external fonts.</footer></body></html>
+node apps/cli/dist/main.js start</code></pre>
+        <p>
+          Run these commands from the repository root. Keep local state and credentials outside
+          version control.
+        </p>
+        <div class="actions">
+          <a class="button" href="https://github.com/ChaosDeSelva/Sindri#readme">Complete README</a
+          ><a class="button secondary" href="release.html">Release notes</a>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Your first session</h2>
+        <ol class="steps">
+          <li>
+            Initialize the local configuration, run doctor and start the service. Configure Mimir
+            before submitting a plan for execution.
+          </li>
+          <li>
+            Register a project and capture a small request. Draft a specification, inspect its
+            assumptions and approve the revision you want to build.
+          </li>
+          <li>
+            Review the task plan and approve it separately. Start the approved plan from Heimdall or
+            the documented API.
+          </li>
+          <li>
+            Inspect verification artifacts and the independent review. Export a local delivery or
+            proposed PR text; GitHub is optional.
+          </li>
+        </ol>
+      </section>
+      <section class="section">
+        <h2>Operating boundaries</h2>
+        <p>
+          Delivery depends on the configured execution runtime and reviewer. A passing example is
+          not a guarantee for arbitrary projects. External tracker credentials and agent logins are
+          configured separately. Manual accessibility acceptance remains pending.
+        </p>
+      </section>
+      <section class="section">
+        <h2>Go deeper</h2>
+        <ul class="resources">
+          <li>
+            <a href="https://github.com/ChaosDeSelva/Sindri/blob/main/README.md">Project setup</a>
+          </li>
+          <li>
+            <a href="https://github.com/ChaosDeSelva/Sindri/blob/main/SECURITY.md"
+              >Security and untrusted input</a
+            >
+          </li>
+        </ul>
+      </section>
+    </main>
+    <footer>
+      Sindri · Apache 2.0 and retained dependency licenses.<br />Independent open source
+      development. Upstream attribution retained. No tracking or external fonts.
+    </footer>
+  </body>
+</html>

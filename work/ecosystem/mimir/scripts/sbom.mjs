@@ -1,4 +1,4 @@
-// pnpm sbom
+// pnpm run sbom
 // Produces a CycloneDX 1.5 JSON SBOM at dist/sbom.cdx.json from `pnpm list -r --json --depth Infinity`
 // (@cyclonedx/cyclonedx-npm drives `npm ls` and does not understand pnpm's layout, so it is not used).
 // Workspace packages become components too; every component carries a pkg:npm purl and its license.

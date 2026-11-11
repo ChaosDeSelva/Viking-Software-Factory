@@ -491,7 +491,9 @@ describe(
       mkdirSync(join(repo, "node_modules"));
       const { report } = await verify(repo);
       const unit = report.checks[0]!;
-      expect(unit.state).toBe("passed");
+      expect(unit.state, readFileSync(join(runDir(repo, report), "logs", "unit.log"), "utf8")).toBe(
+        "passed",
+      );
       expect(unit.durationMs).toBeLessThan(5000);
       expect(existsSync(join(repo, "node_modules", "left-pad"))).toBe(false);
     });

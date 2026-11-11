@@ -18,23 +18,23 @@ Sindri deliberately does not do several things. It does not run agents or open t
 
 ## Features
 
-* **Project bootstrap.** Indexes a git repo's README, docs, ADRs, manifests, build scripts and a depth-3 structure listing into searchable chunks. Skips secret looking files, binaries, files over 1 MiB and symlink escapes, and reports each skip.
-* **Manual intake.** Plain text requests stored against a project.
-* **Read only Jira and Linear import.** Jira by `GET` only, Linear by GraphQL queries only, with snapshots kept and changed re imports held as pending.
-* **Credential handles.** Settings store secret names, never values; the server rejects token shaped strings.
-* **Intake sanitizing.** Ticket text is shown through a sanitized view and handed to the director inside per request random delimiters.
-* **Provider neutral director.** Anthropic, fake and null providers behind one interface, with injection detection and a recorded run for every call.
-* **Versioned specs.** Draft, review, approved; revisions create new versions, approved versions are immutable, diffs are available, and approval is refused while blocking questions remain.
-* **Project knowledge.** Sourced claims with confidence; retract or supersede, never edit, with history kept.
-* **Task planner.** Spec to dependency aware task DAG with objective, acceptance, harness version, budget and retries, with dry run and an approval step.
-* **Harness selection.** Real Brokkr SDK selection with the full pinned lock carried from approved plan to task verification.
-* **Mimir orchestration.** Executions submitted as missions through the SDK facade, with event reconciliation and bounded gate repair retries.
-* **Quality gates.** Command, artifact and review gates evaluated from recorded evidence, bound to the Brokkr report.
-* **Delivery report and PR.** Report with citations, a trace from delivery back to plan, spec and intake, and a PR request that waits for approval.
-* **Knowledge update.** Post delivery write back of sourced claims.
-* **Local only mode.** On by default; blocks connector fetches.
-* **Server and web UI.** Fastify API with bearer auth plus a React UI served on one origin.
-* **Export and delete.** Zip snapshot of the database and settings; per project data deletion.
+- **Project bootstrap.** Indexes a git repo's README, docs, ADRs, manifests, build scripts and a depth-3 structure listing into searchable chunks. Skips secret looking files, binaries, files over 1 MiB and symlink escapes, and reports each skip.
+- **Manual intake.** Plain text requests stored against a project.
+- **Read only Jira and Linear import.** Jira by `GET` only, Linear by GraphQL queries only, with snapshots kept and changed re imports held as pending.
+- **Credential handles.** Settings store secret names, never values; the server rejects token shaped strings.
+- **Intake sanitizing.** Ticket text is shown through a sanitized view and handed to the director inside per request random delimiters.
+- **Provider neutral director.** Anthropic, fake and null providers behind one interface, with injection detection and a recorded run for every call.
+- **Versioned specs.** Draft, review, approved; revisions create new versions, approved versions are immutable, diffs are available, and approval is refused while blocking questions remain.
+- **Project knowledge.** Sourced claims with confidence; retract or supersede, never edit, with history kept.
+- **Task planner.** Spec to dependency aware task DAG with objective, acceptance, harness version, budget and retries, with dry run and an approval step.
+- **Harness selection.** Real Brokkr SDK selection with the full pinned lock carried from approved plan to task verification.
+- **Mimir orchestration.** Executions submitted as missions through the SDK facade, with event reconciliation and bounded gate repair retries.
+- **Quality gates.** Command, artifact and review gates evaluated from recorded evidence, bound to the Brokkr report.
+- **Delivery report and PR.** Report with citations, a trace from delivery back to plan, spec and intake, and a PR request that waits for approval.
+- **Knowledge update.** Post delivery write back of sourced claims.
+- **Local only mode.** On by default; blocks connector fetches.
+- **Server and web UI.** Fastify API with bearer auth plus a React UI served on one origin.
+- **Export and delete.** Zip snapshot of the database and settings; per project data deletion.
 
 ## Quick start
 
@@ -143,11 +143,11 @@ Server API (all under `/v1`, bearer auth): `projects`, `intakes` (including `int
 
 Four products make up the factory. Sindri plans and judges product correctness. [Brokkr](../brokkr) defines and verifies engineering quality. [Mimir](../mimir) commands supervised crews. HerdR runs the terminal sessions and is upstream Rust software.
 
-* Sindri reaches Mimir only through `@mimir/sdk` and `@mimir/protocol`, and only `packages/mimir-client` imports them.
-* Nothing in Sindri touches HerdR.
-* Brokkr is consumed through `@brokkr/sdk` tarballs. Brokkr imports nothing from the ecosystem.
-* Mimir does not know what a ticket, spec or harness is.
-* No cross repo source or path imports; repos share only packed tarballs.
+- Sindri reaches Mimir only through `@mimir/sdk` and `@mimir/protocol`, and only `packages/mimir-client` imports them.
+- Nothing in Sindri touches HerdR.
+- Brokkr is consumed through `@brokkr/sdk` tarballs. Brokkr imports nothing from the ecosystem.
+- Mimir does not know what a ticket, spec or harness is.
+- No cross repo source or path imports; repos share only packed tarballs.
 
 The Mimir packages are vendored as tarballs in `vendor/mimir/` so every checkout installs the same bytes offline. `@mimir/sdk` depends on `@mimir/protocol@0.0.0`, which no registry serves, so `pnpm-workspace.yaml` overrides it to the vendored tarball. An ESLint rule forbids `@mimir/*` imports outside `packages/mimir-client` and the test fake. The tested pairing is in `docs/compatibility.md`.
 
@@ -157,17 +157,17 @@ Sindri runs locally with no hosted service and no telemetry. The server listens 
 
 ## Documentation
 
-* `docs/getting-started.md`: install, init, doctor, connect Mimir, run.
-* `docs/concepts.md`: projects, intake, director, specs, knowledge, evidence, plans.
-* `docs/api.md`: HTTP API reference.
-* `docs/connectors.md`: Jira and Linear setup, credential handles, local only.
-* `docs/compatibility.md`: Sindri, `@mimir/sdk`, Mimir protocol and `@brokkr/sdk` versions.
-* `docs/limits.md`: enforced limits and known gaps.
-* `docs/security.md`: threat handling, egress, untrusted input.
-* `docs/security/dependency-audit.md`: dependency audit report.
-* `docs/licenses.md`: license policy and the MPL-2.0 test only ruling.
-* `docs/adrs/`: ADR-001 to ADR-009 and an index (`README.md`): separate repository, SDK only Mimir dependency, provider neutral director, harnesses owned by Brokkr, evidence only completion, knowledge/evidence split, local only mode, no auto merge, MPL test only dependencies.
-* `docs/issues/`: feature tracking files F01 to F18 and an index.
+- `docs/getting-started.md`: install, init, doctor, connect Mimir, run.
+- `docs/concepts.md`: projects, intake, director, specs, knowledge, evidence, plans.
+- `docs/api.md`: HTTP API reference.
+- `docs/connectors.md`: Jira and Linear setup, credential handles, local only.
+- `docs/compatibility.md`: Sindri, `@mimir/sdk`, Mimir protocol and `@brokkr/sdk` versions.
+- `docs/limits.md`: enforced limits and known gaps.
+- `docs/security.md`: threat handling, egress, untrusted input.
+- `docs/security/dependency-audit.md`: dependency audit report.
+- `docs/licenses.md`: license policy and the MPL-2.0 test only ruling.
+- `docs/adrs/`: ADR-001 to ADR-009 and an index (`README.md`): separate repository, SDK only Mimir dependency, provider neutral director, harnesses owned by Brokkr, evidence only completion, knowledge/evidence split, local only mode, no auto merge, MPL test only dependencies.
+- `docs/issues/`: feature tracking files F01 to F18 and an index.
 
 Some documents describe an earlier state of `main`; where they disagree with the code, the code is authoritative.
 
@@ -175,12 +175,12 @@ Some documents describe an earlier state of `main`; where they disagree with the
 
 Gate G4 (a raw idea becomes a reviewable spec and an approved plan) is built; planning and delivery code exist through gates, review and report. Open items:
 
-* `@brokkr/sdk` wiring: `BrokkrHarnessService` rejects `not_wired` until it lands.
-* `sindri demo` and the packaged first run experience.
-* Gate G5: imported ticket to parallel crews to a verified PR, including one intentional failed test handled by a bounded retry, has not been run against a real Mimir.
-* Gate G6: the full acceptance run with every delivery traceable from ticket to artifacts.
-* Gate G7: release hardening and the release checklist; security audit findings are still being closed.
-* Not planned: multi user auth, hosted mode, auto merge or deploy, telemetry.
+- `@brokkr/sdk` wiring: `BrokkrHarnessService` rejects `not_wired` until it lands.
+- `sindri demo` and the packaged first run experience.
+- Gate G5: imported ticket to parallel crews to a verified PR, including one intentional failed test handled by a bounded retry, has not been run against a real Mimir.
+- Gate G6: the full acceptance run with every delivery traceable from ticket to artifacts.
+- Gate G7: release hardening and the release checklist; security audit findings are still being closed.
+- Not planned: multi user auth, hosted mode, auto merge or deploy, telemetry.
 
 ## Contributing
 

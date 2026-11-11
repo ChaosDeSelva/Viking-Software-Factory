@@ -47,5 +47,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Hosted macOS runners run jsdom several times slower than a laptop; 5 s timed out there.
+    testTimeout: 20_000,
   },
 });

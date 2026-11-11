@@ -394,3 +394,20 @@ describe("URL userinfo: empty user and percent-encoded colon (T14a re-review N1)
     });
   }
 });
+
+describe("URL redaction after long non-URL output", () => {
+  const prefix = "a-".repeat(128 * 1024);
+  for (const url of [
+    "https://user:fixture-pass@host/path",
+    "HTTPS://user:fixture-pass@host/path",
+    "https://user%3Afixture-pass@host/path",
+    "user%3afixture-pass@host/path",
+  ]) {
+    it(`still masks credentials in ${url}`, () => {
+      const result = redact(`${prefix} ${url}`);
+      expect(result.redacted).toBe(true);
+      expect(result.text).not.toContain("fixture-pass");
+      expect(result.text.startsWith(`${prefix} `)).toBe(true);
+    });
+  }
+});

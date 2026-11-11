@@ -104,7 +104,7 @@ Mitigations:
 * Malformed event tests (T8) and the slow consumer chaos test (`apps/server/test/chaos/slow-sse.test.ts`). Implemented.
 * HerdR sockets have no authentication; a local process that can write the socket can control all panes regardless of Mimir. The roadmap recommends that Mimir use its own HerdR session (`herdr --session mimir`) to keep its panes apart from the user's other workspaces; the adapter never closes panes on `dispose()` (contract). Adapter code is implemented (T8).
 
-Residual risk: a compromised HerdR binary is outside Mimir's control. Supply chain risk for npm dependencies is addressed by the Phase 1 license scan and release SBOM (`pnpm licenses:check`, `pnpm sbom`, run by `pnpm release:local`).
+Residual risk: a compromised HerdR binary is outside Mimir's control. Supply chain risk for npm dependencies is addressed by the Phase 1 license scan and release SBOM (`pnpm licenses:check`, `pnpm run sbom`, run by `pnpm release:local`).
 
 ## 6. Remote host impersonation
 

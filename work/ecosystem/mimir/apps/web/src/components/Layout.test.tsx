@@ -194,7 +194,8 @@ describe("Layout", () => {
     await user.keyboard("?");
     const dialog = await screen.findByRole("dialog", { name: /keyboard shortcuts/i });
     expect(dialog.textContent).toMatch(/g m/);
-    expect(within(dialog).getByRole("heading", { name: "On this screen" })).toBeTruthy();
+    // The screen's docs section loads asynchronously after the dialog opens.
+    expect(await within(dialog).findByRole("heading", { name: "On this screen" })).toBeTruthy();
     expect(
       within(dialog)
         .getByRole("link", { name: /full guide in Docs/ })

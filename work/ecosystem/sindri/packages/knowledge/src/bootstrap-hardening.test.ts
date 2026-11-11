@@ -15,7 +15,7 @@ const allChunkText = (k: Knowledge) =>
 
 const ANTHROPIC = "sk-ant-api03-" + "A1b2C3d4E5f6G7h8I9j0".repeat(4);
 const AWS = "AKIA" + "ABCDEFGHIJ234567";
-const GH = ("gh" + "p_") + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
+const GH = "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 const PEM_BODY = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7pemkeybody";
 
 describe.each([
@@ -159,8 +159,8 @@ describe("secret detection", () => {
     ["OpenAI", "OPENAI_API_KEY=sk-proj-abcdEFGH1234ijklMNOP5678qrst"],
     ["AWS", AWS],
     ["GitHub classic", GH],
-    ["GitHub fine-grained", ("gi" + "thub_pat_11ABCDEFG0123456789_abcdefghijklmnop")],
-    ["Slack", ("xo" + "xb-1234567890-abcdefghij")],
+    ["GitHub fine-grained", "gi" + "thub_pat_11ABCDEFG0123456789_abcdefghijklmnop"],
+    ["Slack", "xo" + "xb-1234567890-abcdefghij"],
     ["Linear", "lin_api_abcdefghijklmnopqrstuvwxyz0123"],
     ["Atlassian", "ATATT3xFfGF0abcdefghijklmnopqrstuv"],
     ["PEM", "-----BEGIN OPENSSH PRIVATE KEY-----"],

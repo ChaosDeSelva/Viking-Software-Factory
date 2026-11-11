@@ -13,10 +13,19 @@ FakeRuntime.prototype.createSession = function (spec) {
   // Simulated reviewer output must follow the same assigned criterion contract as a real agent.
   // This fixture validates plumbing, not model judgment or browser acceptance.
   const brief = spec.argv.join(" ");
-  const assigned = brief.match(/Acceptance criteria(?: to judge)?: ([A-Za-z0-9_, -]+?)(?: Role:| Do not change|\n|$)/)?.[1] ?? "";
-  const acceptance = assigned.split(",").map(id => id.trim()).filter(Boolean).map(criterionId => ({
-    criterionId, satisfied: true, note: "Deterministic acceptance fixture; model review is simulated",
-  }));
+  const assigned =
+    brief.match(
+      /Acceptance criteria(?: to judge)?: ([A-Za-z0-9_, -]+?)(?: Role:| Do not change|\n|$)/,
+    )?.[1] ?? "";
+  const acceptance = assigned
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((criterionId) => ({
+      criterionId,
+      satisfied: true,
+      note: "Deterministic acceptance fixture; model review is simulated",
+    }));
   writeFileSync(
     join(spec.cwd, ".mimir/artifacts/review.json"),
     JSON.stringify({ verdict: "approve", findings: [], acceptance, decisions: [] }),

@@ -659,7 +659,9 @@ describe("Director", () => {
       expect(block).toContain("It holds branch main at abc123.");
       expect(draftCall.system).toMatch(/cite "repo:workspace" for a claim that comes from a file/);
       expect(draftCall.system).toMatch(/name that file's path in the claim text/);
-      expect(draftCall.system).not.toMatch(/Use only what appears in the provided context blocks\./);
+      expect(draftCall.system).not.toMatch(
+        /Use only what appears in the provided context blocks\./,
+      );
 
       expect(spec.body.acceptanceCriteria.map((a) => a.id)).toEqual(["AC1", "AC2"]);
       expect(spec.body.constraints).toContain(
@@ -675,7 +677,10 @@ describe("Director", () => {
     it("keeps the old rules, and demotes repository citations, without a readable workspace", async () => {
       for (const opts of [{ workspace: false }, { readsWorkspace: false }]) {
         const { d, provider } = reading(fromCode, opts);
-        const { spec, meta } = await d.draftSpec({ projectId, request: "Add CSV export to reports" });
+        const { spec, meta } = await d.draftSpec({
+          projectId,
+          request: "Add CSV export to reports",
+        });
         const draftCall = provider.calls.find((c) => c.metadata?.purpose === "draft_spec")!;
         expect(contextIds(draftCall).has("repo:workspace")).toBe(false);
         expect(draftCall.system).toMatch(/Use only what appears in the provided context blocks\./);

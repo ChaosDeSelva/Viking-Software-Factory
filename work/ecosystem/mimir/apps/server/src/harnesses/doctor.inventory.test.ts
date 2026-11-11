@@ -14,6 +14,10 @@ vi.mock("node:fs", async (importOriginal) => {
   return {
     ...real,
     existsSync: (path: string) => (path === BUNDLED ? fs.bundled : real.existsSync(path)),
+    accessSync: (path: string, mode?: number) => {
+      if (path === BUNDLED && fs.bundled) return;
+      real.accessSync(path, mode);
+    },
   };
 });
 const { harnessInventory, resolveHarness } = await import("./doctor.js");

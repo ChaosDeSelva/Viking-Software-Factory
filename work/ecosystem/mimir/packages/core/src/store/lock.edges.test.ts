@@ -29,7 +29,8 @@ describe("acquireLock edge cases", () => {
     expect(() => acquireLock(db)).toThrow(expect.objectContaining({ code: "conflict" }));
     // The stale lock was never touched without the mutex.
     expect(readFileSync(`${db}.lock`, "utf8")).toBe("garbage");
-  });
+    // Gives up only after the full bounded retry loop, which exceeds 5 s on slow CI runners.
+  }, 30_000);
 
   it("removes a reclaim mutex abandoned by a crashed reclaimer, then reclaims", () => {
     const db = join(tmp.dir, "b.db");

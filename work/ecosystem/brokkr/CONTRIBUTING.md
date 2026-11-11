@@ -16,10 +16,10 @@ pnpm check      # format:check, lint, typecheck, test: the gate every change mus
 
 `pnpm check` is the fast gate. Two slower commands back it (details in `docs/qa.md`):
 
-* `pnpm test:coverage`: per package v8 coverage into `coverage/`, with enforced thresholds on the
+- `pnpm test:coverage`: per package v8 coverage into `coverage/`, with enforced thresholds on the
   core packages (`scripts/coverage-config.json`). Do not lower a threshold to pass; add tests.
   `pnpm release:local` runs it first.
-* `pnpm qa:smoke`: builds, packs, installs the release into a temp `HOME` and drives the CLI on
+- `pnpm qa:smoke`: builds, packs, installs the release into a temp `HOME` and drives the CLI on
   the fixture repo; logs under `qa-smoke-output/<timestamp>/`.
 
 ## Layout

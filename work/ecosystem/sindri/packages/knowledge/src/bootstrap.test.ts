@@ -19,7 +19,7 @@ const FIXTURE: Record<string, string | Buffer> = {
   "README.md": "# Demo\n\nA demo project for Sindri bootstrap.\n",
   ".gitignore": "dist/\nnode_modules/\n",
   ".sindriignore": "docs/private/\n",
-  ".env": ("STRIPE_KEY=sk" + "_live_fakeSecretValue123\n"),
+  ".env": "STRIPE_KEY=sk" + "_live_fakeSecretValue123\n",
   "config/aws-credentials.json": '{"secret":"hunter2credentialvalue"}\n',
   "certs/server.pem": "-----BEGIN PRIVATE KEY-----\npemsecretmaterial\n",
   "dist/bundle.md": "compiled artefact mentioning quasarbundle\n",
@@ -100,7 +100,7 @@ describe.each([
       .map((r) => r.text)
       .join("\n");
     for (const secret of [
-      ("sk" + "_live_fakeSecretValue123"),
+      "sk" + "_live_fakeSecretValue123",
       "hunter2credentialvalue",
       "pemsecretmaterial",
     ]) {
@@ -179,7 +179,7 @@ describe.each([
     expect(() => k.search(projectId, 'flux" OR NEAR(* "', { limit: 5 })).not.toThrow();
     expect(k.search(projectId, "", { limit: 5 })).toEqual([]);
     expect(k.search(projectId, "filler", { limit: 1 })).toHaveLength(1);
-    expect(k.search(projectId, ("sk" + "_live_fakeSecretValue123"))).toEqual([]);
+    expect(k.search(projectId, "sk" + "_live_fakeSecretValue123")).toEqual([]);
   });
 
   it("re-bootstrap is incremental: unchanged, updated and removed documents", () => {

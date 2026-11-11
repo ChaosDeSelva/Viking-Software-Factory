@@ -20,6 +20,8 @@ Install Node 25 or newer and pnpm 12.11.2. On macOS, run `./build.sh`, then `./o
 
 The operator interface is at http://127.0.0.1:4320. Keep terminal access and approval codes private. Stop the launcher with Control+C. State is stored under `work/local-factory/daily` by default. Set FACTORY_DATA_DIR to choose another private directory. Never commit runtime state.
 
+For a first run, clone [hello-factory](https://github.com/ChaosDeSelva/hello-factory): a tiny two-service app with ready-made example tickets. Add it as a project in Sindri, paste a ticket from its `examples/` folder into the Inbox, and follow it to a verified delivery in Heimdall.
+
 Skidbladnir is in `outputs/skidbladnir`. AWS setup is documented there in `docs/AWS.md`; it requires an explicit account, region and isolated fleet configuration. Do not point acceptance tests at existing workloads.
 
 ## Verification and limits

@@ -27,7 +27,7 @@ export function inspectTarball(file: string): TarballInspection {
   if (!names.ok || !verbose.ok) {
     return {
       entries: [],
-      problems: [`cannot list archive: ${names.stderr || verbose.stderr}`.trim()],
+      problems: [`cannot list archive: ${(names.stderr || verbose.stderr).trim()}`.trim()],
     };
   }
   const entries = names.stdout.split("\n").filter((l) => l !== "");
@@ -73,6 +73,6 @@ export async function extractTarball(file: string, dest: string): Promise<void> 
   const r = runTar(["-xzf", file, "-C", dest]);
   if (!r.ok) {
     await rm(dest, { recursive: true, force: true });
-    throw new Error(`tar extraction failed: ${r.stderr}`);
+    throw new Error(`tar extraction failed: ${r.stderr.trim()}`);
   }
 }

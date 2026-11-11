@@ -50,7 +50,10 @@ export function toolPath(options: { tsc?: boolean } = {}): string {
   mkdirSync(bin);
   symlinkSync(process.execPath, join(bin, "node"));
   const pnpm = execFileSync("which", ["pnpm"], { encoding: "utf8" }).trim();
-  symlinkSync(pnpm, join(bin, "pnpm"));
+  // Package-manager shims may resolve their runtime relative to their own path.
+  // Execute the original shim rather than relocating it with a symlink.
+  writeFileSync(join(bin, "pnpm"), `#!/bin/sh\nexec "${pnpm}" "$@"\n`);
+  chmodSync(join(bin, "pnpm"), 0o755);
   if (options.tsc !== false) {
     const tscJs = join(REPO_ROOT, "node_modules", "typescript", "bin", "tsc");
     writeFileSync(join(bin, "tsc"), `#!/bin/sh\nexec "${process.execPath}" "${tscJs}" "$@"\n`);

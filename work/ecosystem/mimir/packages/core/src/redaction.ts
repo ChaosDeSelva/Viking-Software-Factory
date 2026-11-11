@@ -35,6 +35,8 @@ export function isSensitiveKey(key: string): boolean {
 interface Rule {
   kind: string;
   pattern: RegExp;
+  /** A literal every match must contain; skip costly scans when it is absent. */
+  requiredLiteral?: string;
   /**
    * Builds the replacement from the match and its capture groups, or returns `undefined` to
    * leave the match alone (e.g. it is already a marker).
@@ -78,6 +80,7 @@ const BUILTIN_RULES: readonly Rule[] = [
   {
     // Credentials in URL userinfo (`scheme://user:pass@host`): keep the shape, mask the password.
     kind: "url_credentials",
+    requiredLiteral: "://",
     pattern: /\b([a-z][a-z0-9+.-]{0,31}:\/\/[^/\s:@]{0,256}:)([^/\s@]{1,512})(@)/gi,
     replace: (_m, [prefix = "", secret = "", at = ""]) =>
       secret.startsWith(MARKER_PREFIX) ? undefined : prefix + marker("url_credentials") + at,
@@ -85,6 +88,7 @@ const BUILTIN_RULES: readonly Rule[] = [
   {
     // Percent-encoded colon in userinfo (`https://user%3Apass@host`): mask the whole userinfo.
     kind: "url_credentials",
+    requiredLiteral: "://",
     pattern: /\b([a-z][a-z0-9+.-]{0,31}:\/\/)([^/\s:@]{0,256}%3[aA][^/\s@]{1,512})(@)/gi,
     replace: (_m, [prefix = "", secret = "", at = ""]) =>
       secret.startsWith(MARKER_PREFIX) ? undefined : prefix + marker("url_credentials") + at,
@@ -92,6 +96,7 @@ const BUILTIN_RULES: readonly Rule[] = [
   {
     // Scheme-less userinfo with an encoded colon (`user%3Apass@host`).
     kind: "url_credentials",
+    requiredLiteral: "%3",
     pattern:
       /(?<=^|[\s"'=(<,;])([^\s/?#@:"'=(<,;%]{0,256}%3[aA][^\s/?#@"']{1,512})(@)(?=[A-Za-z0-9[])/g,
     replace: (_m, [secret = "", at = ""]) =>
@@ -193,6 +198,9 @@ const BUILTIN_RULES: readonly Rule[] = [
 ];
 
 function applyRule(text: string, rule: Rule): { text: string; hits: number } {
+  if (rule.requiredLiteral !== undefined && !text.includes(rule.requiredLiteral)) {
+    return { text, hits: 0 };
+  }
   let hits = 0;
   rule.pattern.lastIndex = 0;
   const out = text.replace(rule.pattern, (match: string, ...rest: unknown[]) => {

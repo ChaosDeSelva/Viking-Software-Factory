@@ -261,10 +261,11 @@ describe("ensureAuthToken: refused locations", () => {
   });
 
   it.skipIf(asRoot)("refuses a data dir owned by another user", () => {
-    const c = loadConfig({ MIMIR_DATA_DIR: "/private/tmp" }, "/h");
-    const before = statSync("/private/tmp").mode;
+    const rootDir = process.platform === "darwin" ? "/private/tmp" : "/tmp";
+    const c = loadConfig({ MIMIR_DATA_DIR: rootDir }, "/h");
+    const before = statSync(rootDir).mode;
     expect(() => ensureAuthToken(c)).toThrow(/owned by uid 0/);
-    expect(statSync("/private/tmp").mode).toBe(before);
+    expect(statSync(rootDir).mode).toBe(before);
   });
 
   it.skipIf(asRoot)("refuses a token file owned by another user, without chmod-ing it", () => {

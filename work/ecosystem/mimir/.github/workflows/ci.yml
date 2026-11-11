@@ -18,6 +18,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Install terminal runtime test dependency
+        run: brew install tmux
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm build

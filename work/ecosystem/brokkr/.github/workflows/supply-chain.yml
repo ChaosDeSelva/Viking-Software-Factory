@@ -22,7 +22,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:supply-chain
       - run: pnpm licenses:check
-      - run: pnpm sbom
+      - run: pnpm run sbom
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
