@@ -33,7 +33,7 @@ import { download, post, type R } from "../lib/api";
 import { navigate } from "../lib/router";
 import { DEFAULT_STAGES } from "../pages/Pipeline";
 import { FeedbackGraphStatus } from "./Autonomy";
-import { newAlerts } from "./alerts";
+import { newAlerts, toggleDesktopAlerts } from "./alerts";
 import { scopeOf, scopedNotifications } from "./scope";
 
 const LOCKED = "Unlock operator controls under Connections first.";
@@ -74,23 +74,13 @@ export function NotificationsPage() {
     if (n.kind === "connection") navigate(href("connections", {}, "services"));
     else open(n.kind, n.row ?? {});
   };
-  async function toggleDesktop() {
-    if (!("Notification" in window)) {
-      notify(
-        "Desktop notifications are unavailable in this browser.",
-        "warning",
-      );
-      return;
-    }
-    const permission = await Notification.requestPermission();
-    if (permission === "granted")
-      await savePreferences({ desktopNotifications: !desktop });
-    else
-      notify(
-        "Browser notification permission was not granted. In-app alerts remain available.",
-        "warning",
-      );
-  }
+  const toggleDesktop = () =>
+    toggleDesktopAlerts(
+      desktop,
+      "Notification" in window ? () => Notification.requestPermission() : null,
+      savePreferences,
+      (message) => notify(message, "warning"),
+    );
 
   const columns: Column<R>[] = [
     {

@@ -36,8 +36,8 @@ export interface Heimdall {
     message: string,
     tone?: "info" | "success" | "warning" | "danger",
   ) => void;
-  /** Merges and saves Heimdall's preferences on this Mac. */
-  savePreferences: (value: R) => Promise<void>;
+  /** Merges and saves Heimdall's preferences on this Mac; false (after its own toast) when it failed. */
+  savePreferences: (value: R) => Promise<boolean>;
   /** Link to a page, keeping the selected project. */
   href: (
     page: PageId,

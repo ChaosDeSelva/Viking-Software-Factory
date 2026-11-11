@@ -18,3 +18,27 @@ export function newAlerts(
   for (const key of keys) seen.add(key);
   return [seen, fresh];
 }
+
+/** Switches desktop alerts on or off; `requestPermission` is null where the browser has none. */
+export async function toggleDesktopAlerts(
+  enabled: boolean,
+  requestPermission: (() => Promise<string>) | null,
+  save: (value: R) => Promise<unknown>,
+  warn: (message: string) => void,
+): Promise<void> {
+  if (enabled) {
+    // Switching off only stops alerts, so a revoked permission must not keep them on.
+    await save({ desktopNotifications: false });
+    return;
+  }
+  if (!requestPermission) {
+    warn("Desktop notifications are unavailable in this browser.");
+    return;
+  }
+  const permission = await requestPermission();
+  if (permission === "granted") await save({ desktopNotifications: true });
+  else
+    warn(
+      "Browser notification permission was not granted. In-app alerts remain available.",
+    );
+}

@@ -15,7 +15,7 @@ vi.mock("node:fs", async (importOriginal) => {
 });
 const BUNDLED =
   "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex";
-const { CliRuntime } = await import("./adapter.js");
+const { CliRuntime, FINISHED_SESSIONS_KEPT } = await import("./adapter.js");
 
 type FakeWorker = EventEmitter & {
   connected: boolean;
@@ -234,4 +234,29 @@ it("ignores unknown watchdog messages, invalid costs and errors after the sessio
   worker.emit("error", new Error("late IPC failure"));
   expect((await runtime.getSession("s1"))?.state).toBe("completed");
   expect(events.at(-1)).toMatchObject({ kind: "session.state_changed", state: "completed" });
+});
+
+it("forgets the oldest finished sessions beyond the retention bound but never a running one", async () => {
+  const runtime = new CliRuntime({ codex: "/opt/agent" });
+  fakeWorker();
+  await runtime.createSession({ ...spec, sessionId: "running", idempotencyKey: "running" });
+  const total = FINISHED_SESSIONS_KEPT + 5;
+  for (let n = 0; n < total; n++) {
+    const worker = fakeWorker();
+    await runtime.createSession({ ...spec, sessionId: `s${n}`, idempotencyKey: `k${n}` });
+    worker.emit("message", { kind: "output", text: `output of s${n}\n` });
+    worker.emit("message", { kind: "exit", code: 0 });
+    worker.connected = false;
+    worker.emit("exit", 0);
+  }
+  expect(await runtime.listSessions()).toHaveLength(FINISHED_SESSIONS_KEPT + 1);
+  expect((await runtime.getSession("running"))?.state).toBe("running");
+  expect(await runtime.getSession("s0")).toBeNull();
+  await expect(runtime.readTerminal("s4")).rejects.toMatchObject({ code: "not_found" });
+  expect(await runtime.readTerminal("s5")).toContain("output of s5");
+  expect(await runtime.readTerminal(`s${total - 1}`)).toContain(`output of s${total - 1}`);
+  // The evicted launch's idempotency record goes with it.
+  const relaunch = fakeWorker();
+  await runtime.createSession({ ...spec, sessionId: "s0", idempotencyKey: "k0" });
+  expect(relaunch.send).toHaveBeenCalled();
 });

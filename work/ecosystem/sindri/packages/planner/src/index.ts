@@ -28,6 +28,7 @@ export {
 export {
   openPlanner,
   PlanStateError,
+  PlanUntrustedError,
   ROLE_DEFAULTS,
   ROLE_TOKEN_BUDGETS,
   type OpenPlannerOptions,

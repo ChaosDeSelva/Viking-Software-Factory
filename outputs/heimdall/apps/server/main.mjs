@@ -210,6 +210,9 @@ export async function startHeimdall(options = {}) {
           throw Object.assign(Error("Invalid access token"), { status: 401 });
         }
         attempts.login.failures = 0;
+        // Sessions are only ever added here, so pruning here keeps the map bounded.
+        for (const [id, s] of sessions)
+          if (s.expires < Date.now()) sessions.delete(id);
         const sid = randomBytes(32).toString("base64url");
         sessions.set(sid, {
           expires: Date.now() + 12 * 3600000,
@@ -226,11 +229,13 @@ export async function startHeimdall(options = {}) {
         req.headers.cookie ?? "",
       )?.[1];
       const session = sessions.get(sid);
-      if (!session || session.expires < Date.now())
+      if (!session || session.expires < Date.now()) {
+        sessions.delete(sid);
         throw Object.assign(
           Error("Sign in with the access token printed in the launcher."),
           { status: 401 },
         );
+      }
       if (path === "/api/logout" && req.method === "POST") {
         sessions.delete(sid);
         for (const [stream, owner] of clients)
@@ -277,6 +282,14 @@ export async function startHeimdall(options = {}) {
           method: "POST",
           body: JSON.stringify({ pairingCode: b.code, channel: "web" }),
         });
+        // Without a secret every Sindri control would be refused later, so this is no pairing.
+        if (typeof r?.approvalSecret !== "string" || !r.approvalSecret)
+          throw Object.assign(
+            Error("Sindri did not return an approval secret"),
+            {
+              status: 502,
+            },
+          );
         session.approvalSecret = r.approvalSecret;
         return json(res, 200, { paired: true, expiresAt: r.expiresAt });
       }
@@ -471,10 +484,14 @@ export async function startHeimdall(options = {}) {
           ),
         );
       if (path === "/api/snapshot") return json(res, 200, hub.snapshot());
-      if (path === "/api/events")
+      if (path === "/api/events") {
+        const before = url.searchParams.get("before");
+        if (before !== null && !/^\d{1,15}$/.test(before))
+          throw Error("before must be an event sequence number");
         return json(res, 200, {
           events: store.events(Object.fromEntries(url.searchParams)),
         });
+      }
       if (path === "/api/stream") {
         // Built before the headers go out, so a failure here is still an ordinary error answer.
         const first = JSON.stringify(hub.snapshot());
@@ -751,6 +768,7 @@ export async function startHeimdall(options = {}) {
       return hub;
     },
     store,
+    sessions,
     close: async () => {
       if (closing) return;
       closing = true;

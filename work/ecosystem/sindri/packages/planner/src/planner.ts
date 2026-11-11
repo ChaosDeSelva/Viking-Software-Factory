@@ -67,6 +67,11 @@ export class PlanStateError extends Error {
   override readonly name = "PlanStateError";
 }
 
+/** Approving a plan built from text with flagged instructions needs an explicit acknowledgement. */
+export class PlanUntrustedError extends Error {
+  override readonly name = "PlanUntrustedError";
+}
+
 export interface OpenPlannerOptions {
   now?: () => Date;
   /** Project caps; merged over `DEFAULT_CAPS`. */
@@ -675,7 +680,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
     },
 
     /** Approve the latest version (must be in review); every other version is superseded. */
-    approve(id: string, approver: string): Plan {
+    approve(id: string, approver: string, opts: { acknowledgeUntrusted?: boolean } = {}): Plan {
       if (!approver.trim()) throw new PlanStateError("approver is required");
       const r = mustGet(id);
       requireLatest(r, "approve");
@@ -687,6 +692,12 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       if (spec.status !== "approved")
         throw new PlanStateError(
           `plan ${id} was built from spec v${spec.version}, which is now ${spec.status}; propose a plan from the approved spec`,
+        );
+      // After the state checks, so a stale or non-review plan reports that first. Revisions carry
+      // the flag forward, so the plan's own flag covers its lineage.
+      if (toPlan(r).untrustedInstructionDetected && opts.acknowledgeUntrusted !== true)
+        throw new PlanUntrustedError(
+          "this plan was built from text with flagged instructions; review them and send acknowledgeUntrusted: true",
         );
       db.transaction(() => {
         db.prepare(

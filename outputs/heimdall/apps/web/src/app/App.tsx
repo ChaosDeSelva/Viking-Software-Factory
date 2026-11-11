@@ -343,8 +343,10 @@ export function App() {
       const r = await post("preferences", value);
       setState((old) => (old ? { ...old, preferences: r.preferences } : old));
       notify("Preferences saved on this Mac.", "success");
+      return true;
     } catch (e) {
       notify((e as Error).message, "danger");
+      return false;
     }
   }, []);
 

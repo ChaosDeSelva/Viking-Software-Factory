@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTempRepo, type TempRepo } from "@sindri/testing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { realOr } from "../routes/projects.js";
 import { makeHarness, type Harness } from "./helpers.js";
 
 let h: Harness;
@@ -95,6 +96,20 @@ describe("projects", () => {
       expect(res.statusCode).toBe(422);
     } finally {
       rmSync(links, { recursive: true, force: true });
+    }
+  });
+
+  it("resolves a path that does not exist yet through its nearest existing ancestor", () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), "sindri-data-")));
+    const alias = `${base}-alias`;
+    symlinkSync(base, alias);
+    try {
+      // A data directory not created yet, below a symlinked folder, compares as its real path.
+      expect(realOr(join(alias, "data", "nested"))).toBe(join(base, "data", "nested"));
+      expect(realOr(alias)).toBe(base);
+    } finally {
+      rmSync(alias, { force: true });
+      rmSync(base, { recursive: true, force: true });
     }
   });
 

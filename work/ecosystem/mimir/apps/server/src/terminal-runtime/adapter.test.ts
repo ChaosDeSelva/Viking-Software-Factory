@@ -13,7 +13,12 @@ import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
 import type { RuntimeEvent, RuntimeSessionSpec } from "@mimir/protocol";
-import { TerminalRuntime, INTERACTIVE_HARNESSES, interactiveArgv } from "./adapter.js";
+import {
+  TerminalRuntime,
+  INTERACTIVE_HARNESSES,
+  DELIVERED_SESSIONS_KEPT,
+  interactiveArgv,
+} from "./adapter.js";
 import { NativeTerminalBackend, type TerminalBackend } from "./backend.js";
 const roots: string[] = [],
   runtimes: TerminalRuntime[] = [];
@@ -541,4 +546,49 @@ it("accepts input for a session persisted before hook evidence existed", async (
   await resumed.sendInput("test", { text: "continue" });
   expect(vi.mocked(backend.send).mock.calls.at(-1)?.[1]).toBe("continue");
   expect((await resumed.getSession("test"))?.state).toBe("running");
+});
+it("prunes the oldest delivered sessions beyond the retention bound but keeps live ones", async () => {
+  const { home, runtime } = fixture();
+  await runtime.createSession({ ...spec(), sessionId: "live", idempotencyKey: "live" });
+  const total = DELIVERED_SESSIONS_KEPT + 5;
+  for (let n = 0; n < total; n++) {
+    const before = new Set(readdirSync(home));
+    await runtime.createSession({ ...spec(), sessionId: `s${n}`, idempotencyKey: `k${n}` });
+    const name = readdirSync(home).find((f) => f.endsWith(".launch.json") && !before.has(f))!;
+    const { resultFile } = JSON.parse(readFileSync(join(home, name), "utf8"));
+    writeFileSync(resultFile, JSON.stringify({ state: "completed", exitCode: 0 }));
+    // The pass that delivers a session still reports it, so a boot reconcile can apply it.
+    const { sessions } = await runtime.reconcile();
+    expect(sessions).toContainEqual(
+      expect.objectContaining({ sessionId: `s${n}`, state: "completed" }),
+    );
+  }
+  await runtime.reconcile();
+  const stored = JSON.parse(readFileSync(join(home, "sessions.json"), "utf8"));
+  expect(stored.bindings).toHaveLength(DELIVERED_SESSIONS_KEPT + 1);
+  expect(await runtime.getSession("live")).not.toBeNull();
+  expect(await runtime.getSession("s4")).toBeNull();
+  await expect(runtime.readTerminal("s4")).rejects.toMatchObject({ code: "not_found" });
+  expect(await runtime.readTerminal("s5")).toBe("visible output");
+});
+it("stops polling when the last subscriber closes and resumes on the next subscribe", async () => {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  try {
+    const { backend, runtime } = fixture();
+    await runtime.createSession(spec());
+    const first = await runtime.subscribe(() => {});
+    const second = await runtime.subscribe(() => {});
+    first.close();
+    expect(vi.getTimerCount()).toBe(1);
+    second.close();
+    expect(vi.getTimerCount()).toBe(0);
+    vi.mocked(backend.capture).mockClear();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(backend.capture).not.toHaveBeenCalled();
+    await runtime.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(backend.capture).toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
 });

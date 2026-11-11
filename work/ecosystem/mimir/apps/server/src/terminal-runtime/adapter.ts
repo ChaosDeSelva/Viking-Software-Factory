@@ -65,6 +65,8 @@ type Binding = {
   transcript?: TranscriptBinding;
   managedPlugin?: ManagedPlugin;
 };
+/** Delivered sessions kept in sessions.json (rewritten on every save); older ones are forgotten. */
+export const DELIVERED_SESSIONS_KEPT = 50;
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 export class TerminalRuntime implements RuntimeAdapter {
   private bindings = new Map<string, Binding>();
@@ -328,6 +330,8 @@ export class TerminalRuntime implements RuntimeAdapter {
     }));
   }
   private async observe() {
+    // Pruned a pass after delivery, so the reconcile that delivered a session still lists it.
+    this.prune();
     for (const b of this.bindings.values()) {
       if (b.delivered) continue;
       let state: RuntimeSession["state"] = "unknown";
@@ -421,6 +425,12 @@ export class TerminalRuntime implements RuntimeAdapter {
       this.save();
     }
   }
+  private prune() {
+    const delivered = [...this.bindings].filter(([, b]) => b.delivered);
+    const excess = delivered.slice(0, -DELIVERED_SESSIONS_KEPT);
+    for (const [id] of excess) this.bindings.delete(id);
+    if (excess.length) this.save();
+  }
   async subscribe(handler: (e: RuntimeEvent) => void) {
     this.handlers.add(handler);
     if (!this.timer) {
@@ -432,6 +442,10 @@ export class TerminalRuntime implements RuntimeAdapter {
     return {
       close: () => {
         this.handlers.delete(handler);
+        if (this.handlers.size === 0 && this.timer) {
+          clearInterval(this.timer);
+          this.timer = undefined;
+        }
       },
     };
   }

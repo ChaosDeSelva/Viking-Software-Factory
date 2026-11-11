@@ -118,19 +118,13 @@ export function planRoutes(
 
   app.post<IdParams>("/v1/plans/:id/approve", (req) => {
     const approver = approvals.require(req);
-    const plan = requirePlan(req.params.id);
+    requirePlan(req.params.id);
     const body = parseBody(Approve, req.body);
-    // Sticky across the lineage: a revision of a flagged plan still came from that input.
-    const flagged = f.planner
-      .listLineage(plan.lineageId)
-      .some((p) => p.untrustedInstructionDetected === true);
-    if (flagged && body.acknowledgeUntrusted !== true)
-      throw new ApiError(
-        409,
-        "untrusted_unacknowledged",
-        "this plan was built from text with flagged instructions; review them and send acknowledgeUntrusted: true",
-      );
-    return { plan: f.planner.approve(req.params.id, approver) };
+    return {
+      plan: f.planner.approve(req.params.id, approver, {
+        ...(body.acknowledgeUntrusted ? { acknowledgeUntrusted: true } : {}),
+      }),
+    };
   });
 
   app.post<IdParams>("/v1/plans/:id/revise", async (req, reply) => {

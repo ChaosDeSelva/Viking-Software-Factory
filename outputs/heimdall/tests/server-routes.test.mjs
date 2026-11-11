@@ -333,3 +333,62 @@ test("a connector notification after shutdown builds no snapshot from the closed
   await wait(300);
   assert.equal(built, 0);
 });
+
+test("an events cursor that is not a whole number is refused, not read as an empty page", async (t) => {
+  const { app, call, signIn } = await setup(t, { sources: [] });
+  await signIn();
+  app.store.event("mimir", { eventId: "e1", type: "task.output" });
+  for (const before of ["abc", "1.5", "-1", ""]) {
+    const answer = await call("events?before=" + before);
+    assert.equal(answer.status, 400, before);
+    assert.match((await answer.json()).message, /before/);
+  }
+  const page = await (await call("events?before=999")).json();
+  assert.deepEqual(
+    page.events.map((e) => e.eventId),
+    ["e1"],
+  );
+});
+
+test("pairing fails when Sindri answers without an approval secret", async (t) => {
+  const { source, call, operator } = await setup(t);
+  await operator({ pair: false });
+  source.intercept = (req, res) => {
+    if (req.url !== "/v1/approval-session") return false;
+    res.end(
+      JSON.stringify({
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    return true;
+  };
+  const answer = await call("pair", { code: "sindri-code" });
+  assert.equal(answer.status, 502);
+  assert.match((await answer.json()).message, /approval secret/);
+  assert.equal((await (await call("session")).json()).pairedSindri, false);
+});
+
+test("expired sessions are removed instead of kept for the life of the process", async (t) => {
+  const { app, call, signIn, setCookie } = await setup(t, { sources: [] });
+  const first = await signIn();
+  await signIn();
+  assert.equal(app.sessions.size, 2);
+  const now = Date.now;
+  t.after(() => (Date.now = now));
+  Date.now = () => now() + 13 * 3600000;
+  setCookie(first);
+  assert.equal((await call("session")).status, 401);
+  await signIn();
+  Date.now = now;
+  assert.equal(
+    app.sessions.size,
+    1,
+    "both expired sessions are gone, the new one stays",
+  );
+  setCookie(first);
+  assert.equal(
+    (await call("session")).status,
+    401,
+    "an expired session does not come back",
+  );
+});

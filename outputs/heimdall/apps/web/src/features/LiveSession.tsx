@@ -14,6 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { R } from "../lib/api";
 import { Status } from "../components/app";
+import { poller } from "./poll";
 
 /** Tool calls and results found in the terminal's JSON lines (Codex items, Claude content blocks). */
 export function toolCalls(text: string): { model?: string; tools: R[] } {
@@ -53,19 +54,18 @@ export function LiveSession({
   const following = useRef(true);
   useEffect(() => {
     if (paused) return;
-    let gone = false;
-    const refresh = () =>
-      load()
-        .then((d) => {
-          if (gone) return;
-          setData(d);
-          setError("");
-        })
-        .catch((e) => !gone && setError(e.message));
-    void refresh();
-    const timer = setInterval(() => void refresh(), 2000);
+    const poll = poller(
+      load,
+      (d) => {
+        setData(d);
+        setError("");
+      },
+      (e) => setError(e.message),
+    );
+    poll.tick();
+    const timer = setInterval(poll.tick, 2000);
     return () => {
-      gone = true;
+      poll.stop();
       clearInterval(timer);
     };
   }, [agent.id, paused]);

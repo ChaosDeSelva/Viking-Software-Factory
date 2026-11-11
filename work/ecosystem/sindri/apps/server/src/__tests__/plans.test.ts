@@ -92,6 +92,19 @@ describe("plans", () => {
     expect(ok.json().plan.status).toBe("approved");
   });
 
+  it("refuses to run a plan whose spec was replaced after the plan was approved", async () => {
+    const specId = await approvedSpec(f);
+    const plan = await approvedPlan(f, specId);
+    f.h.db.prepare("UPDATE specifications SET status = 'superseded' WHERE id = ?").run(specId);
+    const res = await f.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: plan.id },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.message).toMatch(/now superseded; propose a plan/);
+  });
+
   it("returns the dry-run order", async () => {
     const specId = await approvedSpec(f);
     const plan = (await propose(specId)).json().plan;

@@ -19,7 +19,8 @@ import { useHeimdall } from "../app/context";
 import { LearnMore, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { hrefFor, navigate } from "../lib/router";
-import { projectAliases, projectKey } from "./workflowState";
+import { changeArchive } from "./projectArchive";
+import { projectKey } from "./workflowState";
 
 export function ProjectsPage() {
   const { state, scope, setProject, open, notify, savePreferences, href } =
@@ -37,31 +38,21 @@ export function ProjectsPage() {
         .includes(query.toLowerCase()),
   );
 
-  // A project may carry Mimir's and Sindri's IDs; restoring clears every alias, archiving adds one.
   async function change(project: R, archive: boolean) {
     setBusy(true);
     try {
-      const aliases = projectAliases(project, scope.sindriProjects);
-      const next = archive
-        ? [...new Set([...archived, project.id])]
-        : archived.filter((value) => !aliases.includes(value));
-      await savePreferences({ archivedProjects: next });
-      if (
-        archive &&
-        aliases.some((alias) =>
-          scope.allProjects.some(
-            (p) => p.id === alias && projectKey(p) === scope.filter,
-          ),
-        )
-      )
-        setProject("all");
-      notify(
-        archive
-          ? "Project archived. Files and history preserved."
-          : "Project restored.",
-        "success",
-      );
-      setPending(null);
+      await changeArchive(project, archive, {
+        archived,
+        sindriProjects: scope.sindriProjects,
+        allProjects: scope.allProjects,
+        filter: scope.filter,
+        save: savePreferences,
+        selectAll: () => setProject("all"),
+        done: (message) => {
+          notify(message, "success");
+          setPending(null);
+        },
+      });
     } catch (e) {
       notify((e as Error).message, "danger");
     } finally {

@@ -64,8 +64,11 @@ export function usageOfEvent(line: string): Usage | null {
     estimatedCost: typeof cost === "number" && Number.isFinite(cost) && cost >= 0 ? cost : null,
   };
 }
+/** Finished sessions kept readable (each holds up to 2 MiB of terminal text); older ones are forgotten. */
+export const FINISHED_SESSIONS_KEPT = 50;
 type Entry = {
   session: RuntimeSession;
+  key: string;
   worker: ChildProcess;
   done: Promise<void>;
   stopped: boolean;
@@ -80,6 +83,8 @@ export class CliRuntime implements RuntimeAdapter {
   private readonly sessions = new Map<string, Entry>();
   private readonly keys = new Map<string, string>();
   private readonly requests = new Map<string, string>();
+  /** Sessions whose watchdog has ended, oldest first. */
+  private readonly finished = new Set<string>();
   private readonly listeners = new Set<(event: RuntimeEvent) => void>();
   constructor(
     private readonly executables: Partial<
@@ -165,7 +170,11 @@ export class CliRuntime implements RuntimeAdapter {
         execArgv: [],
       },
     );
-    let finish!: () => void;
+    let resolveDone!: () => void;
+    const finish = () => {
+      resolveDone();
+      this.retire(spec.sessionId);
+    };
     const entry: Entry = {
       session: {
         sessionId: spec.sessionId,
@@ -175,12 +184,13 @@ export class CliRuntime implements RuntimeAdapter {
         cwd: spec.cwd,
         lastObservedAt: new Date().toISOString(),
       },
+      key: spec.idempotencyKey,
       worker,
       stopped: false,
       pending: "",
       terminal: "",
       done: new Promise<void>((resolve) => {
-        finish = resolve;
+        resolveDone = resolve;
       }),
     };
     this.sessions.set(spec.sessionId, entry);
@@ -304,6 +314,19 @@ export class CliRuntime implements RuntimeAdapter {
       timeoutMs: spec.timeoutMs,
     });
     return entry.session;
+  }
+  private retire(id: string) {
+    this.finished.add(id);
+    for (const old of this.finished) {
+      if (this.finished.size <= FINISHED_SESSIONS_KEPT) break;
+      const entry = this.sessions.get(old);
+      this.sessions.delete(old);
+      if (entry) {
+        this.keys.delete(entry.key);
+        this.requests.delete(entry.key);
+      }
+      this.finished.delete(old);
+    }
   }
   private parseUsage(entry: Entry, line: string) {
     // Both CLIs report running totals: the last event is the session's usage.

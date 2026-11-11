@@ -5,7 +5,13 @@ import { openDatabase, openKnowledge, type SqliteDatabase } from "@sindri/knowle
 import { openSpecs, type SpecBody, type Specification, type Specs } from "@sindri/specs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PlanValidationError } from "./dag.js";
-import { openPlanner, PlanStateError, SKELETON_MARKER, type Planner } from "./planner.js";
+import {
+  openPlanner,
+  PlanStateError,
+  PlanUntrustedError,
+  SKELETON_MARKER,
+  type Planner,
+} from "./planner.js";
 import type { PlanTask } from "./schema.js";
 import { FAREWELL_ACS, GREET_FIX_ACS } from "./live-plans.test-helpers.js";
 
@@ -522,6 +528,20 @@ describe("planner", () => {
         approvedBy: "jacob",
         approvedAt: now.toISOString(),
       });
+    });
+
+    it("approves a plan with flagged instructions only when acknowledged, after the state checks", async () => {
+      const plan = await propose(fullstack());
+      db.prepare(
+        "UPDATE plans SET body_json = json_set(body_json, '$.untrustedInstructionDetected', json('true'), '$.injectionFindings', json('[]')) WHERE id = ?",
+      ).run(plan.id);
+      // Still a draft: the state error comes first, not the acknowledgement.
+      expect(() => planner.approve(plan.id, "jacob")).toThrow(PlanStateError);
+      planner.submitForReview(plan.id);
+      expect(() => planner.approve(plan.id, "jacob")).toThrow(PlanUntrustedError);
+      expect(planner.approve(plan.id, "jacob", { acknowledgeUntrusted: true }).status).toBe(
+        "approved",
+      );
     });
 
     it("refuses to approve a plan whose spec version has since been replaced", async () => {

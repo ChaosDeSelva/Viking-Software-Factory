@@ -1,6 +1,6 @@
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { ExecutionProfileSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
 import type { ApprovalAuthority } from "../approval.js";
@@ -10,12 +10,17 @@ import { ApiError, notFound, parseBody } from "../errors.js";
 import { PROFILE_KEY, profileHarness, profileOf } from "../execution-profile.js";
 import type { Services } from "../services.js";
 
-/** The resolved path, or the path as given when it does not exist (a data dir not yet created). */
-const realOr = (p: string): string => {
+/**
+ * The resolved path. For a path that does not exist yet (a data dir not yet created), its nearest
+ * existing ancestor is resolved and the rest appended, so symlinks above it are still resolved.
+ */
+export const realOr = (p: string): string => {
+  const abs = resolve(p);
   try {
-    return realpathSync(p);
+    return realpathSync(abs);
   } catch {
-    return resolve(p);
+    const parent = dirname(abs);
+    return parent === abs ? abs : join(realOr(parent), basename(abs));
   }
 };
 
@@ -24,11 +29,13 @@ const CreateProject = z.strictObject({
   repoPath: z.string().min(1).max(4096),
 });
 
-const isDir = (p: string) => {
+/** The resolved directory, or null when the path is not an existing directory. */
+const realDir = (p: string): string | null => {
   try {
-    return statSync(p).isDirectory();
+    const real = realpathSync(p);
+    return statSync(real).isDirectory() ? real : null;
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -43,15 +50,16 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
 
   app.post("/v1/projects", async (req, reply) => {
     const body = parseBody(CreateProject, req.body);
-    if (!isAbsolute(body.repoPath) || !isDir(body.repoPath))
+    // The resolved path, as Mimir stores it, so Sindri and Mimir name a repository the same way
+    // (a trailing slash or symlink would not match), and a symlink to the home directory is
+    // checked as the home directory.
+    const repo = isAbsolute(body.repoPath) ? realDir(body.repoPath) : null;
+    if (!repo)
       throw new ApiError(
         422,
         "validation_failed",
         "repoPath must be an existing absolute directory",
       );
-    // The resolved path, as Mimir stores it: a trailing slash or a symlink would otherwise
-    // register one repository twice, and a symlink to the home directory would pass the check.
-    const repo = realpathSync(body.repoPath);
     const inside = (root: string) => {
       const r = relative(realOr(root), repo);
       return r === "" || (!r.startsWith("..") && !isAbsolute(r));
@@ -96,7 +104,7 @@ export function projectRoutes(app: FastifyInstance, s: Services, approvals: Appr
 
   app.post<{ Params: { id: string } }>("/v1/projects/:id/bootstrap", (req) => {
     const p = requireProject(req.params.id);
-    if (!isDir(p.repoPath))
+    if (!realDir(p.repoPath))
       throw new ApiError(409, "invalid_state", "the project repoPath no longer exists");
     return { result: s.knowledge.bootstrapProject(p.id, { repoPath: p.repoPath }) };
   });

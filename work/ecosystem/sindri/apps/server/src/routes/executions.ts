@@ -104,6 +104,14 @@ export function executionRoutes(
     if (!plan) throw notFound("plan");
     if (plan.status !== "approved")
       throw new ApiError(409, "invalid_state", `plan is ${plan.status}; only approved plans run`);
+    // A plan approved before its spec was replaced would run outdated requirements.
+    const planSpec = s.specs.get(plan.specId);
+    if (planSpec && planSpec.status !== "approved")
+      throw new ApiError(
+        409,
+        "invalid_state",
+        `plan was built from spec v${planSpec.version}, which is now ${planSpec.status}; propose a plan from the approved spec`,
+      );
     const project = s.knowledge.projects.get(plan.projectId);
     if (!project) throw notFound("project");
     const conn = await hub.connection();
