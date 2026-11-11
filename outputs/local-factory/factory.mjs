@@ -12,12 +12,15 @@ const runtimeChoice = process.env.MIMIR_RUNTIME || 'fleet';
 mkdirSync(root, {recursive:true,mode:0o700});
 const fleetConfig = process.env.MIMIR_FLEET_CONFIG || join(root,'fleet.json');
 if(runtimeChoice === 'fleet' && !existsSync(fleetConfig)) writeFileSync(fleetConfig,JSON.stringify({version:1,workers:[{id:'local-mac',runtime:'cli',capacity:2,agentKinds:['codex','claude','opencode','gemini','pi']}]},null,2),{mode:0o600});
-let mimir, sindri, heimdall, stopping = false;
-async function close() {
- if(process.env.FACTORY_ACCESS_FILE && existsSync(process.env.FACTORY_ACCESS_FILE)) unlinkSync(process.env.FACTORY_ACCESS_FILE);
- if(stopping)return; stopping=true;
- // One service failing to close must not leave the others (and Mimir's agent processes) running.
- for(const service of [heimdall,sindri,mimir]){ try{ await service?.close(); }catch(error){ console.error('Shutdown error: '+error.message); } }
+let mimir, sindri, heimdall;
+let shutdown;
+// A second signal (a closing Terminal often sends more than one) waits for the same shutdown.
+function close() {
+ return shutdown ??= (async()=>{
+  if(process.env.FACTORY_ACCESS_FILE && existsSync(process.env.FACTORY_ACCESS_FILE)) unlinkSync(process.env.FACTORY_ACCESS_FILE);
+  // One service failing to close must not leave the others (and Mimir's agent processes) running.
+  for(const service of [heimdall,sindri,mimir]){ try{ await service?.close(); }catch(error){ console.error('Shutdown error: '+error.message); } }
+ })();
 }
 // SIGHUP: closing the Terminal window must stop the services too.
 for(const signal of ['SIGINT','SIGTERM','SIGHUP'])process.on(signal,()=>void close().then(()=>process.exit(0)));

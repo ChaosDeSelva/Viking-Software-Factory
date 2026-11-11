@@ -221,7 +221,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     ...(opts.now ? { now: opts.now } : {}),
   });
   approvalRoutes(app, approvals);
-  projectRoutes(app, services);
+  projectRoutes(app, services, approvals);
   intakeRoutes(app, services);
   specRoutes(app, services, approvals);
   knowledgeRoutes(app, services);

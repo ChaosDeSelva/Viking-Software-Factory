@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ExecutionProfileSchema } from "@sindri/harnesses";
 import type { FastifyInstance } from "fastify";
+import type { ApprovalAuthority } from "../approval.js";
 import { z } from "zod";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import { PROFILE_KEY, profileHarness, profileOf } from "../execution-profile.js";
@@ -21,7 +22,7 @@ const isDir = (p: string) => {
   }
 };
 
-export function projectRoutes(app: FastifyInstance, s: Services) {
+export function projectRoutes(app: FastifyInstance, s: Services, approvals: ApprovalAuthority) {
   const requireProject = (id: string) => {
     const p = s.knowledge.projects.get(id);
     if (!p) throw notFound("project");
@@ -62,9 +63,14 @@ export function projectRoutes(app: FastifyInstance, s: Services) {
   }));
 
   // Operator configuration: how the repository is checked and what its tools need. A profile
-  // with checks gets a generated Brokkr harness, named after its content.
+  // with checks gets a generated Brokkr harness, named after its content. It decides which
+  // commands verify the work and what agents may write to and reach outside their worktree, so
+  // it takes the human approval factor: the bearer token alone, which agents can read, is not
+  // enough.
   app.put<{ Params: { id: string } }>("/v1/projects/:id/profile", (req) => {
+    const approver = approvals.require(req);
     const project = requireProject(req.params.id);
+    req.log.info({ projectId: project.id, approver }, "execution profile changed");
     const profile = parseBody(ExecutionProfileSchema, req.body);
     const harness = profileHarness(project, profile);
     s.knowledge.projects.setSettings(project.id, { ...project.settings, [PROFILE_KEY]: profile });

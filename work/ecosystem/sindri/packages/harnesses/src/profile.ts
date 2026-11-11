@@ -72,7 +72,13 @@ export const ExecutionProfileSchema = z
         z
           .string()
           .max(4096)
-          .refine((v) => !v.includes("\0"), "must not contain NUL"),
+          .refine((v) => !v.includes("\0"), "must not contain NUL")
+          // Mimir refuses credential-shaped project settings; say so here, when the profile is
+          // saved, instead of when a run is started.
+          .refine(
+            (v) => !/[a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:[^/\s@]+@/i.test(v),
+            "must not embed a password in a URL; keep credentials out of the profile",
+          ),
       )
       .refine((e) => Object.keys(e).length <= 64, "at most 64 variables")
       .optional(),

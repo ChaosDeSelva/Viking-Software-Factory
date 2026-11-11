@@ -139,10 +139,16 @@ async function prune(projectDir: string, keep: string, now: number): Promise<voi
   for (const name of await readdir(projectDir).catch(() => [] as string[])) {
     if (name === keep || name.endsWith(COMPLETE_SUFFIX)) continue;
     const path = join(projectDir, name);
-    // A snapshot's last use is its marker's mtime; staging leftovers have only their own.
-    const used = await stat(name.includes(".partial-") ? path : complete(path)).then(
-      (st) => st.mtimeMs,
-      () => 0,
+    // A snapshot's last use is its marker's mtime. Staging leftovers, and a snapshot another
+    // request has just moved into place but not yet marked, have only their own.
+    const mtime = (target: string) =>
+      stat(target).then(
+        (st) => st.mtimeMs,
+        () => 0,
+      );
+    const used = Math.max(
+      name.includes(".partial-") ? 0 : await mtime(complete(path)),
+      await mtime(path),
     );
     if (now - used <= KEEP_MS) continue;
     await rm(complete(path), { force: true });

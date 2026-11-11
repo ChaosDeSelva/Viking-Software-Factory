@@ -61,7 +61,14 @@ it("reuses a snapshot, keeps a recently used one when the branch moves, and prun
   const { repo, sha } = cloneWithLocalWork();
   const dataDir = temp("data");
   const hour = 60 * 60 * 1000;
-  const first = await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo, now: () => 0 });
+  // Offsets from the real clock: a directory with no marker yet is dated by its own mtime.
+  const base = Date.now();
+  const first = await planningWorkspace({
+    dataDir,
+    projectId: "p1",
+    repoPath: repo,
+    now: () => base,
+  });
   writeFileSync(join(first.path, "marker"), "kept\n");
   const again = await planningWorkspace({
     dataDir,
@@ -83,12 +90,17 @@ it("reuses a snapshot, keeps a recently used one when the branch moves, and prun
     dataDir,
     projectId: "p1",
     repoPath: repo,
-    now: () => 2 * hour,
+    now: () => base + 2 * hour,
   });
   expect(moved.path).toBe(join(dataDir, "snapshots", "p1", head));
   expect(dirs()).toEqual([sha, head].sort());
   // Long after, it is gone, marker included.
-  await planningWorkspace({ dataDir, projectId: "p1", repoPath: repo, now: () => 12 * hour });
+  await planningWorkspace({
+    dataDir,
+    projectId: "p1",
+    repoPath: repo,
+    now: () => base + 12 * hour,
+  });
   expect(readdirSync(join(dataDir, "snapshots", "p1")).sort()).toEqual([head, `${head}.complete`]);
 });
 

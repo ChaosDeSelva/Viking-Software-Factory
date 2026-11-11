@@ -35,8 +35,13 @@ const PROFILE = {
 };
 
 const url = (projectId = f.projectId) => `/v1/projects/${projectId}/profile`;
-const put = (payload: unknown, projectId?: string) =>
-  f.h.call({ method: "PUT", url: url(projectId), payload: payload as object });
+const put = async (payload: unknown, projectId?: string) =>
+  f.h.call({
+    method: "PUT",
+    url: url(projectId),
+    payload: payload as object,
+    headers: await f.h.approvalHeaders(),
+  });
 const harnessFile = (name: string) =>
   join(brokkrHome, ".brokkr", "harnesses", name, "harness.json");
 
@@ -142,6 +147,14 @@ describe("execution profile", () => {
       payload: PROFILE,
     });
     expect(noToken.statusCode).toBe(401);
+    // The bearer token alone, which agents can read, does not change a profile.
+    const unapproved = await f.h.call({ method: "PUT", url: url(), payload: PROFILE });
+    expect(unapproved.statusCode).toBe(403);
+    expect((await f.h.call({ url: url() })).json().profile).not.toEqual(PROFILE);
+    const withUrlPassword = await put({
+      env: { DATABASE_URL: "postgres://app:pw@localhost/test" },
+    });
+    expect(withUrlPassword.statusCode).toBe(422);
     expect((await f.h.call({ url: url("missing") })).statusCode).toBe(404);
     expect((await put(PROFILE, "missing")).statusCode).toBe(404);
   });

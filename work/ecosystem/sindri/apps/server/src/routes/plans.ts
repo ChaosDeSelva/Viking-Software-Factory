@@ -57,18 +57,21 @@ export function planRoutes(
     await service.listHarnesses();
     const project = s.knowledge.projects.get(spec.projectId);
     const rework = s.rework.forLineage(spec.lineageId);
-    const workspace = project
-      ? await s.planningWorkspace(
-          project,
-          rework?.baseCommits[0]
-            ? { commit: rework.baseCommits[0], alsoStartsFrom: rework.baseCommits.slice(1) }
-            : {},
-        )
-      : undefined;
+    // Exporting a snapshot is only worth it for a provider that will read it.
+    const provider = f.provider();
+    const workspace =
+      project && provider.readsWorkspace
+        ? await s.planningWorkspace(
+            project,
+            rework?.baseCommits[0]
+              ? { commit: rework.baseCommits[0], alsoStartsFrom: rework.baseCommits.slice(1) }
+              : {},
+          )
+        : undefined;
     const plan = await f.planner.propose(
       { id: spec.id },
       {
-        provider: f.provider(),
+        provider,
         harnesses: service,
         ...(workspace ? { workspace: workspace.path, workspaceLabel: workspace.label } : {}),
       },

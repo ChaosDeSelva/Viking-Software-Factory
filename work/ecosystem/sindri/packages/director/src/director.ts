@@ -301,7 +301,8 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
     alsoStartsFrom?: readonly string[],
   ) => {
     const project = knowledge.projects.get(projectId);
-    if (!project || !options.workspaceFor) return undefined;
+    // Exporting a snapshot is only worth it for a provider that will read it.
+    if (!project || !options.workspaceFor || !provider.readsWorkspace) return undefined;
     try {
       return await options.workspaceFor(
         { id: project.id, repoPath: project.repoPath },
