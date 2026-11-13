@@ -11,7 +11,8 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "test": "turbo run test",
+    "test": "turbo run test --concurrency=1 && pnpm test:timing",
+    "test:timing": "turbo run test:timing --concurrency=1",
     "test:coverage": "pnpm build && (vitest run --config vitest.coverage.config.mjs --coverage; s=$?; node scripts/coverage-summary.mjs; exit $s)",
     "test:scripts": "vitest run --config scripts/vitest.config.mjs scripts/coverage-summary.test.mjs scripts/coverage-config.test.mjs scripts/lib/*.test.mjs",
     "lint": "turbo run lint",

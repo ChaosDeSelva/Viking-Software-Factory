@@ -13,6 +13,10 @@ import {
   type TaskDescriptor,
 } from "./index.js";
 
+// Brokkr runs (resolve, verify) spawn git, make and Brokkr's own processes: well under a second
+// on an idle machine, but past 60 s on a loaded 3-core macOS CI runner. No assertion depends on it.
+const BROKKR_TIMEOUT_MS = 180_000;
+
 const task = (over: Partial<TaskDescriptor> = {}): TaskDescriptor => ({
   id: "T-1",
   title: "Add CSV export endpoint",
@@ -229,7 +233,7 @@ describe("BrokkrHarnessService", () => {
     expect(selection.lock.lockVersion).toBe(2);
     expect(selection.harnesses[0]?.name).toBe("qa-regression");
     expect((await svc.inspectRepo()).scripts).toContain("test");
-  }, 60_000);
+  }, BROKKR_TIMEOUT_MS);
 
   it("maps Brokkr errors to HarnessServiceError codes, profiles included", async () => {
     const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });
@@ -242,7 +246,7 @@ describe("BrokkrHarnessService", () => {
       .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HarnessServiceError);
     expect(err).toMatchObject({ code: "invalid_request" });
-  }, 60_000);
+  }, BROKKR_TIMEOUT_MS);
 
   it("does not disguise a malformed SDK selection as a request error", async () => {
     const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });

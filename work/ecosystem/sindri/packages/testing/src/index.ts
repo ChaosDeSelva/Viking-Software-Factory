@@ -14,3 +14,4 @@ export {
   type TaskStep,
 } from "./fake-mimir.js";
 export { testFileArtifactContentReader } from "./file-artifact-reader.js";
+export { growthRatio, type GrowthOptions } from "./growth.js";

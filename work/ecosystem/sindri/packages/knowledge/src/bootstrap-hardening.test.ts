@@ -154,6 +154,7 @@ describe("legacy index cleanup", () => {
 });
 
 describe("secret detection", () => {
+  // Linear time on adversarial input: secrets-linear.timing.test.ts.
   it.each([
     ["Anthropic", `key: ${ANTHROPIC}`],
     ["OpenAI", "OPENAI_API_KEY=sk-proj-abcdEFGH1234ijklMNOP5678qrst"],
@@ -180,13 +181,6 @@ describe("secret detection", () => {
     "The password field must be at least 12 characters.",
   ])("does not flag ordinary text: %s", (text) => {
     expect(containsSecret(text)).toBe(false);
-  });
-
-  it("is linear on adversarial input", () => {
-    const t0 = performance.now();
-    containsSecret("token=".repeat(50_000) + "a".repeat(100_000));
-    containsSecret("-----BEGIN " + "A ".repeat(100_000));
-    expect(performance.now() - t0).toBeLessThan(500);
   });
 
   it.each([

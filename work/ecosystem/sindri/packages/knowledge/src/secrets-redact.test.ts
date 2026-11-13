@@ -10,6 +10,7 @@ const PEM = [
 ].join("\n");
 
 describe("redactSecrets (ticket text before prompts)", () => {
+  // Linear time on adversarial input: secrets-linear.timing.test.ts.
   it("replaces whole secret tokens, PEM blocks and generic assignments, and counts them", () => {
     const text = `Key: ${ANT} please\n${PEM}\npassword = "Hunter2Hunter2Hunter2"\nplain line`;
     const out = redactSecrets(text);
@@ -47,11 +48,5 @@ describe("redactSecrets (ticket text before prompts)", () => {
   it("redacts an unterminated PEM block to the end of the text", () => {
     const out = redactSecrets(`intro\n${PEM.split("\n").slice(0, 2).join("\n")}`);
     expect(out).toEqual({ text: `intro\n${SECRET_REDACTED}`, count: 1 });
-  });
-
-  it("is linear on adversarial input", () => {
-    const t0 = performance.now();
-    redactSecrets("password=".repeat(20000) + "sk-ant-".repeat(20000));
-    expect(performance.now() - t0).toBeLessThan(500);
   });
 });

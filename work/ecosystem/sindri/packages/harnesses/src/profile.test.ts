@@ -13,6 +13,10 @@ import {
   type ExecutionProfile,
 } from "./index.js";
 
+// Brokkr runs (resolve, verify) spawn git, make and Brokkr's own processes: well under a second
+// on an idle machine, but past 60 s on a loaded 3-core macOS CI runner. No assertion depends on it.
+const BROKKR_TIMEOUT_MS = 180_000;
+
 const GO: ExecutionProfile = {
   checks: [
     { id: "lint", command: ["make", "lint"], cwd: "services/api", timeoutSeconds: 900 },
@@ -205,7 +209,7 @@ describe("profile harness", () => {
       task: { id: "t", title: "t", description: "d", taskTypes: ["docs"] },
     });
     expect(sel.harnesses.map((h) => h.name)).not.toContain(ref.name);
-  }, 60_000);
+  }, BROKKR_TIMEOUT_MS);
 
   it("reports a Brokkr resolve failure as a HarnessServiceError with Brokkr's message", async () => {
     const svc = new BrokkrHarnessService({ cwd: home, homeDir: home });
@@ -274,5 +278,5 @@ describe("profile harness", () => {
       rmSync(repo, { recursive: true, force: true });
       rmSync(runs, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, BROKKR_TIMEOUT_MS);
 });

@@ -16,7 +16,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:timing": "vitest run --config vitest.timing.config.ts"
   },
   "devDependencies": {
     "@sindri/testing": "workspace:*",

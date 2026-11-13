@@ -280,7 +280,8 @@ describe("secret store defaults and the command runner", () => {
     expect(await new EnvSecretStore({ env: { SINDRI_SECRET_X: "" } }).get("x")).toBeUndefined();
   });
 
-  it("runs a binary without a shell and reports its exit code", async () => {
+  // Spawns node twice: well under a second idle, past the 5 s default on a loaded CI runner.
+  it("runs a binary without a shell and reports its exit code", { timeout: 30_000 }, async () => {
     const node = process.execPath;
     expect(await execFileRunner(node, ["-e", "process.stdout.write('ok $HOME')"])).toEqual({
       code: 0,

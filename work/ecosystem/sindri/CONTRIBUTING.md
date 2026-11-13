@@ -11,6 +11,10 @@ pnpm check   # format:check, lint, typecheck, test
 
 Node 25 and pnpm are required (`.nvmrc`).
 
+`pnpm test` runs the package suites one package at a time, then `pnpm test:timing`: the
+`*.timing.test.ts` files (linear-time checks), one file at a time with nothing else running. A
+package's own `pnpm test` skips its timing files; run its `pnpm test:timing` for those.
+
 Slower suites outside `pnpm check`:
 
 ```sh
