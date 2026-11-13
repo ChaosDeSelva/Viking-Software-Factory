@@ -7,7 +7,8 @@ import { DISPLAY_SANITIZED, forDisplay } from "../display.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import { asMimirUnavailable, type ExecutionHub } from "../execution-hub.js";
 import type { Factory } from "../factory.js";
-import { executionsByProject, projectOfExecution } from "../queries.js";
+import { deliveriesWork, executionsByProject, projectOfExecution } from "../queries.js";
+import { intakeView } from "./intakes.js";
 import { reworkRequestText } from "../rework.js";
 import type { Services } from "../services.js";
 import { DELIVERED_STATUSES, FINAL_STATUSES } from "../statuses.js";
@@ -37,6 +38,10 @@ async function withMimir<T>(call: () => Promise<T>): Promise<T> {
 
 const ProjectQuery = z.object({ projectId: z.string().min(1) });
 const Rework = z.strictObject({ feedback: z.string().trim().min(1).max(20_000) });
+const Accept = z.strictObject({ reason: z.string().trim().min(1).max(2000).optional() });
+const Reject = z.strictObject({ reason: z.string().trim().min(1).max(2000) });
+// The research question a plan carries is at most 8000 characters (MAX_RESEARCH_QUESTION_CHARS).
+const FollowUp = z.strictObject({ question: z.string().trim().min(1).max(8000) });
 
 /** Every task `id` depends on, directly or through other tasks. */
 function transitiveDeps(
@@ -78,6 +83,14 @@ export function deliveryRoutes(
         "invalid_state",
         `execution is ${execution.status}; a delivery exists once it is verified`,
       );
+    return execution;
+  };
+  const workKindOf = (planId: string) => f.planner.get(planId)?.work?.kind ?? "change";
+  /** A delivered research execution. */
+  const requireDocument = (id: string) => {
+    const execution = requireDelivered(id);
+    if (workKindOf(execution.planId) !== "research")
+      throw new ApiError(409, "invalid_state", "only a research delivery is a document");
     return execution;
   };
   /** Deliveries (execution ids) with a rework request being drafted right now, in this process. */
@@ -146,10 +159,18 @@ export function deliveryRoutes(
 
   app.get<{ Querystring: { projectId?: string } }>("/v1/deliveries", (req) => {
     const q = parseBody(ProjectQuery, req.query);
+    const rows = projectExecutions(q.projectId).filter((e) => DELIVERED_STATUSES.has(e.status));
+    // Work kind and state from stored rows, so lists need no report per row.
+    const work = deliveriesWork(
+      s.db,
+      rows.map((e) => e.id),
+    );
     return {
-      deliveries: projectExecutions(q.projectId)
-        .filter((e) => DELIVERED_STATUSES.has(e.status))
-        .map((e) => ({ ...e, executionId: e.id })),
+      deliveries: rows.map((e) => ({
+        ...e,
+        executionId: e.id,
+        ...(work.get(e.id) ?? { workKind: "change", work: null }),
+      })),
     };
   });
 
@@ -349,6 +370,12 @@ export function deliveryRoutes(
     req.log.info({ executionId: req.params.id, approver }, "PR requested");
     const execution = hub.reader.get(req.params.id);
     if (!execution) throw notFound("execution");
+    if (workKindOf(execution.planId) !== "change")
+      throw new ApiError(
+        409,
+        "not_exportable",
+        "this delivery is a document; accept or reject it instead of requesting a PR",
+      );
     if (execution.status !== "verified_pending_review")
       throw new ApiError(
         409,
@@ -357,6 +384,69 @@ export function deliveryRoutes(
       );
     return { pr: await withMimir(() => delivery.requestPr(execution.id)) };
   });
+
+  // A document delivery ends with a human decision instead of a PR; the same approval factor.
+  app.post<{ Params: { id: string } }>("/v1/executions/:id/accept", async (req) => {
+    const actor = approvals.require(req);
+    const body = parseBody(Accept, req.body);
+    const execution = requireDocument(req.params.id);
+    const report = await withMimir(() =>
+      delivery.decide(execution.id, {
+        decision: "accepted",
+        actor,
+        ...(body.reason ? { reason: body.reason } : {}),
+      }),
+    );
+    req.log.info({ executionId: execution.id, actor }, "research document accepted");
+    return { report };
+  });
+
+  app.post<{ Params: { id: string } }>("/v1/executions/:id/reject", async (req) => {
+    const actor = approvals.require(req);
+    const body = parseBody(Reject, req.body);
+    const execution = requireDocument(req.params.id);
+    const report = await withMimir(() =>
+      delivery.decide(execution.id, { decision: "rejected", actor, reason: body.reason }),
+    );
+    req.log.info({ executionId: execution.id, actor }, "research document rejected");
+    return { report };
+  });
+
+  /** A new research intake that asks a follow-up question about a delivered document. */
+  app.post<{ Params: { id: string } }>(
+    "/v1/executions/:id/follow-up",
+    // The intake view carries display text sanitized when the row was written.
+    { config: { [DISPLAY_SANITIZED]: true } },
+    async (req, reply) => {
+      const body = parseBody(FollowUp, req.body);
+      const execution = requireDocument(req.params.id);
+      const plan = f.planner.get(execution.planId);
+      const spec = plan ? s.specs.get(plan.specId) : undefined;
+      const projectId = projectOfExecution(s.db, execution.id) ?? plan?.projectId;
+      if (!plan || !projectId || !s.knowledge.projects.get(projectId)) throw notFound("delivery");
+      const earlier = spec?.intakeId ? s.intake().get(spec.intakeId) : undefined;
+      // The question alone is the request; the earlier document is linked context the planner
+      // loads from `linkedExecutionId`, so it can never crowd the question out.
+      const firstLine = body.question.split("\n")[0]!.slice(0, 120);
+      const research = plan.work?.research;
+      const intake = s.intake().createManual({
+        projectId,
+        title: firstLine,
+        body: body.question,
+        workKind: "research",
+        linkedExecutionId: execution.id,
+        ...(research
+          ? { research: { sources: research.sources, factCheck: research.factCheck } }
+          : {}),
+        ...(earlier?.skillIds.length ? { skillIds: earlier.skillIds } : {}),
+      });
+      req.log.info(
+        { executionId: execution.id, intakeId: intake.id },
+        "research follow-up created",
+      );
+      return reply.code(201).send({ intake: intakeView(intake) });
+    },
+  );
 
   /** Re-run the quality assessment (reviews, gates, report) of a verified execution. */
   app.post<{ Params: { id: string } }>("/v1/executions/:id/assess", async (req) => {

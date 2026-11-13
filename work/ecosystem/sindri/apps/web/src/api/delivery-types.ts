@@ -1,5 +1,7 @@
 // Wire types for plans, harnesses, executions, reviews and deliveries (server S7b routes).
 
+import type { AnyWorkKind, GuidanceUsed, PrReviewReport, ResearchReport } from "./work-types.js";
+
 export type PlanStatus = "draft" | "review" | "approved" | "superseded";
 export type Role =
   "lead" | "implementer" | "reviewer" | "qa" | "investigator" | "security" | "docs";
@@ -289,6 +291,11 @@ export interface DeliveryReport {
     commits: { eventId: string; sha: string; branch: string }[];
     note: string;
   };
+  /** Absent on servers from before work kinds (then `change`). */
+  workKind?: AnyWorkKind;
+  guidance?: GuidanceUsed;
+  research?: ResearchReport;
+  review?: PrReviewReport;
 }
 
 export interface DeliveryDetail {

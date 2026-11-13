@@ -5,15 +5,44 @@ import {
   SindriError,
   applyMigrations,
   KNOWLEDGE_MIGRATIONS,
+  assertUtf8Capped,
+  MAX_REQUEST_NOTES_BYTES,
   openDatabase,
   type SqliteDatabase,
 } from "@sindri/knowledge";
 import type { Connector, IssueComment, IssueSnapshot } from "./connectors.js";
 import { sanitizeForDisplay } from "./sanitize.js";
-import { INTAKE_MIGRATIONS } from "./schema.js";
+import { INTAKE_MIGRATIONS, widenIntakeSources } from "./schema.js";
 
-export type IntakeSource = "manual" | "jira" | "linear";
+export type IntakeSource = "manual" | "jira" | "linear" | "github";
 export type SyncState = "imported" | "stale" | "conflict";
+
+/** What an intake asks the factory for: a code change, a research document, or a PR review. */
+export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+
+/** Where a research task may look for evidence. */
+export interface ResearchSources {
+  /** The project's code at the task's base commit. */
+  code: boolean;
+  /** The project's approved operator lessons. */
+  feedbackGraph: boolean;
+  web: boolean;
+}
+
+export interface ResearchOptions {
+  sources: ResearchSources;
+  /** Plan a reviewer that spot-checks the document's claims against their sources. */
+  factCheck: boolean;
+}
+
+export const DEFAULT_RESEARCH: ResearchOptions = {
+  sources: { code: true, feedbackGraph: true, web: false },
+  factCheck: true,
+};
+
+/** Skill ids one request may add to the project's defaults. */
+export const MAX_REQUEST_SKILLS = 20;
 
 /** What was stored for a ticket: normalised fields plus the untouched remote payload. */
 export interface StoredSnapshot {
@@ -51,6 +80,30 @@ export interface IntakeRecord {
   createdAt: string;
   /** Title and body sanitized for display when the row was written (audit M5). */
   display: { title: string; body: string };
+  workKind: WorkKind;
+  /** The operator's notes for this request (trusted operator input, not ticket text). */
+  notes: string;
+  /** Library skills this request adds to the project's default skills. */
+  skillIds: string[];
+  /** Set for research intakes only. */
+  research: ResearchOptions | null;
+  /** The execution whose result this intake follows up on. */
+  linkedExecutionId: string | null;
+}
+
+/** Work kind and operator guidance a new intake may carry. */
+export interface WorkInput {
+  workKind?: WorkKind | undefined;
+  notes?: string | undefined;
+  skillIds?: string[] | undefined;
+  /** Research intakes only; missing fields take `DEFAULT_RESEARCH`. */
+  research?:
+    | {
+        sources?: { [K in keyof ResearchSources]?: boolean | undefined } | undefined;
+        factCheck?: boolean | undefined;
+      }
+    | undefined;
+  linkedExecutionId?: string | undefined;
 }
 
 export interface IntakeAttachment {
@@ -79,14 +132,14 @@ export interface ManualAttachmentInput {
   content: string | Uint8Array;
 }
 
-export interface CreateManualInput {
+export interface CreateManualInput extends WorkInput {
   projectId: string;
   title: string;
   body: string;
   attachments?: ManualAttachmentInput[];
 }
 
-export interface ImportOptions {
+export interface ImportOptions extends Omit<WorkInput, "linkedExecutionId"> {
   projectId: string;
   /** Import remote comments (default true). Recorded in permissions_json. */
   importComments?: boolean;
@@ -117,7 +170,69 @@ interface IntakeRow {
   acknowledged_remote_updated?: string | null;
   display_title: string | null;
   display_body: string | null;
+  work_kind: WorkKind;
+  notes: string;
+  skill_ids_json: string;
+  research_json: string | null;
+  linked_execution_id: string | null;
 }
+
+/**
+ * A re-import asked for other work options than an intake that already has a spec; the operator
+ * starts from the existing intake (`intakeId`) instead.
+ */
+export class IntakeAlreadyImportedError extends Error {
+  override readonly name = "IntakeAlreadyImportedError";
+  readonly code = "already_imported";
+  constructor(readonly intakeId: string) {
+    super(
+      `this ticket was already imported as intake ${intakeId} and work was drafted from it; its options can no longer change`,
+    );
+  }
+}
+
+/** Validated work columns of a new row. */
+function workColumns(input: WorkInput) {
+  const workKind = input.workKind ?? "change";
+  if (!(WORK_KINDS as readonly string[]).includes(workKind))
+    throw new SindriError("validation_failed", `unknown work kind ${String(workKind)}`);
+  const notes = input.notes ?? "";
+  assertUtf8Capped(notes, MAX_REQUEST_NOTES_BYTES, "request notes");
+  const skillIds = [...new Set(input.skillIds ?? [])];
+  if (skillIds.length > MAX_REQUEST_SKILLS)
+    throw new SindriError("validation_failed", `at most ${MAX_REQUEST_SKILLS} skills per request`);
+  if (input.research && workKind !== "research")
+    throw new SindriError("validation_failed", "research options need workKind research");
+  let research: ResearchOptions | null = null;
+  if (workKind === "research") {
+    const given = input.research?.sources ?? {};
+    research = {
+      sources: {
+        code: given.code ?? DEFAULT_RESEARCH.sources.code,
+        feedbackGraph: given.feedbackGraph ?? DEFAULT_RESEARCH.sources.feedbackGraph,
+        web: given.web ?? DEFAULT_RESEARCH.sources.web,
+      },
+      factCheck: input.research?.factCheck ?? DEFAULT_RESEARCH.factCheck,
+    };
+    if (!Object.values(research.sources).some(Boolean))
+      throw new SindriError("validation_failed", "a research request needs at least one source");
+  }
+  return {
+    work_kind: workKind,
+    notes,
+    skill_ids_json: JSON.stringify(skillIds),
+    research_json: research ? JSON.stringify(research) : null,
+    linked_execution_id: input.linkedExecutionId ?? null,
+  };
+}
+
+const INSERT_INTAKE = `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
+    raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
+    display_title, display_body, work_kind, notes, skill_ids_json, research_json, linked_execution_id)
+  VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
+    @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
+    @display_title, @display_body, @work_kind, @notes, @skill_ids_json, @research_json,
+    @linked_execution_id)`;
 
 const toRecord = (r: IntakeRow): IntakeRecord => {
   const snapshot = JSON.parse(r.raw_snapshot_json) as StoredSnapshot;
@@ -142,6 +257,11 @@ const toRecord = (r: IntakeRow): IntakeRecord => {
       title: r.display_title ?? sanitizeForDisplay(r.title),
       body: r.display_body ?? sanitizeForDisplay(snapshot.body),
     },
+    workKind: r.work_kind ?? "change",
+    notes: r.notes ?? "",
+    skillIds: JSON.parse(r.skill_ids_json ?? "[]") as string[],
+    research: r.research_json ? (JSON.parse(r.research_json) as ResearchOptions) : null,
+    linkedExecutionId: r.linked_execution_id ?? null,
   };
 };
 
@@ -204,6 +324,7 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
   const db = typeof pathOrDb === "string" ? openDatabase(pathOrDb) : pathOrDb;
   applyMigrations(db, "knowledge", KNOWLEDGE_MIGRATIONS);
   applyMigrations(db, "intake", INTAKE_MIGRATIONS);
+  widenIntakeSources(db);
   backfillDisplay(db);
   const clock = options.now ?? (() => new Date());
   const iso = () => clock().toISOString();
@@ -269,6 +390,98 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
     }
   };
 
+  /**
+   * Work options sent with a re-import of a known ticket: stored when they change the intake and
+   * nothing was drafted from it yet; refused once a spec exists, so a plan never silently runs
+   * under other options than the ones it was made with.
+   */
+  /** Partial research options over the stored ones (fields left out keep their stored value). */
+  const mergeResearch = (
+    stored: ResearchOptions | undefined,
+    given: ImportOptions["research"],
+  ): WorkInput["research"] => {
+    if (!stored) return given;
+    if (!given) return stored;
+    const sources: Partial<ResearchSources> = { ...stored.sources };
+    for (const [k, v] of Object.entries(given.sources ?? {}))
+      if (v !== undefined) sources[k as keyof ResearchSources] = v;
+    return { sources, factCheck: given.factCheck ?? stored.factCheck };
+  };
+
+  const reconcileWork = (existing: IntakeRow, opts: ImportOptions) => {
+    if (
+      opts.workKind === undefined &&
+      opts.notes === undefined &&
+      opts.skillIds === undefined &&
+      opts.research === undefined
+    )
+      return;
+    const kind = opts.workKind ?? existing.work_kind;
+    const storedResearch =
+      existing.research_json && kind === "research"
+        ? (JSON.parse(existing.research_json) as ResearchOptions)
+        : undefined;
+    const next = workColumns({
+      workKind: kind,
+      notes: opts.notes ?? existing.notes,
+      skillIds: opts.skillIds ?? (JSON.parse(existing.skill_ids_json) as string[]),
+      research: mergeResearch(storedResearch, opts.research),
+      ...(existing.linked_execution_id ? { linkedExecutionId: existing.linked_execution_id } : {}),
+    });
+    if (
+      next.work_kind === existing.work_kind &&
+      next.notes === existing.notes &&
+      next.skill_ids_json === existing.skill_ids_json &&
+      next.research_json === existing.research_json
+    )
+      return;
+    const hasSpecs = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'specifications'")
+      .get();
+    if (
+      hasSpecs &&
+      db.prepare("SELECT 1 FROM specifications WHERE intake_id = ? LIMIT 1").get(existing.id)
+    )
+      throw new IntakeAlreadyImportedError(existing.id);
+    db.prepare(
+      `UPDATE intakes SET work_kind = ?, notes = ?, skill_ids_json = ?, research_json = ?
+       WHERE id = ?`,
+    ).run(next.work_kind, next.notes, next.skill_ids_json, next.research_json, existing.id);
+  };
+
+  /**
+   * A re-imported pull request replaces its stored snapshot at once (new head, title, files): a
+   * PR review always reviews the PR as it is now, and earlier runs keep the facts they ran on in
+   * their plan. Notes and skills given with the re-import apply to the next plan.
+   */
+  const refreshPullRequest = (
+    existing: IntakeRow,
+    incoming: StoredSnapshot,
+    opts: ImportOptions,
+  ): IntakeRecord => {
+    const next = workColumns({
+      workKind: "pr_review",
+      notes: opts.notes ?? existing.notes,
+      skillIds: opts.skillIds ?? (JSON.parse(existing.skill_ids_json) as string[]),
+    });
+    db.prepare(
+      `UPDATE intakes SET title = ?, raw_snapshot_json = ?, imported_at = ?, sync_state = 'imported',
+         pending_snapshot_json = NULL, display_title = ?, display_body = ?, external_url = ?,
+         notes = ?, skill_ids_json = ? WHERE id = ?`,
+    ).run(
+      incoming.title,
+      JSON.stringify(incoming),
+      iso(),
+      sanitizeForDisplay(incoming.title),
+      sanitizeForDisplay(incoming.body),
+      incoming.url,
+      next.notes,
+      next.skill_ids_json,
+      existing.id,
+    );
+    return toRecord(mustGet(existing.id));
+  };
+
   const api = {
     db,
     /** Strip HTML/scripts from untrusted ticket text for display. */
@@ -278,6 +491,12 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
       if (!input.title.trim())
         throw new SindriError("validation_failed", "intake title is required");
       requireProject(input.projectId);
+      if (input.workKind === "pr_review")
+        throw new SindriError(
+          "validation_failed",
+          "a PR review is imported from its GitHub pull request URL",
+        );
+      const work = workColumns(input);
       const attachments = input.attachments ?? [];
       if (attachments.length && !options.attachmentsDir) {
         throw new Error("attachmentsDir must be configured to store attachments");
@@ -305,6 +524,7 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
         pending_snapshot_json: null,
         display_title: sanitizeForDisplay(input.title),
         display_body: sanitizeForDisplay(input.body),
+        ...work,
       };
       const blobs = attachments.map((a) => {
         const buf = typeof a.content === "string" ? Buffer.from(a.content) : Buffer.from(a.content);
@@ -314,14 +534,7 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
         return { name: safeName(a.name), buf, sha, path: join(options.attachmentsDir ?? "", sha) };
       });
       db.transaction(() => {
-        db.prepare(
-          `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
-             raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
-             display_title, display_body)
-           VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
-             @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
-             @display_title, @display_body)`,
-        ).run(row);
+        db.prepare(INSERT_INTAKE).run(row);
         // Blob writes are not rolled back if the transaction fails; they are content-addressed,
         // so the worst case is an orphaned blob (harmless, reclaimable).
         if (blobs.length) mkdirSync(options.attachmentsDir as string, { recursive: true });
@@ -338,7 +551,23 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
 
     /** Import (or re-import) a ticket by URL through the first connector that handles it. */
     async importFromUrl(url: string, opts: ImportOptions): Promise<IntakeRecord> {
+      return (await api.importUrl(url, opts)).intake;
+    },
+
+    /** `importFromUrl`, also telling whether a new intake was created. */
+    async importUrl(
+      url: string,
+      opts: ImportOptions,
+    ): Promise<{ intake: IntakeRecord; created: boolean }> {
       requireProject(opts.projectId);
+      // A GitHub pull request URL is always a PR review, and only such a URL is one.
+      const isPr = connectors.find((c) => c.canHandle(url))?.kind === "github";
+      if (isPr && opts.workKind !== undefined && opts.workKind !== "pr_review")
+        throw new SindriError("validation_failed", "a GitHub pull request URL is a pr_review");
+      if (!isPr && opts.workKind === "pr_review")
+        throw new SindriError("validation_failed", "a PR review needs a GitHub pull request URL");
+      if (isPr) opts = { ...opts, workKind: "pr_review" };
+      const work = workColumns(opts);
       const connector = connectors.find((c) => c.canHandle(url));
       if (!connector) throw new SindriError("no_connector", "no connector configured for this URL");
       const ref = connector.parseUrl(url);
@@ -370,27 +599,24 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
           pending_snapshot_json: null,
           display_title: sanitizeForDisplay(issue.title),
           display_body: sanitizeForDisplay(issue.body),
+          ...work,
         };
         db.transaction(() => {
-          db.prepare(
-            `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
-               raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
-               display_title, display_body)
-             VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
-               @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
-               @display_title, @display_body)`,
-          ).run(row);
+          db.prepare(INSERT_INTAKE).run(row);
           if (fetched) replaceRemoteComments(row.id, fetched.comments);
         })();
-        return toRecord(row);
+        return { intake: toRecord(row), created: true };
       }
 
+      if (connector.kind === "github")
+        return { intake: refreshPullRequest(existing, incoming, opts), created: false };
+      reconcileWork(existing, opts);
       const current = JSON.parse(existing.raw_snapshot_json) as StoredSnapshot;
       if (
         current.updated === incoming.updated ||
         existing.acknowledged_remote_updated === incoming.updated
       ) {
-        return toRecord(existing);
+        return { intake: toRecord(mustGet(existing.id)), created: false };
       }
 
       const localChanged = !!db
@@ -408,7 +634,7 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
         JSON.stringify(permissions),
         existing.id,
       );
-      return toRecord(mustGet(existing.id));
+      return { intake: toRecord(mustGet(existing.id)), created: false };
     },
 
     /**

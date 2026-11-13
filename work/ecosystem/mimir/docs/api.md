@@ -4,7 +4,7 @@
 
 Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body.
 
-Contract version 0.3.0. Base path `/v1`. The contract is generated from the Zod schemas in `packages/protocol`.
+Contract version 0.4.0. Base path `/v1`. The contract is generated from the Zod schemas in `packages/protocol`.
 
 ## Conventions
 
@@ -615,6 +615,7 @@ Request body:
 | `dependsOn` | string[] | no |  |
 | `crewId` | string | no |  |
 | `argv` | string[] | no |  |
+| `mode` | object | no | `{ deliverable: diff\|document (default diff), access: write\|read (default write), network: none\|web (default none) }`; omitted means all defaults. `access: "read"` requires `deliverable: "document"`. |
 | `missionId` | string | yes |  |
 
 Responses:
@@ -933,6 +934,7 @@ Responses:
 | `resultCommit` | string | no |  |
 | `verification` | object | no |  |
 | `timeoutMs` | integer, max 86400000 | no |  |
+| `mode` | [TaskMode](#taskmode) | no |  |
 | `missionId` | string | yes |  |
 | `crewId` | string \| null | yes |  |
 | `title` | string, min 1 | yes |  |
@@ -943,6 +945,16 @@ Responses:
 | `agentId` | string \| null | yes |  |
 | `leaseExpiresAt` | string \| null | yes |  |
 | `blockedReason` | string, min 1 | no |  |
+
+### TaskMode
+
+How a task runs. `document` tasks deliver a Markdown report (`.mimir/artifacts/*.md`) or `review.json` instead of a diff and skip verification; their worktree edits are never committed as their result. `read` access is only valid with `document`.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `deliverable` | `diff` \| `document` | yes |  |
+| `access` | `write` \| `read` | yes |  |
+| `network` | `none` \| `web` | yes |  |
 
 ### TaskDependency
 

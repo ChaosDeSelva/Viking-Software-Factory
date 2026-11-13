@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@factory/docs": "file:../../vendor/factory/factory-docs-0.1.5.tgz",
-    "@factory/ui": "file:../../vendor/factory/factory-ui-0.1.7.tgz",
+    "@factory/ui": "file:../../vendor/factory/factory-ui-0.1.9.tgz",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

@@ -495,3 +495,47 @@ describe("POST /v1/tasks/:id/pr (T12b)", () => {
     expectTypeOf<RequestPrResponse["status"]>().toEqualTypeOf<"approval_required" | "delivered">();
   });
 });
+
+describe("TaskInput.mode", () => {
+  const base = { missionId: newId("msn"), title: "Research", brief: "Answer the question" };
+
+  it("is optional and left absent when not sent", () => {
+    const parsed = CreateTaskRequestSchema.parse(base);
+    expect(parsed.mode).toBeUndefined();
+  });
+
+  it("fills omitted fields with today's defaults", () => {
+    expect(CreateTaskRequestSchema.parse({ ...base, mode: {} }).mode).toEqual({
+      deliverable: "diff",
+      access: "write",
+      network: "none",
+    });
+    expect(
+      CreateTaskRequestSchema.parse({ ...base, mode: { deliverable: "document", network: "web" } })
+        .mode,
+    ).toEqual({ deliverable: "document", access: "write", network: "web" });
+  });
+
+  it("accepts a read-only web document task", () => {
+    const mode = { deliverable: "document", access: "read", network: "web" } as const;
+    expect(CreateTaskRequestSchema.parse({ ...base, mode }).mode).toEqual(mode);
+  });
+
+  it.each([
+    { deliverable: "pr" },
+    { access: "admin" },
+    { network: "full" },
+    { deliverable: "document", extra: true },
+    { access: "read" },
+    { access: "read", deliverable: "diff" },
+  ])("rejects %o", (mode) => {
+    expect(CreateTaskRequestSchema.safeParse({ ...base, mode }).success).toBe(false);
+  });
+
+  it("explains that read access needs a document deliverable", () => {
+    const r = CreateTaskRequestSchema.safeParse({ ...base, mode: { access: "read" } });
+    expect(r.success).toBe(false);
+    expect(r.error!.issues[0]).toMatchObject({ path: ["mode", "deliverable"] });
+    expect(r.error!.issues[0]!.message).toContain('deliverable "document"');
+  });
+});

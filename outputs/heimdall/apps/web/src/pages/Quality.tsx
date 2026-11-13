@@ -20,7 +20,9 @@ import { navigate } from "../lib/router";
 import { RaiseBudgetButton } from "../features/Budget";
 import { openEscalations } from "../features/profileForm";
 import { isBudgetBlocked, type Scope } from "../features/scope";
-import { runTitle } from "../features/workflowState";
+import { deliveryTitle, runTitle } from "../features/workflowState";
+import { WorkKindBadge } from "../features/WorkForms";
+import { documentWaiting, pendingDocuments } from "../features/workKinds";
 
 interface Decision {
   id: string;
@@ -91,9 +93,10 @@ export function decisions(scope: Scope, specs: R[]): Decision[] {
   return out;
 }
 
-/** Tab badge: decisions that need action now (drafts are still being written). */
+/** Tab badge: decisions that need action now (drafts are still being written), plus documents and reviews. */
 export const qualityCount = (scope: Scope) =>
-  decisions(scope, []).filter((d) => d.status !== "draft").length;
+  decisions(scope, []).filter((d) => d.status !== "draft").length +
+  pendingDocuments(scope.deliveries).length;
 
 export function QualityPage() {
   const { state, scope, projectName, open, href } = useHeimdall();
@@ -132,6 +135,31 @@ export function QualityPage() {
       label: "Action",
       cell: (d) =>
         d.kind === "Budget" ? <RaiseBudgetButton task={d.row} /> : null,
+    },
+  ];
+  const executions: R[] = state?.sindri?.executions ?? [];
+  const documents = pendingDocuments(scope.deliveries);
+  const docTitle = (d: R) =>
+    d.work?.title || deliveryTitle(d, executions, specs) || "Delivery " + d.id;
+  const docColumns: Column<R>[] = [
+    {
+      key: "title",
+      header: "Document or review",
+      primary: true,
+      cell: (d) => (
+        <span className="line-clamp-2 font-medium">{docTitle(d)}</span>
+      ),
+    },
+    {
+      key: "kind",
+      header: "Kind",
+      hideOnMobile: true,
+      cell: (d) => <WorkKindBadge kind={d.work?.kind} />,
+    },
+    {
+      key: "waiting",
+      header: "Waiting for",
+      cell: (d) => <span className="text-sm">{documentWaiting(d.work)}</span>,
     },
   ];
   const gateColumns: Column<R>[] = [
@@ -206,6 +234,30 @@ export function QualityPage() {
                   View pipeline
                 </Button>
               }
+            />
+          }
+        />
+      </Card>
+      <Card
+        title="Documents and reviews"
+        count={documents.length}
+        description="Research documents to accept or reject, and pull request reviews not yet posted."
+        flush
+      >
+        <DataTable
+          caption="Documents and reviews"
+          columns={docColumns}
+          rows={documents}
+          rowKey={(d) => d.id}
+          onRowClick={(d) => open("deliveries", { ...d, title: docTitle(d) })}
+          rowLabel={(d) => docTitle(d)}
+          className="rounded-none border-0"
+          empty={
+            <EmptyState
+              compact
+              icon="check"
+              title="Nothing to read"
+              body="Research documents and pull request reviews appear here when their runs finish."
             />
           }
         />

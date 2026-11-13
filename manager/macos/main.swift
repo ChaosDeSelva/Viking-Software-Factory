@@ -78,6 +78,9 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private var copyTitles: [String: String] = [:]
     private var moreRowRef: NSView!
     private var updateTimer: Timer?
+    private var stateKnown = false
+    private var statusError: String?
+    private var factoryWindowController: FactoryWindowController?
     private let manager = Bundle.main.url(forResource: "viking", withExtension: nil)!
 
     // Buttons whose availability follows the factory's state.
@@ -88,6 +91,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private var workersSection: NSStackView!
     private var workersButton: NSButton!
     private var openWorkersButton: NSButton!
+    private var pageButtons: [NSButton] = []
     private var hulderButton: NSButton!
     private var installUpdateButton: NSButton!
     private var undoButton: NSButton!
@@ -103,8 +107,8 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         menuStatus.isEnabled = false
         menu.addItem(menuStatus)
         menu.addItem(.separator())
-        for (title, action) in [("Open Heimdall", #selector(openHeimdall)), ("Show the Viking Factory window", #selector(showWindow)), ("Check for updates", #selector(checkUpdates))] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        for (title, action, key) in [("Open Factory Window", #selector(openFactoryWindow), "o"), ("Show the companion window", #selector(showWindow), ""), ("Check for updates", #selector(checkUpdates), "")] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self; menu.addItem(item)
         }
         menu.addItem(.separator())
@@ -127,14 +131,34 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem(); main.addItem(appItem)
         let appMenu = NSMenu(); appMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        appMenu.addItem(withTitle: "Open Factory Window", action: #selector(openFactoryWindow), keyEquivalent: "o").target = self
+        // Shown in the menu bar while the factory window puts the app in the Dock.
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit Viking Factory (the factory keeps running)", action: #selector(quit), keyEquivalent: "q").target = self
         appItem.submenu = appMenu
         let editItem = NSMenuItem(); main.addItem(editItem)
         let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
+        // Page switching targets the factory window directly, so it works from the companion window too.
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let view = NSMenu(title: "View")
+        for tab in FactoryTab.allCases {
+            let item = view.addItem(withTitle: tab.title, action: #selector(selectFactoryTab(_:)), keyEquivalent: "\(tab.rawValue + 1)")
+            item.tag = tab.rawValue; item.target = self
+        }
+        view.addItem(.separator())
+        view.addItem(withTitle: "Back", action: #selector(FactoryWindowController.factoryBack(_:)), keyEquivalent: "[")
+        view.addItem(withTitle: "Forward", action: #selector(FactoryWindowController.factoryForward(_:)), keyEquivalent: "]")
+        view.addItem(withTitle: "Reload Page", action: #selector(FactoryWindowController.factoryReload(_:)), keyEquivalent: "r")
+        view.addItem(withTitle: "Copy Page Address", action: #selector(FactoryWindowController.copyPageAddress(_:)), keyEquivalent: "l")
+        view.addItem(withTitle: "Open Page in Browser", action: #selector(FactoryWindowController.openPageInBrowser(_:)), keyEquivalent: "O")
+        viewItem.submenu = view
         NSApp.mainMenu = main
     }
 
@@ -171,7 +195,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
 
     private func buildWindow() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 460), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Viking Factory"; window.isReleasedWhenClosed = false
+        window.title = "Viking Factory Companion"; window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 620, height: 420); window.center()
         root = NSStackView(); root.orientation = .vertical; root.alignment = .leading; root.spacing = 18
         root.translatesAutoresizingMaskIntoConstraints = false
@@ -185,7 +209,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         root.addArrangedSubview(status)
 
         startStop = button("Start factory", #selector(startOrStop), tip: "Starts Sindri, Mimir and Heimdall as background services.")
-        openHeimdallButton = button("Open Heimdall", #selector(openHeimdall), tip: "Opens the command center in your browser. Sign in with the code from Show sign-in codes.")
+        openHeimdallButton = button("Open Heimdall", #selector(openHeimdall), tip: Self.heimdallTip)
         codesButton = button("Show sign-in codes", #selector(access), tip: "Shows the Heimdall access token, the operator code that unlocks actions in Heimdall, and the Sindri pairing code for approvals. They change each time the factory starts.")
         healthButton = button("Check health", #selector(doctor), tip: "Checks that Git, Codex and Claude Code are installed and signed in, and that the factory's services answer.")
         _ = section("Everyday", "Start the factory, open it, and sign in.", [row([startStop, openHeimdallButton]), row([codesButton, healthButton])], in: root)
@@ -193,8 +217,8 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         // Things used rarely live behind one expander, closed by default.
         moreToggle = NSButton(title: "More options", target: self, action: #selector(toggleMore))
         moreToggle.setButtonType(.pushOnPushOff); moreToggle.bezelStyle = .disclosure; moreToggle.state = .off
-        moreToggle.toolTip = "Shows workers, updates and help: things you will rarely need."
-        let moreLabel = NSTextField(labelWithString: "More options: workers, updates and help")
+        moreToggle.toolTip = "Shows the other factory pages, workers, updates and help: things you will rarely need."
+        let moreLabel = NSTextField(labelWithString: "More options: pages, workers, updates and help")
         moreLabel.font = .systemFont(ofSize: 13, weight: .medium)
         let click = NSClickGestureRecognizer(target: self, action: #selector(toggleMoreFromLabel)); moreLabel.addGestureRecognizer(click)
         moreToggle.title = ""
@@ -204,8 +228,20 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         // Not in the window until expanded: a hidden subview of a stack view can still be laid out.
         moreRowRef = moreRow
 
+        let openSindri = button("Open Sindri", #selector(openSindri), tip: "Opens Sindri, where specs and plans are approved, in the factory window.")
+        let openMimir = button("Open Mimir", #selector(openMimir), tip: "Opens Mimir, the factory's memory, in the factory window.")
+        let openDocs = button("Open docs", #selector(openDocs), tip: "Opens the factory's documentation in the factory window.")
+        let inBrowser = NSPopUpButton(frame: .zero, pullsDown: true)
+        inBrowser.addItem(withTitle: "Open in browser")
+        for tab in FactoryTab.allCases { inBrowser.addItem(withTitle: tab.title); inBrowser.lastItem?.tag = tab.rawValue; inBrowser.lastItem?.toolTip = tab.summary }
+        inBrowser.target = self; inBrowser.action = #selector(openInBrowser(_:))
+        inBrowser.toolTip = "Opens a factory page in your default browser instead of the factory window. You sign in there separately."
+        controls.append(inBrowser)
+        pageButtons = [openSindri, openMimir, openDocs]
+        _ = section("Pages", "Each opens as a tab of the factory window (Command-1 to Command-5 switch between them).", [row([openSindri, openMimir]), row([openDocs, inBrowser])], in: more)
+
         workersButton = button("Start workers", #selector(startWorkers), tip: "Starts Skidbladnir, which manages disposable worker machines. It simulates them unless you configure AWS.")
-        openWorkersButton = button("Open workers", #selector(openWorkers), tip: "Opens Skidbladnir in your browser (127.0.0.1:4380).")
+        openWorkersButton = button("Open workers", #selector(openWorkers), tip: "Opens Skidbladnir in the factory window.")
         hulderButton = button("Open Hulder", #selector(openHulder), tip: "Opens Hulder, the code editor, if it was installed with the factory.")
         workersSection = section("Workers and tools", "Optional parts. Only what you installed is shown.", [row([workersButton, openWorkersButton]), row([hulderButton, NSView()])], in: more)
 
@@ -256,6 +292,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     /// Enables what can work now; a disabled control's tooltip says why.
     private func applyState() {
         let s = state
+        if stateKnown { factoryWindowController?.apply(s, busy: busy) }
         dot.textColor = s.colour
         menuStatus.title = s.headline
         statusItem.button?.title = updateAvailable ? "V •" : "V"
@@ -273,17 +310,16 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         // The highlighted button is the safe next step: open it while running, start it while stopped.
         startStop.keyEquivalent = !s.running && startStop.isEnabled ? "\r" : ""
         openHeimdallButton.keyEquivalent = s.healthy ? "\r" : ""
-        openHeimdallButton.isEnabled = s.healthy
+        openHeimdallButton.isEnabled = s.installed
+        openHeimdallButton.toolTip = s.installed ? Self.heimdallTip : "Install the factory first."
+        pageButtons.forEach { $0.isEnabled = s.installed }
         codesButton.isEnabled = s.installed
-        if !s.healthy { openHeimdallButton.toolTip = "Start the factory first." }
-        else { openHeimdallButton.toolTip = "Opens the command center in your browser. Sign in with the code from Show sign-in codes." }
 
         workersSection.isHidden = !(s.hasWorkers || s.hasHulder)
         workersButton.isHidden = !s.hasWorkers; openWorkersButton.isHidden = !s.hasWorkers
         workersButton.title = s.workersRunning ? "Workers running" : "Start workers"
         workersButton.isEnabled = s.hasWorkers && !s.workersRunning
-        openWorkersButton.isEnabled = s.workersRunning
-        openWorkersButton.toolTip = s.workersRunning ? "Opens Skidbladnir in your browser (127.0.0.1:4380)." : "Start workers first."
+        openWorkersButton.isEnabled = s.hasWorkers
         hulderButton.isHidden = !s.hasHulder
 
         installUpdateButton.isEnabled = updateAvailable && !s.pendingRecovery
@@ -300,12 +336,16 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
 
     private func refresh() {
         guard !busy else { return }
-        execute(["status"]) { ok, value, _ in
+        execute(["status"]) { ok, value, message in
             if ok, let value {
                 let next = FactoryState(value)
                 // Started or stopped elsewhere: the shown codes may no longer be valid.
                 if next.running != self.state.running { self.codesRow.isHidden = true; self.codes = [:] }
-                self.state = next
+                self.state = next; self.stateKnown = true; self.statusError = nil
+            } else {
+                let error = value?["error"] as? String ?? message.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.statusError = error.isEmpty ? "The manager did not answer." : error
+                self.factoryWindowController?.statusFailed(self.statusError!)
             }
             self.applyState()
         }
@@ -334,6 +374,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     private func act(_ args: [String], working: String) {
         guard !busy else { return }
         busy = true; controls.forEach { $0.isEnabled = false }
+        if stateKnown { factoryWindowController?.apply(state, busy: true) }
         // Codes change when the factory restarts; never leave old ones one click away.
         if args != ["access"] { codesRow.isHidden = true; codes = [:] }
         headline.stringValue = working
@@ -448,7 +489,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     @objc private func showWindow() { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true) }
     /// The Sindri and Mimir tokens live in the installed factory's data folder (owner-only files).
     private func token(_ service: String) -> String {
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Viking Factory/data/\(service)/auth-token")
+        let url = factoryRoot().appendingPathComponent("data/\(service)/auth-token")
         return (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
     @objc private func copyCode(_ sender: NSButton) {
@@ -460,8 +501,29 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     @objc private func access() { act(["access"], working: "Reading the sign-in codes…") }
     @objc private func doctor() { act(["doctor"], working: "Checking health…") }
     @objc private func startWorkers() { act(["start", "skidbladnir"], working: "Starting workers…") }
-    @objc private func openWorkers() { NSWorkspace.shared.open(URL(string: "http://127.0.0.1:4380/")!) }
-    @objc private func openHeimdall() { act(["open", "heimdall"], working: "Opening Heimdall…") }
+    private static let heimdallTip = "Opens the command center in the factory window. Sign in with the code from Show sign-in codes."
+    private var factoryWindow: FactoryWindowController {
+        if let existing = factoryWindowController { return existing }
+        let controller = FactoryWindowController()
+        controller.onStart = { [weak self] in if self?.state.running == false { self?.act(["start"], working: "Starting the factory…") } }
+        controller.onStartWorkers = { [weak self] in self?.startWorkers() }
+        controller.onShowCompanion = { [weak self] in self?.showWindow() }
+        controller.onRefresh = { [weak self] in self?.refresh() }
+        if stateKnown { controller.apply(state, busy: busy) } else if let statusError { controller.statusFailed(statusError) }
+        factoryWindowController = controller
+        return controller
+    }
+    @objc private func openFactoryWindow() { factoryWindow.present() }
+    @objc private func selectFactoryTab(_ sender: NSMenuItem) { factoryWindow.present(FactoryTab(rawValue: sender.tag)) }
+    @objc private func openHeimdall() { factoryWindow.present(.heimdall) }
+    @objc private func openSindri() { factoryWindow.present(.sindri) }
+    @objc private func openMimir() { factoryWindow.present(.mimir) }
+    @objc private func openDocs() { factoryWindow.present(.docs) }
+    @objc private func openWorkers() { factoryWindow.present(.skidbladnir) }
+    @objc private func openInBrowser(_ sender: NSPopUpButton) {
+        guard let tab = FactoryTab(rawValue: sender.selectedTag()), sender.indexOfSelectedItem > 0 else { return }
+        NSWorkspace.shared.open(FactoryPorts.load().startURL(tab))
+    }
     @objc private func openHulder() { act(["open", "hulder"], working: "Opening Hulder…") }
     @objc private func checkUpdates() { act(["update", "check", "--force"], working: "Checking for updates…") }
     @objc private func update() { confirm("Install the update?", "The manager verifies the release's signature and waits for runs to finish before replacing the factory. Your projects and history are kept, and a backup is taken first.") { self.act(["update", "apply"], working: "Installing the update…") } }

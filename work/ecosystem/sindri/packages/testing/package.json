@@ -21,10 +21,10 @@
   "devDependencies": {
     "typescript": "~6.0.3",
     "vitest": "^5.0.4",
-    "@mimir/sdk": "file:../../vendor/mimir/mimir-sdk-0.3.0.tgz"
+    "@mimir/sdk": "file:../../vendor/mimir/mimir-sdk-0.4.0.tgz"
   },
   "dependencies": {
-    "@mimir/protocol": "file:../../vendor/mimir/mimir-protocol-0.3.0.tgz",
+    "@mimir/protocol": "file:../../vendor/mimir/mimir-protocol-0.4.0.tgz",
     "zod": "^4.6.7"
   }
 }

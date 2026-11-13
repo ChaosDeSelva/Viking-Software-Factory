@@ -161,7 +161,8 @@ try {
     tasks: plan.tasks.map((t, i) => ({
       ...t,
       priority: 80 - i,
-      budget: { wallClockMinutes: 10 },
+      // Sindri keeps a token budget required while a token cap applies.
+      budget: { ...t.budget, wallClockMinutes: 10 },
     })),
   }));
   await cmd("plan.submit", plan.id);
@@ -188,7 +189,7 @@ try {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(h.url);
   await page
-    .getByRole("navigation")
+    .getByRole("banner")
     .getByRole("button", { name: "New work", exact: true })
     .click();
   await page.getByRole("button", { name: new RegExp(plan.id) }).click();

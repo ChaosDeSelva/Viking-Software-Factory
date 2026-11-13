@@ -17,6 +17,7 @@ import {
   PageHeader,
   RecordList,
   RecordRow,
+  SegmentedControl,
   Select,
   Stack,
   Stepper,
@@ -26,6 +27,8 @@ import { useHeimdall } from "../app/context";
 import { LearnMore, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { AccessCallout } from "./AccessCallout";
+import { PrReviewForm, ResearchForm, WorkKindBadge } from "./WorkForms";
+import { kindOf } from "./workKinds";
 import {
   actionBlock,
   latestVersions,
@@ -70,7 +73,8 @@ export function NewWorkPage() {
     [repo, setRepo] = useState(""),
     [project, setProject] = useState(""),
     [request, setRequest] = useState(""),
-    [title, setTitle] = useState("");
+    [title, setTitle] = useState(""),
+    [workKind, setWorkKind] = useState("change");
   const sindri: R = state?.sindri ?? {};
   // Sindri's records of the active (not archived) projects; one repository may be registered twice.
   const projects = scope.sindriProjects.filter((p) =>
@@ -191,42 +195,68 @@ export function NewWorkPage() {
                 Read project context
               </Button>
             </Cluster>
-            <Field label="Intake title">
-              <Input value={title} onChange={(e) => setTitle(e.target.value)} />
-            </Field>
-            <Field
-              label="Request"
-              hint="Drafting calls your configured model. You review and approve the specification and plan before execution."
-            >
-              <Textarea
-                value={request}
-                onChange={(e) => setRequest(e.target.value)}
-                placeholder="What should we build? Include outcomes, constraints, and how we can verify success."
-              />
-            </Field>
-            <Cluster gap={2}>
-              <Button
-                disabledReason={intakeWhy || undefined}
-                onClick={() =>
-                  propose("intake.create", "new", {
-                    projectId: project,
-                    title,
-                    body: request,
-                  })
-                }
-              >
-                Save intake
-              </Button>
-              <Button
-                variant="primary"
-                disabledReason={draftWhy || undefined}
-                onClick={() =>
-                  propose("spec.draft", "new", { projectId: project, request })
-                }
-              >
-                Draft specification
-              </Button>
-            </Cluster>
+            <SegmentedControl
+              label="Kind of work"
+              value={workKind}
+              onValueChange={setWorkKind}
+              options={[
+                { value: "change", label: "Change" },
+                { value: "research", label: "Research" },
+                { value: "pr_review", label: "Review a PR" },
+              ]}
+            />
+            {workKind === "research" && (
+              <ResearchForm key={project} projectId={project} />
+            )}
+            {workKind === "pr_review" && (
+              <PrReviewForm key={project} projectId={project} />
+            )}
+            {workKind === "change" && (
+              <>
+                <Field label="Intake title">
+                  <Input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </Field>
+                <Field
+                  label="Request"
+                  hint="Drafting calls your configured model. You review and approve the specification and plan before execution."
+                >
+                  <Textarea
+                    value={request}
+                    onChange={(e) => setRequest(e.target.value)}
+                    placeholder="What should we build? Include outcomes, constraints, and how we can verify success."
+                  />
+                </Field>
+                <Cluster gap={2}>
+                  <Button
+                    disabledReason={intakeWhy || undefined}
+                    onClick={() =>
+                      propose("intake.create", "new", {
+                        projectId: project,
+                        title,
+                        body: request,
+                      })
+                    }
+                  >
+                    Save intake
+                  </Button>
+                  <Button
+                    variant="primary"
+                    disabledReason={draftWhy || undefined}
+                    onClick={() =>
+                      propose("spec.draft", "new", {
+                        projectId: project,
+                        request,
+                      })
+                    }
+                  >
+                    Draft specification
+                  </Button>
+                </Cluster>
+              </>
+            )}
           </Stack>
         </Card>
       </CardGroup>
@@ -254,14 +284,21 @@ export function NewWorkPage() {
                         title={r.title ?? `Plan v${r.version}`}
                         meta={`${list.kind === "specs" && r.version != null ? `v${r.version} · ` : ""}${r.id}`}
                         status={
-                          statusBadge(list.kind, r) && (
-                            <Status
-                              value={statusBadge(list.kind, r)}
-                              domain={list.domain}
-                              size="sm"
-                              tooltip={false}
-                            />
-                          )
+                          <span className="flex flex-wrap items-center gap-2">
+                            {list.kind !== "specs" && (
+                              <WorkKindBadge
+                                kind={kindOf(r, sindri.plans ?? [])}
+                              />
+                            )}
+                            {statusBadge(list.kind, r) && (
+                              <Status
+                                value={statusBadge(list.kind, r)}
+                                domain={list.domain}
+                                size="sm"
+                                tooltip={false}
+                              />
+                            )}
+                          </span>
                         }
                         onClick={() => open(list.kind, r)}
                       />

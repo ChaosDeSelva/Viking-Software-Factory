@@ -12,6 +12,7 @@ describe("artifact kinds", () => {
       "screenshot",
       "local_delivery",
       "pr.created",
+      "report",
       "file",
     ]);
   });
@@ -33,9 +34,21 @@ describe("artifact kinds", () => {
     ["review", "text/markdown; charset=utf-8"],
     ["screenshot.mobile", "image/png"],
     ["pr.created", "text/plain; charset=utf-8"],
+    ["report", "text/markdown; charset=utf-8"],
     ["file", "application/octet-stream"],
     ["something-else", "application/octet-stream"],
   ])("content type of %s is %s", (kind, type) => {
     expect(artifactContentType(kind)).toBe(type);
+  });
+
+  it.each([
+    ["file", "sources.json", "application/json"],
+    ["file", "notes.txt", "application/octet-stream"],
+    ["report", "research.md", "text/markdown; charset=utf-8"],
+    ["diff", "x.json", "text/x-diff; charset=utf-8"],
+    ["review", "review.json", "application/json"],
+    ["review", "review.md", "text/markdown; charset=utf-8"],
+  ])("content type of %s named %s is %s", (kind, name, type) => {
+    expect(artifactContentType(kind, name)).toBe(type);
   });
 });

@@ -835,6 +835,7 @@ export async function fakeMimirServer(
       crewId: input.crewId ?? null,
       title: input.title,
       acceptance: (input.acceptanceCriteria ?? []).join("\n"),
+      ...(input.mode !== undefined ? { mode: input.mode } : {}),
       status: "pending",
       attempt: 0,
       maxAttempts: crew?.limits.maxAttemptsPerTask ?? DEFAULT_MAX_ATTEMPTS,
@@ -859,6 +860,7 @@ export async function fakeMimirServer(
         dependsOn: input.dependsOn ?? [],
         brief: input.brief,
         ...(input.argv !== undefined ? { argv: input.argv } : {}),
+        ...(task.mode !== undefined ? { mode: task.mode } : {}),
       },
     });
     return ok(CreateTaskResponseSchema, { task }, 201);

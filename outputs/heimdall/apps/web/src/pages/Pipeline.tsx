@@ -20,6 +20,8 @@ import type { R } from "../lib/api";
 import { navigate } from "../lib/router";
 import { isFinalExecution } from "../features/profileForm";
 import { blockedText, liveAgentOf } from "../features/scope";
+import { WorkKindBadge } from "../features/WorkForms";
+import { kindOf } from "../features/workKinds";
 import {
   deliveryTitle,
   runTitle,
@@ -89,6 +91,7 @@ export function PipelinePage() {
   const [search, setSearch] = useState("");
   const specs: R[] = state?.sindri?.specs ?? [];
   const executions: R[] = state?.sindri?.executions ?? [];
+  const plans: R[] = state?.sindri?.plans ?? [];
   const order: string[] = state?.preferences?.stages ?? DEFAULT_STAGES;
   const match = (r: R) =>
     !search || JSON.stringify(r).toLowerCase().includes(search.toLowerCase());
@@ -120,6 +123,11 @@ export function PipelinePage() {
           )}
         </span>
       ),
+    },
+    {
+      key: "kind",
+      header: "Kind",
+      cell: (e) => <WorkKindBadge kind={kindOf(e, plans)} />,
     },
     {
       key: "status",
@@ -262,6 +270,11 @@ export function PipelinePage() {
                             {title}
                           </strong>
                           <span className="flex flex-wrap items-center gap-2">
+                            {(kind === "intakes" || kind === "deliveries") && (
+                              <WorkKindBadge
+                                kind={kindOf(r, plans, executions)}
+                              />
+                            )}
                             <Status
                               value={statusBadge(kind, r)}
                               domain={kind === "tasks" ? "task" : undefined}

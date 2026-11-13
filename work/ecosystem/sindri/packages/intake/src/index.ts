@@ -2,6 +2,10 @@ export const PACKAGE_NAME = "@sindri/intake";
 
 export {
   openIntake,
+  DEFAULT_RESEARCH,
+  IntakeAlreadyImportedError,
+  MAX_REQUEST_SKILLS,
+  WORK_KINDS,
   MAX_ATTACHMENT_BYTES,
   MAX_RAW_PAYLOAD_BYTES,
   type CreateManualInput,
@@ -14,6 +18,10 @@ export {
   type IntakeSource,
   type ManualAttachmentInput,
   type OpenIntakeOptions,
+  type ResearchOptions,
+  type ResearchSources,
+  type WorkInput,
+  type WorkKind,
   type StoredSnapshot,
   type SyncState,
 } from "./intake.js";
@@ -50,5 +58,26 @@ export {
   type SecretStore,
   type WritableSecretStore,
 } from "./secrets.js";
+export {
+  DEFAULT_EXEC_MAX_BYTES,
+  DEFAULT_EXEC_TIMEOUT_MS,
+  ExecError,
+  execGhClient,
+  GH_ENV_ALLOWLIST,
+  ghEnv,
+  GitHubPrConnector,
+  githubRepoOfRemote,
+  hardenedExec,
+  parsePullRequestUrl,
+  PR_VIEW_FIELDS,
+  pullRequestMeta,
+  pullRequestOfSnapshot,
+  type ExecFn,
+  type ExecOptions,
+  type ExecResult,
+  type GhClient,
+  type PullRequestMeta,
+  type PullRequestRef,
+} from "./github.js";
 export { MAX_DISPLAY_CHARS, sanitizeForDisplay } from "./sanitize.js";
-export { INTAKE_MIGRATIONS } from "./schema.js";
+export { INTAKE_MIGRATIONS, widenIntakeSources } from "./schema.js";

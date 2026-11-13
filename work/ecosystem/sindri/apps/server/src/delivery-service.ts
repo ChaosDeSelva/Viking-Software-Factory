@@ -10,6 +10,12 @@ import {
   ReviewOrchestrator,
   type DeliveryLoop,
   type DeliveryReport,
+  type DocumentDecision,
+  type GateSpec,
+  type PlanTaskView,
+  type PlanView,
+  type PrDiffReader,
+  type RepoReader,
   type GateResult,
   type PrDelivery,
   type ReviewRecord,
@@ -31,6 +37,7 @@ import type { ExecutionHub, MimirConnection } from "./execution-hub.js";
  *   report        -> DeliveryReports.latestFor ?? build
  *   renderPrDescription -> renderPrDescription
  *   requestPr     -> DeliveryReports.requestPr (approval-gated on Mimir's side)
+ *   decide        -> DeliveryReports.decide (accept or reject a document delivery)
  *   trace         -> DeliveryTracer.trace(deliveryId)
  * Routes address a delivery by its execution id; the S6 delivery id is `report.id`.
  */
@@ -42,7 +49,34 @@ export interface DeliveryService {
   report(executionId: string): Promise<DeliveryReport>;
   renderPrDescription(report: DeliveryReport): string;
   requestPr(executionId: string): Promise<PrDelivery>;
+  /** Ends a document (research) delivery with a human decision. */
+  decide(
+    executionId: string,
+    input: { decision: DocumentDecision; actor: string; reason?: string },
+  ): Promise<DeliveryReport>;
   trace(executionId: string): Promise<TraceDocument>;
+}
+
+/**
+ * Product gates per plan task. A research plan checks its document and the fact-check's verdict;
+ * a change plan reviews implementer work and reads reviewer verdicts.
+ */
+export function gatesFor(task: PlanTaskView, plan: PlanView): GateSpec[] {
+  if (plan.work?.kind === "pr_review")
+    return task.role === "reviewer" || task.role === "security"
+      ? [{ id: "pr-review", kind: "pr-review", required: true }]
+      : [];
+  if (plan.work?.kind === "research") {
+    if (task.role === "investigator") return [{ id: "research", kind: "research", required: true }];
+    if (task.role === "reviewer")
+      return [{ id: "review-verdict", kind: "review-artifact", required: true }];
+    return [];
+  }
+  return task.role === "implementer"
+    ? [{ id: "independent-review", kind: "review", required: true }]
+    : ["reviewer", "qa", "security"].includes(task.role)
+      ? [{ id: "review-verdict", kind: "review-artifact", required: true }]
+      : [];
 }
 
 export interface S6DeliveryOptions {
@@ -54,6 +88,10 @@ export interface S6DeliveryOptions {
   provider: () => LlmProvider;
   /** Envelope sources counted as evidence. Default: Mimir's own server (`mimir.server`). */
   trustedSources?: readonly string[];
+  /** Reads project repositories to check research file citations. */
+  repo?: RepoReader;
+  /** Reads a PR review's diff from the review mirror. */
+  prDiff?: PrDiffReader;
   now?: () => Date;
 }
 
@@ -124,6 +162,15 @@ export class S6DeliveryService implements DeliveryService {
     return (await this.#connected()).reports.requestPr(executionId);
   }
 
+  async decide(
+    executionId: string,
+    input: { decision: DocumentDecision; actor: string; reason?: string },
+  ): Promise<DeliveryReport> {
+    // Stored gates and reports are enough; no Mimir call unless no report was built yet.
+    const report = this.#offline.reports.latestFor(executionId);
+    return (report ? this.#offline : await this.#connected()).reports.decide(executionId, input);
+  }
+
   async trace(executionId: string): Promise<TraceDocument> {
     const report = await this.report(executionId);
     return (await this.#connected()).tracer.trace(report.id);
@@ -156,12 +203,8 @@ export class S6DeliveryService implements DeliveryService {
       mimir,
       content,
       reviews,
-      gatesFor: (task) =>
-        task.role === "implementer"
-          ? [{ id: "independent-review", kind: "review", required: true }]
-          : ["reviewer", "qa", "security"].includes(task.role)
-            ? [{ id: "review-verdict", kind: "review-artifact", required: true }]
-            : [],
+      gatesFor,
+      ...(this.#o.repo ? { repo: this.#o.repo } : {}),
       ...now,
     });
     // Resolved per call, so provider settings changes apply to cached parts.
@@ -178,6 +221,7 @@ export class S6DeliveryService implements DeliveryService {
       provider,
       gates,
       reviews,
+      ...(this.#o.prDiff ? { prDiff: this.#o.prDiff } : {}),
       ...now,
     });
     const tracer = new DeliveryTracer({ executions, context, reports, gates, reviews });

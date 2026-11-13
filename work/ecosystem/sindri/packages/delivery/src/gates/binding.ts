@@ -139,6 +139,7 @@ export function mimirActionsFor(facade: MimirClientFacade): MimirActions {
             ? { acceptanceCriteria: [input.acceptance] }
             : {}),
           ...(input.dependsOn ? { dependsOn: input.dependsOn } : {}),
+          ...(input.mode ? { mode: input.mode } : {}),
         },
         idempotencyKey,
       );

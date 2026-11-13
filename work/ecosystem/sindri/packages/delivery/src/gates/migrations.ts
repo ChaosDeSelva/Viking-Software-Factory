@@ -226,4 +226,81 @@ export const QUALITY_MIGRATIONS: readonly string[] = [
   DROP TABLE parked_delivery_evidence;
   DROP TABLE parked_knowledge_proposals;
   `,
+  // v4: the human decision that ends a document delivery (research), which has no PR to open.
+  `
+  CREATE TABLE document_decisions (
+    execution_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    delivery_id TEXT,
+    decision TEXT NOT NULL CHECK (decision IN ('accepted', 'rejected')),
+    actor TEXT NOT NULL,
+    reason TEXT,
+    decided_at TEXT NOT NULL
+  );
+  CREATE INDEX document_decisions_project ON document_decisions(project_id);
+  `,
+  // v5: PR reviews. The operator's edits of a review are versioned drafts over the agent's
+  // review (which stays as recorded); a posted review is stored once per execution.
+  `
+  CREATE TABLE review_drafts (
+    execution_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    verdict TEXT NOT NULL CHECK (verdict IN ('comment', 'approve', 'request_changes')),
+    summary TEXT NOT NULL,
+    findings_json TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (execution_id, version)
+  );
+  CREATE INDEX review_drafts_project ON review_drafts(project_id);
+
+  CREATE TABLE review_posts (
+    execution_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    draft_version INTEGER NOT NULL,
+    review_id INTEGER NOT NULL,
+    html_url TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    posted_at TEXT NOT NULL
+  );
+  CREATE INDEX review_posts_project ON review_posts(project_id);
+  `,
+  // v6: every POST of a review is recorded before it is sent, so a review found on GitHub after a
+  // timeout is matched to the draft it came from. A post found with no matching attempt is kept
+  // as recovered, without a draft version.
+  `
+  CREATE TABLE review_post_attempts (
+    id TEXT PRIMARY KEY,
+    execution_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    draft_version INTEGER NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    started_at TEXT NOT NULL
+  );
+  CREATE INDEX review_post_attempts_execution ON review_post_attempts(execution_id);
+  CREATE INDEX review_post_attempts_project ON review_post_attempts(project_id);
+
+  CREATE TABLE review_posts_v6 (
+    execution_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    draft_version INTEGER,
+    review_id INTEGER NOT NULL,
+    html_url TEXT NOT NULL,
+    commit_id TEXT NOT NULL,
+    payload_sha256 TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    posted_at TEXT NOT NULL,
+    recovered INTEGER NOT NULL DEFAULT 0
+  );
+  INSERT INTO review_posts_v6 (execution_id, project_id, draft_version, review_id, html_url,
+    commit_id, payload_sha256, actor, posted_at)
+    SELECT execution_id, project_id, draft_version, review_id, html_url, commit_id, payload_sha256,
+      actor, posted_at FROM review_posts;
+  DROP TABLE review_posts;
+  ALTER TABLE review_posts_v6 RENAME TO review_posts;
+  CREATE INDEX review_posts_project ON review_posts(project_id);
+  `,
 ];

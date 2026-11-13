@@ -33,6 +33,7 @@ import {
   post,
   setUnauthorizedHandler,
   unauthorized,
+  type CommandHooks,
   type R,
 } from "../lib/api";
 import {
@@ -52,6 +53,7 @@ import {
 } from "../features/workflowState";
 import { sindriProjectOf } from "../features/profileForm";
 import { HeimdallContext, type Heimdall, type Session } from "./context";
+import { commandErrorText } from "../features/workKinds";
 import { CommandDialog } from "./CommandDialog";
 import { Inspector } from "./Inspector";
 import { Login } from "./Login";
@@ -162,6 +164,7 @@ export function App() {
   const toast = useRef<((t: ToastInput) => void) | null>(null);
   const rows = useRef(new Map<string, R>());
   const commandAttempt = useRef<{ payload: string; key: string } | null>(null);
+  const commandHooks = useRef<CommandHooks>({});
 
   const notify = useCallback(
     (message: string, tone: ToastInput["tone"] = "info") => {
@@ -273,8 +276,15 @@ export function App() {
     setParams({ inspect: null, task: null }, { replace: true });
 
   const propose = useCallback(
-    (action: string, id: string, body: R = {}, extra: R = {}) => {
+    (
+      action: string,
+      id: string,
+      body: R = {},
+      extra: R = {},
+      hooks: CommandHooks = {},
+    ) => {
       commandAttempt.current = null;
+      commandHooks.current = hooks;
       setCommand({ action, id, body, ...extra });
       setReason("");
       setCommandError("");
@@ -305,15 +315,24 @@ export function App() {
         headers: { "idempotency-key": commandAttempt.current.key },
         body: payload,
       });
+      const r = result.result;
+      // Confirmed: from here on nothing counts as a command failure.
+      setCommand(null);
+      commandHooks.current.onSuccess?.(r);
       notify(
         "Source confirmed the request. Current state is shown.",
         "success",
       );
-      setCommand(null);
-      setState(await api("snapshot"));
+      try {
+        setState(await api("snapshot"));
+      } catch (e) {
+        notify(
+          `The request was confirmed, but the current state could not be read (${(e as Error).message}). It updates again from the live stream.`,
+          "warning",
+        );
+      }
       // The open record may have changed even when the command returns no record of its own.
       setReloadKey((n) => n + 1);
-      const r = result.result;
       if (command.action === "project.profile")
         setProfileSaved({ id: command.id, harness: r?.harness ?? null });
       // A started run also returns its plan, so test for the run first.
@@ -329,7 +348,16 @@ export function App() {
           ...r,
         });
     } catch (e) {
-      setCommandError((e as Error).message);
+      if (commandHooks.current.onError?.(e as Error)) {
+        setCommand(null);
+        return;
+      }
+      setCommandError(commandErrorText(e as Error & R));
+      // Decided elsewhere meanwhile: show the current decision behind the dialog.
+      if ((e as R).code === "already_decided") {
+        void api("snapshot").then(setState, () => {});
+        setReloadKey((n) => n + 1);
+      }
       if ((e as R).code === "pairing_required") {
         // Sindri keeps its refusal for this key, so the attempt after pairing needs a new one.
         commandAttempt.current = null;

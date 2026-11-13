@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { newId, type ProjectId, type TaskId } from "@mimir/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TempDirs, commitFile, makeRepo, sh } from "../test/helpers.js";
-import { GitManager, OWNER_FILE, SCRATCH_DIR, type CreateWorktreeInput } from "./manager.js";
+import {
+  GitManager,
+  INPUTS_DIR,
+  OWNER_FILE,
+  SCRATCH_DIR,
+  type CreateWorktreeInput,
+} from "./manager.js";
 
 const dirs = new TempDirs();
 let repo: string;
@@ -74,7 +80,9 @@ describe("createWorktree defaults and the claim-file exclude", () => {
   it("creates info/exclude when the clone has none", async () => {
     await rm(join(repo, ".git", "info"), { recursive: true, force: true });
     await mgr.createWorktree(input());
-    expect(await readFile(join(repo, ".git", "info", "exclude"), "utf8")).toBe(`/${OWNER_FILE}\n`);
+    expect(await readFile(join(repo, ".git", "info", "exclude"), "utf8")).toBe(
+      `/${OWNER_FILE}\n/${INPUTS_DIR}/\n`,
+    );
   });
 
   it("appends to an exclude file that lacks a final newline, once", async () => {
@@ -83,8 +91,20 @@ describe("createWorktree defaults and the claim-file exclude", () => {
     await mgr.createWorktree(input());
     await mgr.createWorktree(input());
     expect(await readFile(join(repo, ".git", "info", "exclude"), "utf8")).toBe(
-      `*.log\n/${OWNER_FILE}\n`,
+      `*.log\n/${OWNER_FILE}\n/${INPUTS_DIR}/\n`,
     );
+  });
+
+  it("adds only the missing exclude lines", async () => {
+    await mkdir(join(repo, ".git", "info"), { recursive: true });
+    await writeFile(join(repo, ".git", "info", "exclude"), `/${OWNER_FILE}\n`);
+    const w = await mgr.createWorktree(input());
+    expect(await readFile(join(repo, ".git", "info", "exclude"), "utf8")).toBe(
+      `/${OWNER_FILE}\n/${INPUTS_DIR}/\n`,
+    );
+    await mkdir(join(w.path, INPUTS_DIR, "dep"), { recursive: true });
+    await writeFile(join(w.path, INPUTS_DIR, "dep", "research.md"), "# input\n");
+    expect(sh(w.path, "status", "--porcelain")).toBe("");
   });
 
   it("writes the exclude into the common dir when the project is itself a linked worktree", async () => {

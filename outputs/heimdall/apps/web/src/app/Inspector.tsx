@@ -17,7 +17,7 @@ import {
   Textarea,
   Timestamp,
 } from "@factory/ui";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useHeimdall } from "./context";
 import { Raw, Reasons, Status, label } from "../components/app";
 import { download, type R } from "../lib/api";
@@ -39,6 +39,9 @@ import {
   scopeOf,
 } from "../features/scope";
 import { PlanEditor, SpecEditor } from "../features/Workflow";
+import { PrReviewView, ResearchView } from "../features/WorkDelivery";
+import { WorkKindBadge } from "../features/WorkForms";
+import { kindOf } from "../features/workKinds";
 import {
   actionBlock,
   deliveryTitle,
@@ -358,12 +361,21 @@ export function Inspector({
     "artifact",
   ].includes(kind);
   const row: R | null = live ?? cached ?? (fetched ? { id } : null);
+  // A decision or post seen in the snapshot re-reads the report.
+  const workKey =
+    kind === "deliveries" ? JSON.stringify(live?.work ?? null) : "";
 
+  // Another record starts empty; a re-read of the same one keeps what is shown (and the views'
+  // own state, such as a typed follow-up) until the new answer arrives.
+  const shown = useRef("");
   useEffect(() => {
     let gone = false;
-    setDetails(null);
+    if (shown.current !== inspect) {
+      shown.current = inspect;
+      setDetails(null);
+      setHistory([]);
+    }
     setDetailError("");
-    setHistory([]);
     setAcknowledge(false);
     const endpoint =
       kind === "artifact"
@@ -384,7 +396,7 @@ export function Inspector({
     return () => {
       gone = true;
     };
-  }, [inspect, reloadKey]);
+  }, [inspect, reloadKey, workKey]);
   // Re-read the record after a confirmed command, without dropping the acknowledgement.
   useEffect(() => {
     setAcknowledge(false);
@@ -1316,7 +1328,38 @@ export function Inspector({
       );
   }
 
-  if (kind === "deliveries") {
+  const workKind =
+    kind === "deliveries"
+      ? (details?.report?.workKind ?? kindOf(row, s.plans ?? [], executions))
+      : undefined;
+  const workView = workKind === "research" || workKind === "pr_review";
+  if (kind === "deliveries" && workView) {
+    const report = details?.report;
+    if (report?.workKind === "research")
+      add("research", <ResearchView executionId={id} report={report} />);
+    else if (report?.workKind === "pr_review")
+      add(
+        "review",
+        <PrReviewView
+          executionId={id}
+          projectId={row.projectId ?? report.projectId}
+          report={report}
+        />,
+      );
+    else if (!detailError)
+      add(
+        "loading",
+        <p role="status" className="text-sm text-muted">
+          Reading the delivery report…
+        </p>,
+      );
+    add(
+      "raw",
+      <Raw data={details ?? row} title="Delivery report and evidence" />,
+    );
+  }
+
+  if (kind === "deliveries" && !workView) {
     const assessWhy = sindriWhy("execution.assess");
     const exportWhy = sindriWhy("execution.export", row.status);
     add(
@@ -1528,6 +1571,20 @@ export function Inspector({
         <div className="flex flex-wrap items-center gap-2">
           {status != null && (
             <Status value={status} domain={STATUS_DOMAIN[kind]} />
+          )}
+          {["deliveries", "intakes", "execution"].includes(kind) && (
+            <WorkKindBadge
+              kind={
+                kind === "deliveries"
+                  ? workKind
+                  : kind === "execution"
+                    ? kindOf(
+                        executions.find((e) => e.execution.id === id) ?? row,
+                        s.plans ?? [],
+                      )
+                    : (details?.intake?.workKind ?? row.workKind)
+              }
+            />
           )}
           {["specs", "plans"].includes(kind) && versioned.version != null ? (
             <span className="font-mono text-xs text-muted">{`v${versioned.version} · ${versioned.id}`}</span>

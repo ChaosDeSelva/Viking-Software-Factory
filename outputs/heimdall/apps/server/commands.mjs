@@ -8,6 +8,8 @@ const TIMEOUTS = {
   "plan.revise": 120000,
   // Sindri stops the background run and cancels the Mimir mission before it answers.
   "execution.cancel": 120000,
+  // Importing a pull request mirrors the repository and reads the diff with gh.
+  "intake.import": 120000,
 };
 export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
 // Accepting a recommendation of these types performs the approval, so it needs the human factor.
@@ -194,6 +196,24 @@ export function commandRoute(c) {
     // Sindri drafts a follow-up specification that builds on the delivered results.
     source = "sindri";
     path = `/v1/deliveries/${id}/rework`;
+  } else if (["research.accept", "research.reject"].includes(c.action)) {
+    // Only the dialog's audit reason is forwarded, as the decision's reason.
+    source = "sindri";
+    path = `/v1/executions/${id}/${c.action.split(".")[1]}`;
+    const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+    if (c.action === "research.reject" && !reason)
+      throw Error("A rejection reason is required");
+    for (const key of Object.keys(body)) delete body[key];
+    if (reason) body.reason = text(reason, "A reason", 2000);
+  } else if (c.action === "research.followUp") {
+    source = "sindri";
+    path = `/v1/executions/${id}/follow-up`;
+    const question = text(body.question, "A follow-up question");
+    for (const key of Object.keys(body)) delete body[key];
+    body.question = question.trim();
+  } else if (c.action === "intake.import") {
+    source = "sindri";
+    path = "/v1/intakes/import";
   } else if (c.action === "execution.resolve") {
     source = "sindri";
     if (!/^[\w.-]{1,200}$/.test(c.taskId ?? ""))

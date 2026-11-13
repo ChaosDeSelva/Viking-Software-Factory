@@ -6,8 +6,14 @@ import {
   TraceError,
 } from "@sindri/delivery";
 import { HarnessServiceError } from "@sindri/harnesses";
+import { IntakeAlreadyImportedError } from "@sindri/intake";
 import { isMimirError, MimirClientError } from "@sindri/mimir-client";
-import { PlanStateError, PlanUntrustedError, PlanValidationError } from "@sindri/planner";
+import {
+  NotSupportedYetError,
+  PlanStateError,
+  PlanUntrustedError,
+  PlanValidationError,
+} from "@sindri/planner";
 import { ApiError } from "./errors.js";
 
 /**
@@ -18,6 +24,9 @@ export function domainApiError(err: unknown): ApiError | null {
   if (err instanceof PlanValidationError)
     return new ApiError(422, "validation_failed", "plan validation failed", err.issues);
   if (err instanceof PlanStateError) return new ApiError(409, "invalid_state", err.message);
+  if (err instanceof IntakeAlreadyImportedError)
+    return new ApiError(409, "already_imported", err.message, { intakeId: err.intakeId });
+  if (err instanceof NotSupportedYetError) return new ApiError(422, "not_supported", err.message);
   if (err instanceof PlanUntrustedError)
     return new ApiError(409, "untrusted_unacknowledged", err.message);
   if (err instanceof HarnessServiceError) {
@@ -39,6 +48,9 @@ export function domainApiError(err: unknown): ApiError | null {
     );
   if (err instanceof DeliveryError) {
     if (err.code.startsWith("unknown_")) return new ApiError(404, "not_found", err.message);
+    if (err.code === "not_exportable") return new ApiError(409, "not_exportable", err.message);
+    if (err.code === "already_decided")
+      return new ApiError(409, "already_decided", err.message, err.details);
     return new ApiError(409, "invalid_state", err.message);
   }
   if (err instanceof TraceError) return new ApiError(404, "not_found", "trace not available");

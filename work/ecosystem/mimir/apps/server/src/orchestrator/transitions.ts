@@ -11,6 +11,8 @@ import type { EmitInput } from "../emit.js";
 /** What the emitted task event needs beyond the machine transition. */
 export interface TaskEventContext {
   resultCommit?: string;
+  /** `task.completed.verificationSkipped`. */
+  verificationSkipped?: "document_deliverable";
   /** Required for `task.leased` and `task.started`. */
   agentId?: string | undefined;
   /** Required for `task.started`. */
@@ -125,6 +127,7 @@ export function taskTransition(
             from,
             to: "completed",
             ...(ctx.resultCommit ? { resultCommit: ctx.resultCommit } : {}),
+            ...(ctx.verificationSkipped ? { verificationSkipped: ctx.verificationSkipped } : {}),
           },
         }),
       };

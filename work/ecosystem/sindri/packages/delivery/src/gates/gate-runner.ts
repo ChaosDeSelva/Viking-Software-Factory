@@ -26,13 +26,26 @@ import {
 } from "./evidence.js";
 import type {
   ArtifactContentReader,
+  CreateTaskInput,
   ExecutionEventView,
   ExecutionReader,
   ExecutionTaskView,
   ExecutionView,
   MimirActions,
   PlanTaskView,
+  PlanView,
+  RepoReader,
 } from "./ports.js";
+import { taskContract } from "@sindri/mimir-client";
+import { PlanSchema } from "@sindri/planner";
+import { checkPrReview, readPrReviewArtifacts } from "../review/pr-review.js";
+import {
+  baseCommitOf,
+  checkResearch,
+  lessonRefsOf,
+  RESEARCH_GATES,
+  readResearchArtifacts,
+} from "./research.js";
 
 /**
  * Product gates Sindri checks on top of Brokkr's engineering verdict. Each is satisfied only by
@@ -50,7 +63,14 @@ export type GateSpec =
   /** This review/QA task's own structured verdict, verified against its assigned criteria. */
   | { id: string; kind: "review-artifact"; required?: boolean }
   /** A fresh, completed independent review that approves and assesses every criterion. */
-  | { id: string; kind: "review"; required?: boolean };
+  | { id: string; kind: "review"; required?: boolean }
+  /**
+   * A research task's recorded document and sources (`gates/research.ts`). Reports one failure
+   * per broken rule, each under its own `research-*` gate id.
+   */
+  | { id: string; kind: "research"; required?: boolean }
+  /** A PR review task's recorded review.json and review.md (`review/pr-review.ts`). */
+  | { id: string; kind: "pr-review"; required?: boolean };
 
 /** What the review gate needs to know about the latest review of a task. */
 export interface ReviewVerdictView {
@@ -103,7 +123,9 @@ export interface GateRunnerOptions {
   mimir: MimirActions;
   content: ArtifactContentReader;
   /** Product gates per plan task. Default: none (engineering only). */
-  gatesFor?: (task: PlanTaskView) => GateSpec[];
+  gatesFor?: (task: PlanTaskView, plan: PlanView) => GateSpec[];
+  /** Reads cited files at a task's base commit (research file sources). */
+  repo?: RepoReader;
   reviews?: ReviewVerdictSource;
   /** Envelope sources accepted as evidence. Default `["mimir.server"]`. */
   trustedSources?: readonly string[];
@@ -160,6 +182,20 @@ export function repairInstruction(
     "Fix the causes below, then let Mimir re-run verification. Claims in your output do not satisfy a gate; only recorded test runs, artifacts and Brokkr's report do.",
     ...lines,
   ].join("\n");
+}
+
+/**
+ * What a repair task of `task` must keep from the original: its Mimir mode (a read-only document
+ * task stays one) and its brief, whose output contract still applies.
+ */
+export function repairContract(
+  plan: PlanView,
+  task: PlanTaskView,
+): { mode?: CreateTaskInput["mode"]; brief: string } | null {
+  // The stored plan is checked against the planner's schema, not assumed to be one.
+  const parsed = PlanSchema.safeParse(plan);
+  if (!parsed.success) return null;
+  return taskContract(parsed.data, task.id);
 }
 
 const TERMINAL_MISSION = new Set(["completed", "cancelled", "failed"]);
@@ -239,9 +275,18 @@ export class GateRunner {
     if (status === "completed") {
       const crewId = targetTask?.crewId;
       if (TERMINAL_MISSION.has(mission.status) || !crewId) return { action: "escalated", result };
+      // A repair without the original brief and mode could break the task's contract (a
+      // read-only document task given write access): a human decides instead.
+      const contract = repairContract(ctx.execution.plan, ctx.planTask);
+      if (!contract) return { action: "escalated", result, error: "repair_contract_unavailable" };
       const attempt = await this.#o.executions.claimAttempt(executionId, planTaskId);
       if (attempt > ctx.planTask.maxRetries) return { action: "exhausted", result };
-      const instruction = repairInstruction(ctx.planTask, result.failures, attempt);
+      const instruction = [
+        repairInstruction(ctx.planTask, result.failures, attempt),
+        "",
+        "The original brief of the task follows; its rules and outputs still apply.",
+        contract.brief,
+      ].join("\n");
       let repairTaskId: string;
       try {
         ({ taskId: repairTaskId } = await this.#o.mimir.createTask(
@@ -252,6 +297,7 @@ export class GateRunner {
             instruction,
             acceptance: ctx.planTask.acceptanceCriteria.join(", "),
             dependsOn: [target],
+            ...(contract.mode ? { mode: contract.mode } : {}),
           },
           `sindri:repair:${executionId}:${planTaskId}:${attempt}`,
         ));
@@ -349,9 +395,26 @@ export class GateRunner {
     const artifacts = recordedArtifacts(events, this.#trust).filter((a) => lineage.has(a.taskId));
     const failures: GateFailure[] = [];
     const advisories: GateFailure[] = [];
-    const engineering = await this.#engineering(ctx, events, failures);
+    // A document delivery changes no code, so there is no Brokkr verification to require.
+    const kind = ctx.execution.plan.work?.kind ?? "change";
+    const engineering =
+      kind === "research" || kind === "pr_review"
+        ? null
+        : await this.#engineering(ctx, events, failures);
 
-    for (const gate of this.#o.gatesFor?.(ctx.planTask) ?? []) {
+    for (const gate of this.#o.gatesFor?.(ctx.planTask, ctx.execution.plan) ?? []) {
+      if (gate.kind === "research") {
+        const found = await this.#research(ctx, events, artifacts);
+        (gate.required === false ? advisories : failures).push(...found);
+        continue;
+      }
+      if (gate.kind === "pr-review") {
+        // `artifacts` holds this task lineage's own records only.
+        const read = await readPrReviewArtifacts(this.#o.mimir, this.#o.content, artifacts);
+        const found = checkPrReview(read);
+        (gate.required === false ? advisories : failures).push(...found);
+        continue;
+      }
       const failure = await this.#product(gate, ctx, events, artifacts, engineering?.report);
       if (!failure) continue;
       (gate.required === false ? advisories : failures).push(failure);
@@ -495,8 +558,30 @@ export class GateRunner {
     return { report: parsed.value, reportArtifactId: ref };
   }
 
+  async #research(
+    ctx: Context,
+    events: ExecutionEventView[],
+    artifacts: RecordedArtifact[],
+  ): Promise<GateFailure[]> {
+    const research = ctx.execution.plan.work?.research;
+    if (!research) return [{ gateId: RESEARCH_GATES.document, reason: "not_a_research_plan" }];
+    const read = await readResearchArtifacts(this.#o.mimir, this.#o.content, artifacts);
+    const base = baseCommitOf(events, new Set(ctx.lineage), this.#trust);
+    const repo = this.#o.repo;
+    const projectId = ctx.execution.plan.projectId;
+    const check = await checkResearch({
+      artifacts: read,
+      allowed: research.sources,
+      lessonRefs: lessonRefsOf(ctx.planTask.lessonContext),
+      ...(repo && base
+        ? { lineCount: (path: string) => repo.lineCount(projectId, base, path) }
+        : {}),
+    });
+    return [...read.unreadable, ...check.failures];
+  }
+
   async #product(
-    gate: GateSpec,
+    gate: Exclude<GateSpec, { kind: "research" } | { kind: "pr-review" }>,
     ctx: Context,
     events: ExecutionEventView[],
     artifacts: RecordedArtifact[],

@@ -146,6 +146,12 @@ export class ReadModel {
   readonly budgets = new Map<string, BudgetPolicy>();
   readonly artifacts = new Map<string, Artifact>();
   readonly artifactBytes = new Map<string, number>();
+  /** `artifact.recorded.name` of collected files (picks the served content type). */
+  readonly artifactNames = new Map<string, string>();
+  /** Artifact ids per task recorded since its latest `task.verifying` (its latest attempt). */
+  private readonly attemptArtifacts = new Map<string, string[]>();
+  /** `task.failed.reason` of each task's latest failure, until its next verification. */
+  private readonly failureReasons = new Map<string, string>();
   readonly approvalMeta = new Map<string, ApprovalMeta>();
   /** `task.created` brief/argv per task (what the dispatched session runs). */
   private readonly taskSpecs = new Map<string, { brief?: string; argv?: string[] }>();
@@ -200,6 +206,18 @@ export class ReadModel {
    */
   verificationFailure(taskId: string): readonly FailedCheck[] {
     return this.failedChecks.get(taskId) ?? [];
+  }
+
+  /** Why the task's latest attempt failed (`task.failed.reason`), until it is verified again. */
+  failureReason(taskId: string): string | undefined {
+    return this.failureReasons.get(taskId);
+  }
+
+  /** Artifacts recorded by the task's latest attempt (for a completed task: the completing one). */
+  latestAttemptArtifacts(taskId: string): Artifact[] {
+    return (this.attemptArtifacts.get(taskId) ?? [])
+      .map((id) => this.artifacts.get(id))
+      .filter((a): a is Artifact => a !== undefined);
   }
 
   /** Applies one event. Never throws; returns false when the event was skipped. */
@@ -312,6 +330,10 @@ export class ReadModel {
           version: 0,
         });
         if (pl.bytes !== undefined) this.artifactBytes.set(pl.artifactId, pl.bytes);
+        if (pl.name !== undefined) this.artifactNames.set(pl.artifactId, pl.name);
+        const ids = this.attemptArtifacts.get(pl.taskId) ?? [];
+        ids.push(pl.artifactId);
+        this.attemptArtifacts.set(pl.taskId, ids);
         return;
       }
       case "mission.created": {
@@ -360,6 +382,7 @@ export class ReadModel {
           ...(pl.priority !== undefined ? { priority: pl.priority } : {}),
           ...(pl.verification !== undefined ? { verification: pl.verification } : {}),
           ...(pl.timeoutMs !== undefined ? { timeoutMs: pl.timeoutMs } : {}),
+          ...(pl.mode !== undefined ? { mode: pl.mode } : {}),
           acceptance: pl.acceptance,
           status: "pending",
           attempt: 0,
@@ -393,8 +416,13 @@ export class ReadModel {
       case "task.failed":
       case "task.retried": {
         // A new verification (or a pass) replaces what the previous one reported.
-        if ((type === "task.verifying" || type === "task.completed") && event.taskId)
+        if ((type === "task.verifying" || type === "task.completed") && event.taskId) {
           this.failedChecks.delete(event.taskId);
+          this.failureReasons.delete(event.taskId);
+        }
+        if (type === "task.verifying" && event.taskId) this.attemptArtifacts.delete(event.taskId);
+        if (type === "task.failed" && event.taskId)
+          this.failureReasons.set(event.taskId, (p as EventPayloadMap["task.failed"]).reason);
         this.applyTask(event, type, p);
         return;
       }
@@ -552,7 +580,10 @@ export class ReadModel {
       if (pl.from === "verifying") patch.attempt = t.attempt + 1;
       this.upsertAgent(t, pl.agentId, pl.sessionId, at);
     } else if (type === "task.failed") {
-      patch.attempt = (p as EventPayloadMap["task.failed"]).attempt;
+      const pl = p as EventPayloadMap["task.failed"];
+      patch.attempt = pl.attempt;
+      // Not retryable: no attempts left (also when the attempt failed permanently).
+      if (!pl.retryable) patch.maxAttempts = Math.min(t.maxAttempts, pl.attempt + 1);
     } else if (type === "task.retried") {
       Object.assign(patch, {
         attempt: (p as EventPayloadMap["task.retried"]).attempt,

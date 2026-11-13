@@ -15,6 +15,60 @@ export interface PlanTaskView {
   harnessLockDigest: string;
   role: string;
   maxRetries: number;
+  /** Lessons the planner gave the task (`fg:<id>`); a research document may cite these. */
+  lessonContext?: { id: string; title: string; text: string }[];
+}
+
+/** Where a research task may look (see `@sindri/planner` `ResearchPlan`). */
+export interface ResearchSourcesView {
+  code: boolean;
+  feedbackGraph: boolean;
+  web: boolean;
+}
+
+/** `@sindri/planner` `PlanWork`; absent on plans from before work kinds (code changes). */
+export interface PlanWorkView {
+  kind: "change" | "research" | "pr_review";
+  research?: { sources: ResearchSourcesView; factCheck: boolean; question?: string };
+  prReview?: PrReviewView;
+}
+
+/** `@sindri/planner` `PrReviewPlan`: the pull request a PR review reviews. */
+export interface PrReviewView {
+  owner: string;
+  repo: string;
+  number: number;
+  url: string;
+  title: string;
+  body: string;
+  author: string | null;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  isCrossRepository: boolean;
+  files: string[];
+  filesOmitted: number;
+  nonce: string;
+}
+
+/** The pull request's diff, read from Sindri's review mirror (never the operator's checkout). */
+export interface PrDiffReader {
+  /**
+   * `git diff --unified=0 <base>...<head>` in the mirror: the change against the merge base, as
+   * GitHub shows a pull request, so LEFT-side lines are lines of the merge base.
+   */
+  diff(projectId: string, pr: PrReviewView): Promise<{ diff: string; mergeBaseSha: string }>;
+}
+
+/** `@sindri/knowledge` `GuidanceSnapshot`, as stored in the plan. */
+export interface GuidanceView {
+  skills: { id: string; name: string; digest: string; content: string }[];
+  omitted: { id: string; name: string; digest: string }[];
+  projectNotes: string;
+  requestNotes: string;
+  projectNotesDigest: string | null;
+  requestNotesDigest: string | null;
 }
 
 export interface PlanView {
@@ -25,6 +79,8 @@ export interface PlanView {
   specVersion: number;
   version: number;
   tasks: PlanTaskView[];
+  work?: PlanWorkView;
+  guidance?: GuidanceView;
 }
 
 export interface ExecutionView {
@@ -104,6 +160,8 @@ export interface CreateTaskInput {
   instruction: string;
   acceptance?: string;
   dependsOn?: string[];
+  /** Mimir `TaskInput.mode`; a repair task carries the mode of the task it repairs. */
+  mode?: { deliverable: "diff" | "document"; access: "write" | "read"; network: "none" | "web" };
 }
 
 export interface PrRequestInput {
@@ -160,6 +218,15 @@ export interface IntakeView {
   externalId: string | null;
   externalUrl: string | null;
   title: string;
+}
+
+/** Read-only access to the project's repository, for checking cited file sources. */
+export interface RepoReader {
+  /**
+   * Line count of `path` at `commit` in the project's repository; `null` when the path does not
+   * exist there (or is not a file).
+   */
+  lineCount(projectId: string, commit: string, path: string): Promise<number | null>;
 }
 
 export interface ContextReader {

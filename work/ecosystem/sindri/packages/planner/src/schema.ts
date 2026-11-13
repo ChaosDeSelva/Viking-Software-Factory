@@ -90,6 +90,92 @@ export const EstimatesSchema = z.object({
 });
 export type Estimates = z.infer<typeof EstimatesSchema>;
 
+/** What a plan delivers; the intake's work kind decides the skeleton. */
+export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export type PlanWorkKind = (typeof WORK_KINDS)[number];
+
+export const MAX_RESEARCH_QUESTION_CHARS = 8000;
+/** The earlier document a follow-up question carries as context, at most this long. */
+export const MAX_FOLLOW_UP_CONTEXT_CHARS = 24_000;
+export const CONTEXT_TRUNCATED_MARKER = "\n[earlier document truncated]";
+
+export const ResearchPlanSchema = z
+  .object({
+    sources: z.object({ code: z.boolean(), feedbackGraph: z.boolean(), web: z.boolean() }).strict(),
+    factCheck: z.boolean(),
+    /** The request as asked (title and body, secrets redacted), for the research brief. */
+    question: z.string().max(MAX_RESEARCH_QUESTION_CHARS).optional(),
+    /** A follow-up's earlier document (secrets redacted, cut with a marker), loaded at planning. */
+    context: z
+      .object({
+        executionId: z.string().min(1),
+        document: z.string().max(MAX_FOLLOW_UP_CONTEXT_CHARS + 64),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
+
+const ShaSchema = z.string().regex(/^[0-9a-f]{40}$/);
+
+/** Changed paths a PR review plan keeps: GitHub lists at most 3000 (the rest are counted). */
+export const MAX_PR_REVIEW_FILES = 3000;
+export const MAX_PR_BODY_CHARS = 16_000;
+
+/**
+ * The pull request a PR review plan reviews, pinned to its base and head commits. `title` and
+ * `body` are untrusted PR text (secrets redacted); the brief wraps them in data delimiters with
+ * `nonce`.
+ */
+export const PrReviewPlanSchema = z
+  .object({
+    owner: z.string().min(1).max(100),
+    repo: z.string().min(1).max(100),
+    number: z.number().int().positive(),
+    url: z.string().url().max(300),
+    title: z.string().max(1000),
+    body: z.string().max(MAX_PR_BODY_CHARS),
+    author: z.string().max(100).nullable(),
+    baseRef: z.string().max(255),
+    headRef: z.string().max(255),
+    baseSha: ShaSchema,
+    headSha: ShaSchema,
+    isCrossRepository: z.boolean(),
+    files: z.array(z.string().max(1000)).max(MAX_PR_REVIEW_FILES),
+    filesOmitted: z.number().int().nonnegative(),
+    nonce: z.string().regex(/^[0-9a-z]{6,64}$/i),
+  })
+  .strict();
+export type PrReviewPlan = z.infer<typeof PrReviewPlanSchema>;
+
+export const PlanWorkSchema = z
+  .object({
+    kind: z.enum(WORK_KINDS),
+    research: ResearchPlanSchema.optional(),
+    prReview: PrReviewPlanSchema.optional(),
+  })
+  .strict();
+export type PlanWork = z.infer<typeof PlanWorkSchema>;
+
+const DigestSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
+/** Operator guidance as planned (see `@sindri/knowledge` `GuidanceSnapshot`). */
+export const GuidanceSnapshotSchema = z
+  .object({
+    skills: z.array(
+      z
+        .object({ id: z.string(), name: z.string(), digest: DigestSchema, content: z.string() })
+        .strict(),
+    ),
+    omitted: z.array(z.object({ id: z.string(), name: z.string(), digest: DigestSchema }).strict()),
+    projectNotes: z.string(),
+    requestNotes: z.string(),
+    projectNotesDigest: DigestSchema.nullable(),
+    requestNotesDigest: DigestSchema.nullable(),
+  })
+  .strict();
+
 export const PlanSchema = z.object({
   id: z.string().min(1),
   projectId: z.string().min(1),
@@ -103,6 +189,10 @@ export const PlanSchema = z.object({
   /** Set when untrusted planner input (lessons) held an injection; sticky across revisions. */
   untrustedInstructionDetected: z.boolean().optional(),
   injectionFindings: z.array(z.object({ source: z.string(), patternId: z.string() })).optional(),
+  /** Absent on plans from before work kinds: those are code changes. */
+  work: PlanWorkSchema.optional(),
+  /** The operator guidance every brief of this plan carries. */
+  guidance: GuidanceSnapshotSchema.optional(),
   approvedBy: z.string().nullable(),
   approvedAt: z.string().nullable(),
   createdAt: z.string(),

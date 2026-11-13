@@ -11,10 +11,12 @@ import { executionRoutes } from "./routes/executions.js";
 import { feedbackGraphRoutes } from "./routes/feedback-graph.js";
 import type { DocsSource } from "@sindri/director";
 import { GUIDE_CLIENT_HEADER, guideRoutes } from "./routes/guide.js";
+import { guidanceRoutes } from "./routes/guidance.js";
 import { harnessRoutes } from "./routes/harnesses.js";
 import { intakeRoutes } from "./routes/intakes.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
 import { planRoutes } from "./routes/plans.js";
+import { prReviewRoutes } from "./routes/pr-reviews.js";
 import { REDACTED_RECEIPT_BODY, receiptKey } from "./idempotency.js";
 import { approvalRoutes, NO_IDEMPOTENCY, REDACTED_RECEIPT } from "./routes/approvals.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -243,6 +245,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   intakeRoutes(app, services);
   specRoutes(app, services, approvals);
   knowledgeRoutes(app, services);
+  guidanceRoutes(app, services);
   feedbackGraphRoutes(app, services);
   const factory = createFactory(
     {
@@ -274,6 +277,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   });
   app.addHook("preClose", async () => factory.close());
   deliveryRoutes(app, services, factory.hub, factory.delivery, approvals, factory);
+  prReviewRoutes(app, services, factory.hub, factory.delivery, approvals, factory);
   settingsRoutes(app, services, {
     approvals,
     beforePurge: async (projectId) => {
@@ -282,6 +286,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
       await factory.hub.cancelMissions(t.missionIds, "project data deleted in Sindri");
     },
     afterChange: () => factory.settingsChanged(),
+    removeReviewMirror: (projectId) => factory.reviewMirror.remove(projectId),
     version: opts.version ?? SERVER_VERSION,
     ...(opts.dataDir ? { dataDir: opts.dataDir } : {}),
   });

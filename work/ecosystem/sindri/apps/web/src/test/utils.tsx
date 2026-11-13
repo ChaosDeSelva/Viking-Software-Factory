@@ -4,6 +4,7 @@ import { vi, type Mock } from "vitest";
 import type { ApiClient } from "../api/client.js";
 import { DELIVERY_METHOD_NAMES } from "../api/delivery-client.js";
 import { STEWARD_METHOD_NAMES } from "../api/steward-client.js";
+import { WORK_METHOD_NAMES } from "../api/work-client.js";
 import type { Project } from "../api/types.js";
 import { SindriLinks } from "../components/Layout.js";
 import { AppProviders } from "../store/context.js";
@@ -58,6 +59,7 @@ export function mockApi(over: Partial<Record<keyof ApiClient, unknown>> = {}): M
     "forgetApproval",
     ...DELIVERY_METHOD_NAMES,
     ...STEWARD_METHOD_NAMES,
+    ...WORK_METHOD_NAMES,
   ];
   const api = {} as MockApi;
   for (const n of names) {

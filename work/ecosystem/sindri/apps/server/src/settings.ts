@@ -83,6 +83,11 @@ export const SettingsSchema = z.strictObject({
         })
         .optional(),
       linear: z.strictObject({ apiKeySecret: SecretKey }).optional(),
+      /**
+       * GitHub pull requests through the operator's own `gh` login (no token is stored). Absent:
+       * on when `gh` is installed.
+       */
+      github: z.strictObject({ enabled: z.boolean() }).optional(),
     })
     .optional(),
   /** Read-only lessons from a local Feedback Graph (docs/feedback-graph.md). */

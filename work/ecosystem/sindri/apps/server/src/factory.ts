@@ -8,6 +8,8 @@ import {
 import { ensureDeliverySchema, ensureQualitySchema, type PermissionPolicy } from "@sindri/delivery";
 import { applyMigrations } from "@sindri/knowledge";
 import { openPlanner, type Planner } from "@sindri/planner";
+import { gitRepoReader } from "./repo-reader.js";
+import { ReviewMirror, type ReviewMirrorService } from "./review-mirror.js";
 import { S6DeliveryService, type DeliveryService } from "./delivery-service.js";
 import { ExecutionHub } from "./execution-hub.js";
 import { brokkrHome } from "./execution-profile.js";
@@ -32,6 +34,8 @@ export interface FactoryOptions {
   onWarn?: (msg: string, fields?: Record<string, unknown>) => void;
   /** Background delivery-run failures (the server logs them). */
   onRunError?: (executionId: string, err: unknown) => void;
+  /** The PR review mirror (tests). Default: clones under `<dataDir>/review-mirrors`. */
+  reviewMirror?: ReviewMirrorService;
   /** Startup resume retries this often while a configured Mimir is unreachable. Default 5 s. */
   resumeRetryMs?: number;
 }
@@ -55,6 +59,8 @@ export interface Factory {
   /** Mimir connection, background delivery runs and the notice fan-out. */
   hub: ExecutionHub;
   delivery: DeliveryService;
+  /** Factory-owned clones PR reviews run in. */
+  reviewMirror: ReviewMirrorService;
   /**
    * Startup: resume every non-final execution and assess verified ones that were never
    * assessed at their current settle point. Needs a configured Mimir; never throws. While the
@@ -170,6 +176,7 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
     if (providerCache?.key !== key) providerCache = { key, provider: build(st) };
     return providerCache.provider;
   };
+  const reviewMirror = o.reviewMirror ?? new ReviewMirror({ db: s.db, dataDir: s.dataDir, now });
   const delivery: DeliveryService =
     o.deliveryService ??
     new S6DeliveryService({
@@ -179,6 +186,8 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
       intake: () => s.intake(),
       provider,
       ...(o.trustedSources ? { trustedSources: o.trustedSources } : {}),
+      repo: gitRepoReader((id) => s.knowledge.projects.get(id)?.repoPath),
+      prDiff: reviewMirror,
       now,
     });
   backfillAssessmentClaims(s.db);
@@ -224,6 +233,7 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
     planner,
     hub,
     delivery,
+    reviewMirror,
     resume,
     settingsChanged,
     close() {

@@ -10,6 +10,9 @@ import type { Factory } from "../factory.js";
 import { eventSeq, eventsAfter, executionsByProject, projectOfExecution } from "../queries.js";
 import type { Services } from "../services.js";
 import { FINAL_STATUSES } from "../statuses.js";
+import { MirrorError } from "../review-mirror.js";
+import { pullRequestOfSnapshot } from "@sindri/intake";
+import type { Plan } from "@sindri/planner";
 
 const Create = z.strictObject({ planId: z.string().min(1).max(200) });
 const Decide = z.strictObject({
@@ -98,6 +101,59 @@ export function executionRoutes(
     };
   };
 
+  /**
+   * Starts a PR review: the plan runs on the pull request as it is now (a re-import refreshes the
+   * intake's PR facts; the run keeps them in its stored plan), in the project's review mirror,
+   * registered with Mimir as a hidden project, with the mission pinned to the PR's head commit.
+   */
+  const runPrReview = async (plan: Plan, project: { repoPath: string }): Promise<string> => {
+    if (s.settings.get().localOnly)
+      throw new ApiError(503, "local_only", "local-only mode is on: PR reviews need GitHub");
+    const spec = s.specs.get(plan.specId);
+    const intake = spec?.intakeId ? s.intake().get(spec.intakeId) : undefined;
+    // The run reviews exactly what was approved: the plan's PR facts and text. A PR re-imported
+    // with new commits since needs a new plan (and its approval), never a silent swap.
+    const pr = plan.work!.prReview!;
+    const current = intake ? pullRequestOfSnapshot(intake.snapshot.raw) : null;
+    if (current && current.headRefOid !== pr.headSha)
+      throw new ApiError(
+        409,
+        "pr_changed_since_plan",
+        "the pull request has new commits since this plan was approved; draft and approve a new plan to review them",
+        { planHead: pr.headSha, currentHead: current.headRefOid },
+      );
+    let mirror;
+    try {
+      mirror = await f.reviewMirror.prepare(plan.projectId, pr);
+    } catch (err) {
+      const reason = err instanceof MirrorError ? err.reason : "error";
+      throw new ApiError(
+        502,
+        "mirror_failed",
+        `could not prepare the review copy of ${pr.owner}/${pr.repo} (${reason}); check gh auth status`,
+        { reason },
+      );
+    }
+    const conn = await hub.connection();
+    try {
+      const mimirProject = await conn.facade.ensureProject(
+        mirror.path,
+        {},
+        { name: `review: ${pr.owner}/${pr.repo}`, profileOf: project.repoPath },
+      );
+      if (mirror.mimirProjectId !== mimirProject.id)
+        f.reviewMirror.setMimirProject(plan.projectId, mimirProject.id);
+      const execution = await conn.loop.createExecution(plan, {
+        projectId: mimirProject.id,
+        baseCommits: [pr.headSha],
+      });
+      await hub.ensureRunning(execution.id);
+      return execution.id;
+    } catch (err) {
+      throw asMimirUnavailable(err);
+    }
+  };
+
   app.post("/v1/executions", async (req, reply) => {
     const body = parseBody(Create, req.body);
     const plan = f.planner.get(body.planId);
@@ -114,6 +170,8 @@ export function executionRoutes(
       );
     const project = s.knowledge.projects.get(plan.projectId);
     if (!project) throw notFound("project");
+    if (plan.work?.kind === "pr_review")
+      return reply.code(201).send(view(await runPrReview(plan, project)));
     const conn = await hub.connection();
     try {
       const mimirProject = await conn.facade.ensureProject(project.repoPath);

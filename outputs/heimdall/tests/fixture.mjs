@@ -1,4 +1,39 @@
 import { createServer } from "node:http";
+/** Like Sindri's deliveries list: `workKind` and the `work` summary, built from the stored report. */
+function listFields(row, report) {
+  if (!report || row.work || !["research", "pr_review"].includes(report.workKind)) return row;
+  const gates = (passed) => (passed.every((p) => p === true) ? true : passed.some((p) => p === false) ? false : null);
+  if (report.workKind === "research") {
+    const r = report.research;
+    return {
+      ...row,
+      workKind: "research",
+      work: {
+        title: r.question ?? null,
+        decision: r.decision?.decision ?? null,
+        posted: false,
+        postedUrl: null,
+        verdict: null,
+        prUrl: null,
+        gatePassed: gates([r.gate?.passed ?? null, ...(r.factCheck ? [r.factCheck.gatePassed ?? null] : [])]),
+      },
+    };
+  }
+  const r = report.review;
+  return {
+    ...row,
+    workKind: "pr_review",
+    work: {
+      title: r.pr?.title ?? null,
+      decision: null,
+      posted: !!r.posted,
+      postedUrl: r.posted?.htmlUrl ?? null,
+      verdict: r.draft?.verdict ?? null,
+      prUrl: r.pr?.url ?? null,
+      gatePassed: gates([r.gatePassed ?? null]),
+    },
+  };
+}
 export async function fixture() {
   const now = new Date().toISOString(),
     common = { createdAt: now, updatedAt: now, version: 1 };
@@ -162,9 +197,9 @@ export async function fixture() {
     if (listed)
       return res.end(
         JSON.stringify({
-          [listed[1]]: (flow?.[listed[1]] ?? []).filter(
-            (r) => r.projectId === decodeURIComponent(listed[2]),
-          ),
+          [listed[1]]: (flow?.[listed[1]] ?? [])
+            .filter((r) => r.projectId === decodeURIComponent(listed[2]))
+            .map((r) => (listed[1] === "deliveries" ? listFields(r, api.work?.reports?.[r.id]) : r)),
         }),
       );
     if (req.url.startsWith("/v1/executions?"))
@@ -195,6 +230,27 @@ export async function fixture() {
       seen.body = b;
       if (await api.intercept?.(req, res, b)) return;
       return autonomy(req, res, b ? JSON.parse(b) : {});
+    }
+    // Work kinds are opt-in: tests assign `work` to serve skills, guidance, research and PR
+    // review reports, and to answer imports and document decisions.
+    const work = api.work;
+    if (work && req.method === "GET") {
+      if (req.url === "/v1/skills") return res.end(JSON.stringify({ skills: work.skills ?? [] }));
+      const guidance = /^\/v1\/projects\/([\w-]+)\/guidance$/.exec(req.url);
+      if (guidance)
+        return res.end(
+          JSON.stringify({
+            guidance: work.guidance?.[guidance[1]] ?? { projectId: guidance[1], notes: "", defaultSkillIds: [], updatedAt: null },
+          }),
+        );
+      const preview = /^\/v1\/executions\/([\w-]+)\/review\/preview$/.exec(req.url);
+      if (preview && work.previews?.[preview[1]])
+        return res.end(JSON.stringify(work.previews[preview[1]]));
+      const report = /^\/v1\/deliveries\/([\w-]+)$/.exec(req.url);
+      // `reportHook(id, res)` may delay or fail a report read; true means it answered.
+      if (report && work.reports?.[report[1]] && (await work.reportHook?.(report[1], res))) return;
+      if (report && work.reports?.[report[1]])
+        return res.end(JSON.stringify({ deliveryService: "fixture", report: work.reports[report[1]], prDescription: "" }));
     }
     const profile = /^\/v1\/projects\/([\w-]+)\/profile$/.exec(req.url);
     if (profile && req.method === "GET")
@@ -271,6 +327,61 @@ export async function fixture() {
       seen.body = b;
       // Tests set `intercept` to answer a command themselves (slow, failing or refused).
       if (await api.intercept?.(req, res, b)) return;
+      if (work) {
+        const input = JSON.parse(b || "{}");
+        const answer = (status, value) => {
+          res.writeHead(status);
+          res.end(JSON.stringify(value));
+        };
+        if (req.url === "/v1/intakes/import") {
+          if (!input.projectId && work.importCandidates)
+            return answer(422, {
+              error: {
+                code: "project_required",
+                message: "no registered project has octo/widgets as a git remote; choose the project",
+                details: { repo: "octo/widgets", candidates: work.importCandidates },
+              },
+            });
+          const intake = {
+            id: "int_pr" + String((work.imported = (work.imported ?? 0) + 1)),
+            projectId: input.projectId ?? "prj_demo",
+            title: "Review " + input.url,
+            body: "",
+            workKind: input.workKind,
+          };
+          flow?.intakes.push(intake);
+          return answer(201, { intake });
+        }
+        const decide = /^\/v1\/executions\/([\w-]+)\/(accept|reject|follow-up)$/.exec(req.url);
+        const report = decide && work.reports?.[decide[1]];
+        if (report) {
+          if (decide[2] === "follow-up") {
+            const intake = {
+              id: "int_follow" + decide[1],
+              projectId: report.projectId ?? "prj_demo",
+              title: input.question,
+              body: "",
+              workKind: "research",
+              linkedExecutionId: decide[1],
+            };
+            flow?.intakes.push(intake);
+            return answer(201, { intake });
+          }
+          if (req.headers["x-sindri-approval"] !== "sindri-human-secret")
+            return answer(403, { error: { code: "approval_required", message: "approvals need a valid approval secret" } });
+          if (report.research.decision)
+            return answer(409, {
+              error: { code: "already_decided", message: "this document was already decided", details: { decision: report.research.decision } },
+            });
+          report.research.decision = {
+            decision: decide[2] === "accept" ? "accepted" : "rejected",
+            actor: "web",
+            reason: input.reason ?? null,
+            decidedAt: new Date().toISOString(),
+          };
+          return answer(200, { report });
+        }
+      }
       if (req.url === "/v1/approval-session") {
         if (JSON.parse(b).pairingCode !== "sindri-code") {
           res.writeHead(403);
@@ -377,7 +488,13 @@ export async function fixture() {
         if (req.url === "/v1/intakes") {
           if (!String(input.title ?? "").trim())
             return refuse(422, "validation_failed", "title is required");
-          const intake = { id: "int_new" + n(), projectId: input.projectId, title: input.title, body: input.body };
+          const intake = {
+            id: "int_new" + n(),
+            projectId: input.projectId,
+            title: input.title,
+            body: input.body,
+            ...(input.workKind ? { workKind: input.workKind } : {}),
+          };
           flow.intakes.push(intake);
           return created({ intake });
         }
@@ -609,6 +726,8 @@ export async function fixture() {
     feedbackGraph: null,
     intercept: null,
     workflow: null,
+    // `{ skills, guidance, reports, previews, importCandidates }` keyed by project or execution ID.
+    work: null,
     // Execution profiles by Sindri project ID, as saved through PUT.
     profiles: {},
     // Mimir's `/v1/attention` items, and crew budgets as changed through PATCH, by crew ID.
@@ -652,4 +771,125 @@ export async function fixture() {
     },
   };
   return api;
+}
+
+/**
+ * Research, PR review and unknown-kind records for `prj_demo`: plans, deliveries, an intake, and
+ * the `work` routes (skills, guidance, reports, review preview, a PR import that asks for the
+ * project). Adds to `source.workflow`, or starts one.
+ */
+export function installWorkKinds(source) {
+  const flow = (source.workflow ??= {
+    projects: [{ id: "prj_demo", name: "Invoice library", repoPath: "/example/invoice" }],
+    specs: [],
+    plans: [],
+    intakes: [],
+    deliveries: [],
+  });
+  const plan = (id, kind) => ({
+    id,
+    projectId: "prj_demo",
+    lineageId: "lp_" + id,
+    version: 1,
+    status: "approved",
+    title: "Plan for " + kind,
+    work: { kind },
+    tasks: [],
+  });
+  flow.plans.push(plan("pln_res", "research"), plan("pln_rev", "pr_review"), plan("pln_odd", "audit"));
+  const delivery = (id, planId) => ({ id, executionId: id, projectId: "prj_demo", planId, status: "verified_pending_review" });
+  flow.deliveries.push(
+    delivery("exe_research", "pln_res"),
+    delivery("exe_review", "pln_rev"),
+    delivery("exe_odd", "pln_odd"),
+  );
+  flow.intakes.push({ id: "int_odd", projectId: "prj_demo", title: "Mystery intake", body: "", workKind: "audit" });
+  source.work = {
+    skills: [
+      { id: "sk_sec", name: "Security review", description: "Look for injection and secrets" },
+      { id: "sk_style", name: "House style", description: "" },
+    ],
+    guidance: {
+      prj_demo: { projectId: "prj_demo", notes: "", defaultSkillIds: ["sk_sec"], updatedAt: null },
+      sp_ledger: { projectId: "sp_ledger", notes: "", defaultSkillIds: ["sk_style"], updatedAt: null },
+    },
+    reports: {
+      exe_research: {
+        workKind: "research",
+        projectId: "prj_demo",
+        guidance: {
+          skills: [{ id: "sk_sec", name: "Security review", digest: "sha256:abcdef0123456789" }],
+          projectNotesDigest: null,
+          requestNotes: "Be brief",
+          requestNotesDigest: "sha256:1234567890abcdef",
+        },
+        research: {
+          question: "Why do totals drift?",
+          sourcesAllowed: { code: true, feedbackGraph: true, web: false },
+          planTaskId: "research",
+          document: {
+            markdown:
+              "## Answer\n\nRounding happens per line [1][2].\n\n## Findings\n\nFloats are used for money [1, 2].\n\n## Open questions\n\nNone.\n\n## Sources\n\n1. src/total.ts:4\n2. lesson-7\n",
+            artifactId: "art_doc",
+          },
+          sources: [
+            { id: "1", kind: "file", ref: "src/total.ts:4" },
+            { id: "2", kind: "lesson", ref: "lesson-7", title: "Never use floats for money", private: true },
+          ],
+          sourcesArtifactId: "art_src",
+          containsPrivateSources: true,
+          gate: { passed: true, failures: [] },
+          factCheck: {
+            planTaskId: "fact-check",
+            verdict: "approve",
+            findings: [{ id: "fc1", severity: "minor", message: "Line 4 rounds, not line 5", file: "src/total.ts", line: 4 }],
+            reviewArtifactId: null,
+            gatePassed: true,
+          },
+          decision: null,
+        },
+      },
+      exe_review: {
+        workKind: "pr_review",
+        projectId: "prj_demo",
+        review: {
+          pr: { owner: "octo", repo: "widgets", number: 7, url: "https://github.com/octo/widgets/pull/7", title: "Add totals cache", baseSha: "b0", headSha: "h0" },
+          verdict: "request_changes",
+          summary: "The agent's summary",
+          markdown: null,
+          findings: [],
+          draft: {
+            version: 2,
+            verdict: "comment",
+            summary: "The cache is unbounded.",
+            findings: [
+              { id: "f1", severity: "major", message: "Cache never evicts entries", file: "src/cache.ts", line: 10, placement: "inline", included: true },
+              { id: "f2", severity: "nit", message: "Rename the helper", placement: "general", included: false },
+            ],
+          },
+          posted: null,
+          gatePassed: true,
+          gateFailures: [],
+          hunksAvailable: true,
+        },
+      },
+      exe_odd: { workKind: "audit", projectId: "prj_demo" },
+    },
+    previews: {
+      exe_review: {
+        draftVersion: 2,
+        leakCheck: { ok: false, rule: "private_tooling", findingId: "f1", field: "message" },
+        gatesPassed: true,
+        posted: null,
+        canPost: false,
+        blockers: ["post_blocked"],
+        payload: { event: "COMMENT", body: "The cache is unbounded.", comments: [] },
+      },
+    },
+    importCandidates: [
+      { id: "prj_demo", name: "Invoice library" },
+      { id: "sp_ledger", name: "Ledger app" },
+    ],
+  };
+  return source.work;
 }

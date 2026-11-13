@@ -11,6 +11,7 @@ import {
   CrewMemberSchema,
   CrewSchema,
   ProjectSchema,
+  TaskModeSchema,
   UsageSampleSchema,
 } from "./entities.js";
 import { MimirError } from "./errors.js";
@@ -168,6 +169,7 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     brief: z.string().optional(),
     /** Explicit argv replacing the role template. */
     argv: z.array(z.string()).min(1).optional(),
+    mode: TaskModeSchema.optional(),
   }),
   "task.ready": taskTransition("ready", {}),
   "task.leased": taskTransition("leased", {
@@ -178,7 +180,11 @@ export const EVENT_PAYLOAD_SCHEMAS = {
   "task.started": taskTransition("running", { agentId: AgentIdSchema, sessionId: SessionIdSchema }),
   "task.blocked": taskTransition("blocked", { reason: z.string() }),
   "task.verifying": taskTransition("verifying", {}),
-  "task.completed": taskTransition("completed", { resultCommit: GitShaSchema.optional() }),
+  "task.completed": taskTransition("completed", {
+    resultCommit: GitShaSchema.optional(),
+    /** Why no verifier ran (`document_deliverable`). Absent when the task was verified. */
+    verificationSkipped: z.literal("document_deliverable").optional(),
+  }),
   "task.failed": taskTransition("failed", {
     reason: z.string(),
     attempt: z.number().int().min(0),
@@ -198,6 +204,19 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     crewId: CrewIdSchema,
     taskId: TaskIdSchema,
     workspaceLabel: z.string(),
+    /**
+     * Completed dependencies' reports, `sources.json` and `review.json` copied (from the stored,
+     * redacted artifacts) into the worktree under `.mimir/inputs/<dir>/` before the session.
+     */
+    inputs: z
+      .array(
+        z.object({
+          dependencyTaskId: TaskIdSchema,
+          dir: z.string().min(1),
+          files: z.array(z.string().min(1)),
+        }),
+      )
+      .optional(),
   }),
   "session.started": z.object({ runtime: z.string(), runtimeRef: RuntimeRefSchema }),
   "session.state_changed": z.object({

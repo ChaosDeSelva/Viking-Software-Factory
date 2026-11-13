@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { INTAKE_MIGRATIONS, openIntake, type Intake, type IntakeRecord } from "@sindri/intake";
+import {
+  INTAKE_MIGRATIONS,
+  openIntake,
+  type Intake,
+  type IntakeRecord,
+  type WorkKind,
+} from "@sindri/intake";
 import {
   SindriError,
   type SindriErrorCode,
@@ -159,6 +165,13 @@ export interface DirectorSpecMeta {
    * and from the drafted text before it was stored.
    */
   secretsRedacted: number;
+  /** The work kind the intake asked for when the spec was drafted. */
+  workKind?: WorkKind;
+  /**
+   * Set when the classifier saw an investigation in a request filed as a code change. Only a
+   * suggestion for the operator: the stored kind never changes on its own.
+   */
+  suggestedWorkKind?: "research";
 }
 
 export interface DraftSpecInput {
@@ -835,6 +848,10 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
         runId: run.id,
         answers: [],
         secretsRedacted,
+        workKind: rec.workKind,
+        ...(classification.kind === "investigation" && rec.workKind === "change"
+          ? { suggestedWorkKind: "research" as const }
+          : {}),
       };
       let spec: Specification;
       try {

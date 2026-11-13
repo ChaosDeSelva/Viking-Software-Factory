@@ -1,6 +1,6 @@
 import { assertSecretHandle, resolveSecret, type SecretSource } from "./secrets.js";
 
-export type ConnectorKind = "jira" | "linear";
+export type ConnectorKind = "jira" | "linear" | "github";
 
 export interface IssueRef {
   source: ConnectorKind;

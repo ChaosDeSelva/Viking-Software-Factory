@@ -5,10 +5,13 @@ import {
   type FeedbackGraphService,
 } from "@sindri/feedback-graph";
 import {
+  execGhClient,
+  GitHubPrConnector,
   JiraConnector,
   LinearConnector,
   openIntake,
   type Connector,
+  type GhClient,
   type Intake,
   type SecretStore,
 } from "@sindri/intake";
@@ -43,6 +46,8 @@ export interface ServiceOptions {
   now?: () => Date;
   /** Fetch used for Feedback Graph (tests). */
   feedbackGraphFetch?: typeof globalThis.fetch;
+  /** The `gh` client for pull requests (tests). Default: the real `gh` under a hardened env. */
+  ghClient?: GhClient;
 }
 
 export interface Services {
@@ -62,12 +67,22 @@ export interface Services {
   director(): Director;
   /** Read-only Feedback Graph lessons per project (docs/feedback-graph.md). */
   feedbackGraph: FeedbackGraphService;
+  /** The operator's `gh` (pull request reads and, after approval, posting a review). */
+  gh: GhClient;
 }
 
-/** Connectors built from settings; credentials are SecretStore handles resolved per request. */
-export function connectorsFromSettings(settings: Settings, secrets?: SecretStore): Connector[] {
+/**
+ * Connectors built from settings; credentials are SecretStore handles resolved per request. The
+ * GitHub connector needs no credential (it uses `gh`'s own login) and is on unless turned off.
+ */
+export function connectorsFromSettings(
+  settings: Settings,
+  secrets?: SecretStore,
+  gh?: GhClient,
+): Connector[] {
   const out: Connector[] = [];
   const c = settings.connectors;
+  if (gh && c?.github?.enabled !== false) out.push(new GitHubPrConnector(gh));
   if (!secrets || !c) return out;
   if (c.jira)
     out.push(
@@ -112,8 +127,9 @@ export function createServices(o: ServiceOptions): Services {
         },
         o.secrets ? { secrets: o.secrets } : {},
       ));
+  const gh = o.ghClient ?? execGhClient();
   const connectorFactory =
-    o.connectorFactory ?? ((st: Settings) => connectorsFromSettings(st, o.secrets));
+    o.connectorFactory ?? ((st: Settings) => connectorsFromSettings(st, o.secrets, gh));
 
   const workspaceFor = (
     project: { id: string; repoPath: string },
@@ -156,6 +172,7 @@ export function createServices(o: ServiceOptions): Services {
     dataDir: o.dataDir ?? null,
     planningWorkspace: workspaceFor,
     feedbackGraph,
+    gh,
     intake() {
       const st = settings.get();
       const key = JSON.stringify(st.connectors ?? {});

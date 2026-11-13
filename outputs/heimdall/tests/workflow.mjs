@@ -2,7 +2,7 @@
 import { chromium } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { startHeimdall } from "../apps/server/main.mjs";
-import { fixture } from "./fixture.mjs";
+import { fixture, installWorkKinds } from "./fixture.mjs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -711,6 +711,222 @@ try {
   await page.getByText("Sindri reaches Feedback Graph at http://127.0.0.1:8787.").first().waitFor();
   await nav("Pipeline");
 
+  console.log("Work kinds: badges and unknown kinds");
+  const qualityTab = page
+    .getByRole("navigation", { name: "Project pages", exact: true })
+    .getByRole("link", { name: /^Quality & approvals/ });
+  const tabCount = async () => Number((await qualityTab.innerText()).match(/\d+/)?.[0] ?? 0);
+  const countBefore = await tabCount();
+  installWorkKinds(source);
+  // The fact-check reported no gate result: the checks have not passed.
+  source.work.reports.exe_research.research.factCheck.gatePassed = null;
+  // A second document, to accept.
+  source.workflow.deliveries.push({ id: "exe_taxes", executionId: "exe_taxes", projectId: "prj_demo", planId: "pln_res", status: "verified_pending_review" });
+  source.work.reports.exe_taxes = structuredClone(source.work.reports.exe_research);
+  source.work.reports.exe_taxes.research.question = "How are taxes rounded?";
+  source.work.reports.exe_taxes.research.factCheck.gatePassed = true;
+  await app.hub.refresh();
+  await nav("Pipeline");
+  const deliveryCard = (name) => stage("Delivery").getByRole("button", { name });
+  await deliveryCard(/Why do totals drift\?/).waitFor();
+  assert.match(await deliveryCard(/Why do totals drift\?/).innerText(), /Research/);
+  assert.match(await deliveryCard(/Add totals cache/).innerText(), /PR review/);
+  assert.match(await deliveryCard(/exe_odd/).innerText(), /Kind:\s*Other/);
+  assert.match(await stage("Intake").getByRole("button", { name: /Mystery intake/ }).innerText(), /Kind:\s*Other/);
+  assert.match(await stage("Intake").getByRole("button", { name: /Customer request/ }).innerText(), /Kind:\s*Change/);
+  // An unknown kind keeps the code-change delivery view.
+  await deliveryCard(/exe_odd/).click();
+  await inspector.getByRole("button", { name: "Reassess quality gates" }).waitFor();
+  assert.equal(await inspector.getByRole("region", { name: "Research document" }).count(), 0);
+  await closeInspector();
+
+  console.log("Work kinds: Quality lists documents and reviews");
+  await nav("Quality & approvals");
+  const documents = page.getByRole("table", { name: "Documents and reviews" });
+  await documents.getByRole("row", { name: /Why do totals drift\?/ }).waitFor();
+  await documents.getByRole("row", { name: /Add totals cache/ }).waitFor();
+  assert.equal(await documents.getByRole("row", { name: /audit/i }).count(), 0);
+  await documents.getByRole("row", { name: /Why do totals drift\?/ }).getByText("Reject or ask a follow-up (checks failed)").waitFor();
+  await documents.getByRole("row", { name: /How are taxes rounded\?/ }).getByText("Accept or reject", { exact: true }).waitFor();
+  // The tab counts the three documents and reviews with the other decisions.
+  await until(async () => (await tabCount()) === countBefore + 3, "the Quality tab count");
+  await documents.getByRole("row", { name: /Why do totals drift\?/ }).click();
+
+  console.log("Work kinds: research document");
+  const researchDoc = inspector.getByRole("region", { name: "Research document" });
+  await researchDoc.waitFor();
+  await inspector.getByText("Contains private lessons").waitFor();
+  await researchDoc.getByText("Rounding happens per line").waitFor();
+  await researchDoc.getByText("Never use floats for money").waitFor();
+  await inspector.getByRole("table", { name: "Fact-check findings" }).getByText("Line 4 rounds, not line 5").waitFor();
+  await inspector.getByRole("region", { name: "Guidance used" }).getByText("Security review").waitFor();
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: app.url });
+  await inspector.getByRole("button", { name: "Copy as Markdown" }).click();
+  await page.getByText("Copied the document without private lessons.").first().waitFor();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  assert.match(copied, /Rounding happens per line \[1\]\./);
+  assert.match(copied, /Floats are used for money \[1\]\./);
+  assert.doesNotMatch(copied, /\[2\]|lesson-7|## Sources/);
+  const acceptDoc = inspector.getByRole("button", { name: "Accept document" });
+  assert.match(await reasonOf(acceptDoc), /quality checks have not passed/);
+  // A re-read after the summary changed keeps the open view and what was typed in it.
+  await inspector.getByText("Ask a follow-up question", { exact: true }).click();
+  const followUp = inspector.getByRole("button", { name: "Review follow-up" });
+  assert.match(await reasonOf(followUp), /Ask a question first/);
+  await inspector.getByLabel("Follow-up question").fill("Draft follow-up");
+  source.work.reports.exe_research.research.factCheck.gatePassed = true;
+  source.workflow.deliveries.find((d) => d.id === "exe_research").updatedAt = new Date().toISOString();
+  await app.hub.refresh();
+  await until(async () => !(await unavailable(acceptDoc)), "accept to become available");
+  assert.equal(await inspector.getByLabel("Follow-up question").inputValue(), "Draft follow-up");
+  const axeDoc = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  assert.deepEqual(axeDoc.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "research document");
+  // A rejection carries the reason the dialog asks for.
+  await inspector.getByRole("button", { name: "Reject document" }).click();
+  assert.equal(await unavailable(commandDialog.getByRole("button", { name: "Send to source" })), true);
+  await send("Wrong module");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/executions/exe_research/reject"), { reason: "Wrong module" });
+  assert.equal(
+    source.requests.findLast((r) => r.path === "/v1/executions/exe_research/reject").headers["x-sindri-approval"],
+    "sindri-human-secret",
+  );
+  await inspector.getByText("Rejected", { exact: true }).waitFor();
+  assert.equal(await unavailable(acceptDoc), true);
+  assert.match(await reasonOf(acceptDoc), /already rejected/);
+  await inspector.getByLabel("Follow-up question").fill("What about refunds?");
+  await followUp.click();
+  await send("Need refunds too");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/executions/exe_research/follow-up"), { question: "What about refunds?" });
+  await inspector.getByRole("heading", { name: "What about refunds?" }).waitFor();
+  await closeInspector();
+  await documents.getByRole("row", { name: /Why do totals drift\?/ }).waitFor({ state: "detached" });
+
+  await documents.getByRole("row", { name: /How are taxes rounded\?/ }).click();
+  await inspector.getByRole("button", { name: "Accept document" }).click();
+  await send("Reads right");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/executions/exe_taxes/accept"), { reason: "Reads right" });
+  await inspector.getByText("Accepted", { exact: true }).waitFor();
+  await closeInspector();
+  await documents.getByRole("row", { name: /How are taxes rounded\?/ }).waitFor({ state: "detached" });
+
+  console.log("Work kinds: PR review");
+  await documents.getByRole("row", { name: /Add totals cache/ }).click();
+  const prLink = inspector.getByRole("link", { name: /octo\/widgets#7 · Add totals cache/ });
+  await prLink.waitFor();
+  assert.equal(await prLink.getAttribute("href"), "https://github.com/octo/widgets/pull/7");
+  assert.equal(await prLink.getAttribute("target"), "_blank");
+  await inspector.getByText("1 included · 1 excluded").waitFor();
+  await inspector.getByRole("table", { name: "Included findings" }).getByText("Cache never evicts entries").waitFor();
+  await inspector.getByRole("table", { name: "Excluded findings" }).getByText("Rename the helper").waitFor();
+  await inspector.getByText("Posting is blocked").waitFor();
+  await inspector.getByText("private_tooling").waitFor();
+  const edit = inspector.getByRole("link", { name: /Edit and post in Sindri/ });
+  assert.equal(await edit.getAttribute("href"), "http://127.0.0.1:4310/#/deliveries?project=prj_demo&delivery=exe_review");
+  assert.equal(await inspector.getByRole("button", { name: /post/i }).count(), 0, "Heimdall never posts a review");
+  const axeReview = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  assert.deepEqual(axeReview.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "PR review");
+  // Posted in Sindri: the next snapshot shows it here.
+  const posted = "https://github.com/octo/widgets/pull/7#pullrequestreview-9";
+  source.work.reports.exe_review.review.posted = { htmlUrl: posted, postedAt: new Date().toISOString() };
+  source.work.previews.exe_review = { ...source.work.previews.exe_review, posted: { htmlUrl: posted }, blockers: ["already_posted"] };
+  await app.hub.refresh();
+  await inspector.getByRole("link", { name: /Open the posted review/ }).waitFor();
+  assert.equal(await inspector.getByRole("link", { name: /Open the posted review/ }).getAttribute("href"), posted);
+  await closeInspector();
+  await documents.getByRole("row", { name: /Add totals cache/ }).waitFor({ state: "detached" });
+
+  console.log("Work kinds: research form");
+  await nav("New work");
+  const kinds = page.getByRole("radiogroup", { name: "Kind of work" });
+  await kinds.getByRole("radio", { name: "Research" }).click();
+  const ask = page.getByRole("button", { name: "Review research question" });
+  assert.match(await reasonOf(ask), /Ask a question first/);
+  const lessons = page.getByRole("checkbox", { name: "Lessons from your feedback history" });
+  await page.waitForFunction(() => document.querySelector("#research-src-lessons")?.checked === true);
+  assert.equal(await page.getByRole("checkbox", { name: "Project code" }).isChecked(), true);
+  assert.equal(await page.getByRole("checkbox", { name: "Web" }).isChecked(), false);
+  assert.equal(await page.getByRole("switch", { name: "Fact-check the document" }).getAttribute("aria-checked"), "true");
+  await page.getByLabel("Question", { exact: true }).fill("Why do refunds round?");
+  await page.getByRole("checkbox", { name: "Project code" }).uncheck();
+  assert.equal(await unavailable(ask), false, "lessons alone are a source");
+  await lessons.uncheck();
+  assert.match(await reasonOf(ask), /Pick at least one source/);
+  await page.getByRole("checkbox", { name: "Web" }).check();
+  await page.getByRole("switch", { name: "Fact-check the document" }).click();
+  await page.getByLabel("Notes (optional)").fill("Keep it short");
+  await page.getByRole("checkbox", { name: /House style/ }).check();
+  const axeResearch = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  assert.deepEqual(axeResearch.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "research form");
+  // The snapshot read after a confirmed command fails: a warning, not a command error.
+  await page.route("**/api/snapshot", (route) =>
+    route.fulfill({ status: 500, contentType: "application/json", body: '{"message":"Snapshot unavailable"}' }),
+    { times: 1 },
+  );
+  await ask.click();
+  await send("Customer question");
+  await confirmed();
+  await page.getByText(/The request was confirmed, but the current state could not be read \(Snapshot unavailable\)/).first().waitFor();
+  assert.deepEqual(lastPost("/v1/intakes"), {
+    projectId: "prj_demo",
+    title: "Why do refunds round?",
+    body: "",
+    workKind: "research",
+    research: { sources: { code: false, feedbackGraph: false, web: true }, factCheck: false },
+    notes: "Keep it short",
+    skillIds: ["sk_style"],
+  });
+  await closeInspector();
+  assert.equal(await page.getByLabel("Question", { exact: true }).inputValue(), "", "the form clears once sent");
+  // A project without a lessons link offers no lessons source, and says why.
+  await page.getByRole("combobox", { name: "Project", exact: true }).click();
+  await page.getByRole("option", { name: "Ledger app" }).click();
+  await page.getByText("This project is not linked to a lessons source.").waitFor();
+  assert.equal(await lessons.isDisabled(), true);
+  assert.equal(await lessons.isChecked(), false);
+  await page.getByRole("combobox", { name: "Project", exact: true }).click();
+  await page.getByRole("option", { name: "Invoice library" }).click();
+
+  console.log("Work kinds: PR review form");
+  await kinds.getByRole("radio", { name: "Review a PR" }).click();
+  // The project's default review skills are selected to start with.
+  await page.waitForFunction(() => document.querySelector("#pr-skills-sk_sec")?.checked === true);
+  const importPr = page.getByRole("button", { name: "Review pull request import" });
+  assert.match(await reasonOf(importPr), /Paste a pull request URL first/);
+  await page.getByLabel("Pull request URL").fill("https://github.com/octo/widgets/issues/7");
+  await page.getByText("This is not a GitHub pull request URL.").waitFor();
+  assert.match(await reasonOf(importPr), /github\.com pull request URL/);
+  await page.getByLabel("Pull request URL").fill("https://github.com/octo/widgets/pull/7");
+  await page.getByLabel("Notes (optional)").fill("Watch the cache");
+  await importPr.click();
+  await send("Review before merge");
+  // Sindri cannot tell the project: the dialog closes and the form asks.
+  await commandDialog.waitFor({ state: "hidden" });
+  await page.getByText("Which project is this pull request for?").waitFor();
+  const importFor = page.getByRole("button", { name: "Review import for this project" });
+  assert.match(await reasonOf(importFor), /Choose the project first/);
+  const axePr = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  assert.deepEqual(axePr.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "PR review form");
+  await page.getByRole("combobox", { name: "Project for this pull request" }).click();
+  await page.getByRole("option", { name: "Ledger app" }).click();
+  // The chosen project's default skills replace the ones the operator did not change.
+  await page.waitForFunction(() => document.querySelector("#pr-skills-sk_style")?.checked === true);
+  assert.equal(await page.getByRole("checkbox", { name: /Security review/ }).isChecked(), false);
+  await importFor.click();
+  await send("Review before merge");
+  await confirmed();
+  assert.deepEqual(lastPost("/v1/intakes/import"), {
+    url: "https://github.com/octo/widgets/pull/7",
+    workKind: "pr_review",
+    projectId: "sp_ledger",
+    notes: "Watch the cache",
+    skillIds: ["sk_style"],
+  });
+  await closeInspector();
+  await nav("Pipeline");
+
   console.log("Project filter survives the ID change");
   const picker = page.getByRole("banner").getByRole("button", { name: /^Project:/ });
   await picker.click();
@@ -749,7 +965,7 @@ try {
   await page.getByLabel("Access token", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, Autonomy (all) (modes, pause) and Autonomy decision log (accept with edit, note, reject, refused and allowed rollback, global note, filters), Feedback Graph link and status, stable project filter, session expiry and session loss.",
+    "PASS: latest versions, received intake, cancelled tasks, gated controls with reasons, inline questions, timeout resend, retained details, stale pairing, run start, exact patch downloads, execution profile, escalations of ended runs, run cancel, intake to cancelled run, blank intake draft, delivery change request, Autonomy (all) (modes, pause) and Autonomy decision log (accept with edit, note, reject, refused and allowed rollback, global note, filters), Feedback Graph link and status, work kinds (badges, Other for unknown kinds, documents and reviews on Quality, research accept/reject/follow-up and copy without private lessons, read-only PR review with leak check and Sindri link, live posted state, research and PR review forms with validation and project_required), stable project filter, session expiry and session loss.",
   );
 } finally {
   await browser.close();

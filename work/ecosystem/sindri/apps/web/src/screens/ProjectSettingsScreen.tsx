@@ -6,6 +6,7 @@ import { Badge, Button, Empty, Field, inputClass, ScreenHeader, Card } from "../
 import { useApi, useReportError, useStore } from "../store/context.js";
 import { ExecutionProfileCard } from "./ExecutionProfileCard.js";
 import { FeedbackGraphCard } from "./FeedbackGraphCard.js";
+import { GuidanceCard } from "./GuidanceCard.js";
 import { ExplainForm, RepositorySignals } from "./HarnessesScreen.js";
 import { BootstrapSummary } from "./ProjectsScreen.js";
 
@@ -67,6 +68,11 @@ export function ProjectSettingsScreen() {
             value: "feedback-graph",
             label: "Feedback Graph",
             content: <FeedbackGraphCard key={project.id} project={project} />,
+          },
+          {
+            value: "guidance",
+            label: "Guidance",
+            content: <GuidanceCard key={project.id} project={project} />,
           },
           {
             value: "repository",

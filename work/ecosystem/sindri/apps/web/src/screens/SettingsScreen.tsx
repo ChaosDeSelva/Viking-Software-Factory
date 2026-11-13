@@ -1,9 +1,10 @@
-import { Callout, InfoHint, Page, Stack, StickyActionBar } from "@factory/ui";
+import { Callout, InfoHint, Page, Stack, StickyActionBar, Tabs } from "@factory/ui";
 import { useEffect, useRef, useState } from "react";
 import type { Settings } from "../api/types.js";
 import { Button, Field, LoadState, ScreenHeader, inputClass, Card } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 import { MimirConnection } from "./MimirConnection.js";
+import { SkillsLibrary } from "./SkillsLibrary.js";
 
 export function SettingsScreen() {
   const api = useApi();
@@ -12,6 +13,7 @@ export function SettingsScreen() {
   const loaded = useLoad(() => api.getSettings(), []);
   const [form, setForm] = useState<Settings | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("general");
   // The settings the form was last filled from: a live refresh replaces the form only while it
   // still equals them, so unsaved edits survive.
   const seeded = useRef<Settings | null>(null);
@@ -35,6 +37,17 @@ export function SettingsScreen() {
     }
   };
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
+  const general = (
+    <SettingsGeneral
+      loaded={loaded}
+      form={form}
+      setForm={setForm}
+      busy={busy}
+      run={run}
+      seeded={seeded}
+      notify={notify}
+    />
+  );
 
   return (
     <Page>
@@ -42,235 +55,260 @@ export function SettingsScreen() {
         screen="settings"
         title="Settings"
         global
-        description="Machine-wide settings: the model provider, the agents that do the work, and the Mimir, Brokkr and Feedback Graph connections. Per-project settings are on the Project settings tab."
+        description="Machine-wide settings: the model provider, the agents that do the work, the Mimir, Brokkr and Feedback Graph connections, and the skills library. Per-project settings are on the Project settings tab."
       />
-      <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-        <LoadState state={loaded.state} what="settings" onRetry={loaded.reload}>
-          {({ tokenLocation }) =>
-            form ? (
-              <form
-                aria-label="Settings"
-                className="flex min-w-0 flex-col gap-group"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  void run(async () => {
-                    const clean: Settings = { ...form };
-                    if (!clean.mimirUrl) delete clean.mimirUrl;
-                    if (!clean.apiKeySecret) delete clean.apiKeySecret;
-                    if (!clean.mimirTokenSecret) delete clean.mimirTokenSecret;
-                    // An untouched, empty Feedback Graph section is left out rather than saved.
-                    const fg = clean.feedbackGraph;
-                    if (fg && !fg.url.trim() && !fg.tokenSecret.trim() && !fg.enabled)
-                      delete clean.feedbackGraph;
-                    const saved = await api.putSettings(clean);
-                    seeded.current = saved;
-                    setForm(saved);
-                    notify("Settings saved");
-                  });
-                }}
+      <Tabs
+        label="Settings sections"
+        value={tab}
+        onValueChange={setTab}
+        items={[
+          {
+            value: "general",
+            label: "General",
+            content: general,
+          },
+          { value: "skills", label: "Skills", content: <SkillsLibrary /> },
+        ]}
+      />
+    </Page>
+  );
+}
+
+function SettingsGeneral(props: {
+  loaded: ReturnType<typeof useLoad<{ settings: Settings; tokenLocation: string | null }>>;
+  form: Settings | null;
+  setForm: (f: Settings) => void;
+  busy: boolean;
+  run: (fn: () => Promise<void>) => Promise<void>;
+  seeded: { current: Settings | null };
+  notify: (text: string) => void;
+}) {
+  const api = useApi();
+  const { dispatch } = useStore();
+  const { loaded, form, setForm, busy, run, seeded, notify } = props;
+  return (
+    <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+      <LoadState state={loaded.state} what="settings" onRetry={loaded.reload}>
+        {({ tokenLocation }) =>
+          form ? (
+            <form
+              aria-label="Settings"
+              className="flex min-w-0 flex-col gap-group"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void run(async () => {
+                  const clean: Settings = { ...form };
+                  if (!clean.mimirUrl) delete clean.mimirUrl;
+                  if (!clean.apiKeySecret) delete clean.apiKeySecret;
+                  if (!clean.mimirTokenSecret) delete clean.mimirTokenSecret;
+                  // An untouched, empty Feedback Graph section is left out rather than saved.
+                  const fg = clean.feedbackGraph;
+                  if (fg && !fg.url.trim() && !fg.tokenSecret.trim() && !fg.enabled)
+                    delete clean.feedbackGraph;
+                  const saved = await api.putSettings(clean);
+                  seeded.current = saved;
+                  setForm(saved);
+                  notify("Settings saved");
+                });
+              }}
+            >
+              <Card
+                title="Model provider"
+                description="The model the Director, planner, steward and Guide use."
               >
-                <Card
-                  title="Model provider"
-                  description="The model the Director, planner, steward and Guide use."
-                >
-                  <div className="flex flex-col gap-field">
-                    <Field label="LLM provider" id="s-provider" term="Local factory">
+                <div className="flex flex-col gap-field">
+                  <Field label="LLM provider" id="s-provider" term="Local factory">
+                    <select
+                      id="s-provider"
+                      className={inputClass}
+                      value={form.provider}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          provider: e.target.value as Settings["provider"],
+                          ...(e.target.value.endsWith("-cli") ? { model: "default" } : {}),
+                        })
+                      }
+                    >
+                      <option value="codex-cli">Codex (existing login)</option>
+                      <option value="claude-cli">Claude Code (existing login)</option>
+                      <option value="anthropic">Anthropic API</option>
+                      <option value="fake">Fake (tests)</option>
+                      <option value="null">None (Director disabled)</option>
+                    </select>
+                  </Field>
+                  {form.provider === "anthropic" ? (
+                    <Callout tone="warning">
+                      Requests, ticket text and repository excerpts will leave this machine and go
+                      to Anthropic.
+                      {form.localOnly ? " Turn off local-only mode to use a remote provider." : ""}
+                    </Callout>
+                  ) : null}
+                  {form.provider.endsWith("-cli") ? (
+                    <p className="text-xs text-muted">
+                      Uses your installed CLI login. Planning context is sent to its model provider.
+                      Set model to default to use the CLI default; turn offline mode off to enable
+                      model calls.
+                    </p>
+                  ) : null}
+                  <Field label="Model" id="s-model">
+                    <input
+                      id="s-model"
+                      className={inputClass}
+                      value={form.model}
+                      onChange={(e) => setForm({ ...form, model: e.target.value })}
+                    />
+                  </Field>
+                  <Field
+                    label="API key secret name"
+                    id="s-key"
+                    hint="The name of a SecretStore entry (for example anthropic.api-key), never the key itself."
+                  >
+                    <input
+                      id="s-key"
+                      aria-describedby="s-key-hint"
+                      className={inputClass}
+                      value={form.apiKeySecret ?? ""}
+                      onChange={(e) => setForm({ ...form, apiKeySecret: e.target.value })}
+                    />
+                  </Field>
+                  <CheckField
+                    id="s-local"
+                    label="Offline mode"
+                    term="Local-only mode"
+                    checked={form.localOnly}
+                    onChange={(localOnly) => setForm({ ...form, localOnly })}
+                    hint="Blocks model-provider calls and external imports. Keep this off to use Codex or Claude with their cloud models; the factory itself still runs locally."
+                  />
+                </div>
+              </Card>
+              <Card
+                title="Agents"
+                term="Agent kind"
+                description="Which coding agent implements tasks, and which reviews and tests them."
+              >
+                <div className="grid gap-field sm:grid-cols-2">
+                  {(["workerAgent", "reviewerAgent"] as const).map((key) => (
+                    <Field
+                      key={key}
+                      label={key === "workerAgent" ? "Implementation agent" : "Review and QA agent"}
+                      id={`s-${key}`}
+                    >
                       <select
-                        id="s-provider"
+                        id={`s-${key}`}
                         className={inputClass}
-                        value={form.provider}
-                        onChange={(e) =>
-                          setForm({
-                            ...form,
-                            provider: e.target.value as Settings["provider"],
-                            ...(e.target.value.endsWith("-cli") ? { model: "default" } : {}),
-                          })
-                        }
+                        value={form[key] ?? "claude"}
+                        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                       >
-                        <option value="codex-cli">Codex (existing login)</option>
-                        <option value="claude-cli">Claude Code (existing login)</option>
-                        <option value="anthropic">Anthropic API</option>
-                        <option value="fake">Fake (tests)</option>
-                        <option value="null">None (Director disabled)</option>
+                        {AGENTS.map(([value, text]) => (
+                          <option key={value} value={value}>
+                            {text}
+                          </option>
+                        ))}
                       </select>
                     </Field>
-                    {form.provider === "anthropic" ? (
-                      <Callout tone="warning">
-                        Requests, ticket text and repository excerpts will leave this machine and go
-                        to Anthropic.
-                        {form.localOnly
-                          ? " Turn off local-only mode to use a remote provider."
-                          : ""}
-                      </Callout>
-                    ) : null}
-                    {form.provider.endsWith("-cli") ? (
-                      <p className="text-xs text-muted">
-                        Uses your installed CLI login. Planning context is sent to its model
-                        provider. Set model to default to use the CLI default; turn offline mode off
-                        to enable model calls.
-                      </p>
-                    ) : null}
-                    <Field label="Model" id="s-model">
-                      <input
-                        id="s-model"
-                        className={inputClass}
-                        value={form.model}
-                        onChange={(e) => setForm({ ...form, model: e.target.value })}
-                      />
-                    </Field>
-                    <Field
-                      label="API key secret name"
-                      id="s-key"
-                      hint="The name of a SecretStore entry (for example anthropic.api-key), never the key itself."
-                    >
-                      <input
-                        id="s-key"
-                        aria-describedby="s-key-hint"
-                        className={inputClass}
-                        value={form.apiKeySecret ?? ""}
-                        onChange={(e) => setForm({ ...form, apiKeySecret: e.target.value })}
-                      />
-                    </Field>
-                    <CheckField
-                      id="s-local"
-                      label="Offline mode"
-                      term="Local-only mode"
-                      checked={form.localOnly}
-                      onChange={(localOnly) => setForm({ ...form, localOnly })}
-                      hint="Blocks model-provider calls and external imports. Keep this off to use Codex or Claude with their cloud models; the factory itself still runs locally."
+                  ))}
+                </div>
+              </Card>
+              <Card
+                title="Mimir and Brokkr"
+                description="Runs execute through Mimir; Brokkr resolves and verifies harnesses."
+              >
+                <div className="flex flex-col gap-field">
+                  <Field label="Mimir URL (optional)" id="s-mimir" term="Mimir">
+                    <input
+                      id="s-mimir"
+                      type="url"
+                      className={inputClass}
+                      value={form.mimirUrl ?? ""}
+                      onChange={(e) => setForm({ ...form, mimirUrl: e.target.value })}
                     />
-                  </div>
-                </Card>
-                <Card
-                  title="Agents"
-                  term="Agent kind"
-                  description="Which coding agent implements tasks, and which reviews and tests them."
-                >
-                  <div className="grid gap-field sm:grid-cols-2">
-                    {(["workerAgent", "reviewerAgent"] as const).map((key) => (
-                      <Field
-                        key={key}
-                        label={
-                          key === "workerAgent" ? "Implementation agent" : "Review and QA agent"
-                        }
-                        id={`s-${key}`}
-                      >
-                        <select
-                          id={`s-${key}`}
-                          className={inputClass}
-                          value={form[key] ?? "claude"}
-                          onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                        >
-                          {AGENTS.map(([value, text]) => (
-                            <option key={value} value={value}>
-                              {text}
-                            </option>
-                          ))}
-                        </select>
-                      </Field>
-                    ))}
-                  </div>
-                </Card>
-                <Card
-                  title="Mimir and Brokkr"
-                  description="Runs execute through Mimir; Brokkr resolves and verifies harnesses."
-                >
-                  <div className="flex flex-col gap-field">
-                    <Field label="Mimir URL (optional)" id="s-mimir" term="Mimir">
-                      <input
-                        id="s-mimir"
-                        type="url"
-                        className={inputClass}
-                        value={form.mimirUrl ?? ""}
-                        onChange={(e) => setForm({ ...form, mimirUrl: e.target.value })}
-                      />
-                    </Field>
-                    <Field
-                      label="Mimir token secret name"
+                  </Field>
+                  <Field
+                    label="Mimir token secret name"
+                    id="s-mimir-token"
+                    hint="The SecretStore entry holding Mimir's token (for example mimir.token)."
+                  >
+                    <input
                       id="s-mimir-token"
-                      hint="The SecretStore entry holding Mimir's token (for example mimir.token)."
-                    >
-                      <input
-                        id="s-mimir-token"
-                        aria-describedby="s-mimir-token-hint"
-                        className={inputClass}
-                        value={form.mimirTokenSecret ?? ""}
-                        onChange={(e) => setForm({ ...form, mimirTokenSecret: e.target.value })}
-                      />
-                    </Field>
-                    <CheckField
-                      id="s-brokkr"
-                      label="Use Brokkr for harness selection"
-                      term="Brokkr"
-                      checked={form.brokkrEnabled ?? false}
-                      onChange={(brokkrEnabled) => setForm({ ...form, brokkrEnabled })}
-                      hint="Off: plans use Sindri's built-in fixture harnesses. On: Brokkr resolves harnesses (needs the Brokkr SDK)."
+                      aria-describedby="s-mimir-token-hint"
+                      className={inputClass}
+                      value={form.mimirTokenSecret ?? ""}
+                      onChange={(e) => setForm({ ...form, mimirTokenSecret: e.target.value })}
                     />
-                  </div>
-                </Card>
-                <FeedbackGraphSettings
-                  value={form.feedbackGraph}
-                  onChange={(feedbackGraph) => setForm({ ...form, feedbackGraph })}
-                />
-                <StickyActionBar status="Saved settings apply to every project.">
-                  <Button type="submit" loading={busy}>
-                    Save settings
-                  </Button>
-                </StickyActionBar>
-                <p className="text-xs text-muted">
-                  API token location:{" "}
-                  <span className="font-mono break-all">
-                    {tokenLocation ?? "~/.sindri/auth-token"}
-                  </span>
-                  . The browser keeps it in sessionStorage for this tab only.
-                </p>
-              </form>
-            ) : (
-              <p role="status">Loading settings…</p>
-            )
-          }
-        </LoadState>
-        <Stack gap={4}>
-          <MimirConnection />
-          <Card
-            title="Export"
-            description="Download a zip with a snapshot of the Sindri database and settings (no secrets)."
+                  </Field>
+                  <CheckField
+                    id="s-brokkr"
+                    label="Use Brokkr for harness selection"
+                    term="Brokkr"
+                    checked={form.brokkrEnabled ?? false}
+                    onChange={(brokkrEnabled) => setForm({ ...form, brokkrEnabled })}
+                    hint="Off: plans use Sindri's built-in fixture harnesses. On: Brokkr resolves harnesses (needs the Brokkr SDK)."
+                  />
+                </div>
+              </Card>
+              <FeedbackGraphSettings
+                value={form.feedbackGraph}
+                onChange={(feedbackGraph) => setForm({ ...form, feedbackGraph })}
+              />
+              <StickyActionBar status="Saved settings apply to every project.">
+                <Button type="submit" loading={busy}>
+                  Save settings
+                </Button>
+              </StickyActionBar>
+              <p className="text-xs text-muted">
+                API token location:{" "}
+                <span className="font-mono break-all">
+                  {tokenLocation ?? "~/.sindri/auth-token"}
+                </span>
+                . The browser keeps it in sessionStorage for this tab only.
+              </p>
+            </form>
+          ) : (
+            <p role="status">Loading settings…</p>
+          )
+        }
+      </LoadState>
+      <Stack gap={4}>
+        <MimirConnection />
+        <Card
+          title="Export"
+          description="Download a zip with a snapshot of the Sindri database and settings (no secrets)."
+        >
+          <Button
+            variant="secondary"
+            icon="arrowRight"
+            loading={busy}
+            onClick={() =>
+              void run(async () => {
+                const blob = await api.exportData();
+                const href = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = href;
+                a.download = "sindri-export.zip";
+                a.click();
+                // Revoking immediately can cancel the download in some browsers.
+                setTimeout(() => URL.revokeObjectURL(href), 1000);
+                notify("Export downloaded");
+              })
+            }
           >
-            <Button
-              variant="secondary"
-              icon="arrowRight"
-              loading={busy}
-              onClick={() =>
-                void run(async () => {
-                  const blob = await api.exportData();
-                  const href = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = href;
-                  a.download = "sindri-export.zip";
-                  a.click();
-                  // Revoking immediately can cancel the download in some browsers.
-                  setTimeout(() => URL.revokeObjectURL(href), 1000);
-                  notify("Export downloaded");
-                })
-              }
-            >
-              Export data
-            </Button>
-          </Card>
-          <Card
-            title="Project data"
-            description="Deleting one project's data moved to its Project settings (Danger zone)."
+            Export data
+          </Button>
+        </Card>
+        <Card
+          title="Project data"
+          description="Deleting one project's data moved to its Project settings (Danger zone)."
+        >
+          <Button
+            variant="secondary"
+            onClick={() => dispatch({ type: "navigate", view: "project-settings" })}
           >
-            <Button
-              variant="secondary"
-              onClick={() => dispatch({ type: "navigate", view: "project-settings" })}
-            >
-              Open Project settings
-            </Button>
-          </Card>
-        </Stack>
-      </div>
-    </Page>
+            Open Project settings
+          </Button>
+        </Card>
+      </Stack>
+    </div>
   );
 }
 

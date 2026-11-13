@@ -28,3 +28,15 @@ export const switcherApps = (overview: string) =>
     ...a,
     href: a.id === "heimdall" ? overview : a.href,
   }));
+
+/** Sindri's delivery view (its hash route); Sindri project and execution IDs. */
+export const sindriDeliveryHref = (
+  projectId: string | null | undefined,
+  executionId: string,
+) => {
+  const q = new URLSearchParams({
+    ...(projectId ? { project: projectId } : {}),
+    delivery: executionId,
+  });
+  return `${FACTORY_APPS[0].href.split("#")[0]}#/deliveries?${q}`;
+};

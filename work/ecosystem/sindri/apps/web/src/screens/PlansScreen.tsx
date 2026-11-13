@@ -29,6 +29,7 @@ import {
   Timestamp,
 } from "../components/ui.js";
 import { APPROVALS_LOCKED } from "./RunsScreen.js";
+import { explainStartError } from "../lib/workErrors.js";
 import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
 
 /** Latest version of each plan lineage, newest first. */
@@ -325,10 +326,13 @@ function PlanDetail({
                         setExecuting(true);
                         api
                           .createExecution(plan.id)
-                          .then(({ execution }) => {
-                            dispatch({ type: "execution/open", executionId: execution.id });
-                            notify(`Started a run of plan v${plan.version}`);
-                          }, report)
+                          .then(
+                            ({ execution }) => {
+                              dispatch({ type: "execution/open", executionId: execution.id });
+                              notify(`Started a run of plan v${plan.version}`);
+                            },
+                            (e: unknown) => report(explainStartError(e)),
+                          )
                           .finally(() => {
                             setBusy(false);
                             setExecuting(false);

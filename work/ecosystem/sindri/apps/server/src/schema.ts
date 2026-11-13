@@ -48,4 +48,21 @@ export const SERVER_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX rework_requests_source ON rework_requests(source_execution_id);
   `,
+  `
+  -- The factory-owned clone a project's PR reviews run in (never the operator's checkout), and
+  -- the Mimir project registered for it. Hidden: lists of projects leave it out.
+  CREATE TABLE review_mirrors (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    repo TEXT NOT NULL,
+    path TEXT NOT NULL,
+    mimir_project_id TEXT,
+    hidden INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  `,
+  `
+  -- When each pull request's refs were last fetched into a review mirror (for pruning).
+  ALTER TABLE review_mirrors ADD COLUMN pr_refs_json TEXT NOT NULL DEFAULT '{}';
+  `,
 ];

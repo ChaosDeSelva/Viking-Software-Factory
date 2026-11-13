@@ -27,10 +27,22 @@ export type ErrorCode =
   | "mimir_error"
   | "delivery_unavailable"
   | "not_supported"
+  | "not_exportable"
+  | "already_imported"
   | "approval_required"
   | "approval_pairing_failed"
   | "approval_locked"
   | "untrusted_unacknowledged"
+  | "project_required"
+  | "mirror_failed"
+  | "github_error"
+  | "already_posted"
+  | "post_in_progress"
+  | "post_blocked"
+  | "pr_head_moved"
+  | "pr_changed_since_plan"
+  | "already_decided"
+  | "gates_not_passed"
   | "internal";
 
 /** An error with a stable code and HTTP status, rendered as `{ error: { code, message, details? } }`. */

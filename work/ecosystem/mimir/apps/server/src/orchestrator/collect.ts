@@ -60,9 +60,13 @@ export interface CollectionResult {
   truncated: { found: number; kept: number; limit: number } | null;
 }
 
-/** `review.json` → review, `screenshot-*.png` → screenshot, `*.log` → test.output, else file. */
+/**
+ * `review.json` → review, `screenshot-*.png` → screenshot, `*.log` → test.output, `*.md` →
+ * report, else file.
+ */
 export function artifactKindForFile(name: string): ArtifactKind {
   if (name === "review.json") return "review";
+  if (name.endsWith(".md")) return "report";
   if (name.startsWith("screenshot-") && name.endsWith(".png")) return "screenshot";
   if (name.endsWith(".log")) return "test.output";
   return "file";

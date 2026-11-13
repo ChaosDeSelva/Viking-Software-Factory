@@ -112,6 +112,8 @@ export class FakeDeliveryWorld implements ExecutionReader, MimirActions, Artifac
        * first in the same verifying step (default `HEAD_SHA`; `null` records no manifest).
        */
       manifestHead?: string | null;
+      /** The collected file name Mimir records in the payload. */
+      name?: string;
     } = {},
   ): string {
     // Mimir's verifying step: `task.verifying`, then the diff and `changed-files` manifest (with
@@ -143,7 +145,14 @@ export class FakeDeliveryWorld implements ExecutionReader, MimirActions, Artifac
     this.contents.set(id, content);
     this.event(
       "artifact.recorded",
-      { artifactId: id, taskId: mimirTaskId, kind, uri: artifact.uri, hash: artifact.hash },
+      {
+        artifactId: id,
+        taskId: mimirTaskId,
+        kind,
+        uri: artifact.uri,
+        hash: artifact.hash,
+        ...(opts.name ? { name: opts.name } : {}),
+      },
       {
         taskId: opts.envelopeTaskId === undefined ? mimirTaskId : opts.envelopeTaskId,
         // Mimir (T12) records artifacts with provenance `derived`.
@@ -295,8 +304,19 @@ export function changedFilesManifest(
 
 export const LOCK_DIGEST = `sha256:${"a".repeat(64)}`;
 
+/** Stored-plan fields a view does not name, so fixtures are plans `PlanSchema` accepts. */
+const STORED_TASK_FIELDS = {
+  inputs: [] as string[],
+  outputs: [] as string[],
+  skills: [] as string[],
+  selectionRationale: [] as string[],
+  budget: { wallClockMinutes: 30, tokens: 1000 },
+  escalation: "ask",
+};
+
 export function planTaskView(id: string, overrides: Partial<PlanTaskView> = {}): PlanTaskView {
   return {
+    ...STORED_TASK_FIELDS,
     id,
     objective: `Do ${id}`,
     acceptanceCriteria: ["AC-1"],
@@ -312,6 +332,19 @@ export function planTaskView(id: string, overrides: Partial<PlanTaskView> = {}):
 
 export function planView(tasks: PlanTaskView[], overrides: Partial<PlanView> = {}): PlanView {
   return {
+    ...{
+      status: "approved",
+      estimates: {
+        taskCount: tasks.length,
+        wallClockMinutes: 0,
+        criticalPathMinutes: 0,
+        tokens: 0,
+        costUsd: null,
+      },
+      approvedBy: "op",
+      approvedAt: "2026-01-01T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
     id: "pln_1",
     projectId: "prj_1",
     lineageId: "lin_1",

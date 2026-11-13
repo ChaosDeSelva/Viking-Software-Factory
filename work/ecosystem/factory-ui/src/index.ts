@@ -9,4 +9,5 @@ export * from "./components/data.js";
 export * from "./components/combobox.js";
 export * from "./components/architecture.js";
 export * from "./components/docs.js";
+export * from "./components/findings.js";
 export * from "./components/shell.js";

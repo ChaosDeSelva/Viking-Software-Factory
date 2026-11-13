@@ -249,6 +249,35 @@ describe("Director", () => {
     expect(draftCall.temperature).toBe(0);
   });
 
+  it("suggests research for an investigation filed as a change, without changing the kind", async () => {
+    const investigation = { kind: "investigation" as const, impactedAreas: [], confidence: 0.8 };
+    const { d } = director(drafting());
+    const change = intake.createManual({ projectId, title: "Why is CSV slow?", body: "" });
+    const a = await d.draftSpec({
+      projectId,
+      intakeId: change.id,
+      request: "Why is CSV export slow?",
+      classification: investigation,
+    });
+    expect(a.meta).toMatchObject({ workKind: "change", suggestedWorkKind: "research" });
+    expect(intake.get(change.id)!.workKind).toBe("change");
+
+    const research = intake.createManual({
+      projectId,
+      title: "Why is CSV slow?",
+      body: "",
+      workKind: "research",
+    });
+    const b = await d.draftSpec({
+      projectId,
+      intakeId: research.id,
+      request: "Why is CSV export slow?",
+      classification: investigation,
+    });
+    expect(b.meta.workKind).toBe("research");
+    expect(b.meta.suggestedWorkKind).toBeUndefined();
+  });
+
   it("moves claims citing ids outside the provided context to high-risk assumptions", async () => {
     const { d } = director(
       drafting((ctx) => {

@@ -173,11 +173,31 @@ export const CrewMemberSchema = entity(CrewMemberIdSchema, {
 }).meta({ id: "CrewMember" });
 export type CrewMember = z.infer<typeof CrewMemberSchema>;
 
+/**
+ * How a task runs and what it delivers, as resolved from `TaskInput.mode`. `document` tasks
+ * deliver a Markdown report or `review.json` under `.mimir/artifacts/` instead of a diff and
+ * skip verification; their worktree edits are never committed. `read` implies `document`.
+ */
+export const TaskModeSchema = z
+  .object({
+    deliverable: z.enum(["diff", "document"]),
+    access: z.enum(["write", "read"]),
+    network: z.enum(["none", "web"]),
+  })
+  .meta({
+    id: "TaskMode",
+    description:
+      "How a task runs. `document` tasks deliver a Markdown report (`.mimir/artifacts/*.md`) or `review.json` instead of a diff and skip verification; their worktree edits are never committed as their result. `read` access is only valid with `document`.",
+  });
+export type TaskMode = z.infer<typeof TaskModeSchema>;
+
 export const TaskSchema = entity(TaskIdSchema, {
   priority: z.number().int().min(0).max(100).optional(),
   resultCommit: GitShaSchema.optional(),
   verification: z.record(z.string(), z.unknown()).optional(),
   timeoutMs: z.number().int().positive().max(86_400_000).optional(),
+  /** Absent for tasks created without `mode` (a diff deliverable with write access, no network). */
+  mode: TaskModeSchema.optional(),
   missionId: MissionIdSchema,
   crewId: CrewIdSchema.nullable(),
   title: z.string().min(1),

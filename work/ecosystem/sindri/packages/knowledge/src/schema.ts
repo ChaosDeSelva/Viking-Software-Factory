@@ -122,4 +122,24 @@ export const KNOWLEDGE_MIGRATIONS: readonly string[] = [
     SELECT RAISE(ABORT, 'task_evidence is immutable');
   END;
   `,
+  // v3: operator guidance. Skills are imported SKILL.md files (content kept, digest of the file
+  // bytes); project guidance holds standing notes and the skills every brief of a project gets.
+  `
+  CREATE TABLE skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source_path TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    imported_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE project_guidance (
+    project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+    notes TEXT NOT NULL DEFAULT '',
+    default_skill_ids TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+  );
+  `,
 ];

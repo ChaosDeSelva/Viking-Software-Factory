@@ -95,6 +95,37 @@
             "type": "string"
           }
         },
+        "mode": {
+          "description": "`{ deliverable: diff|document (default diff), access: write|read (default write), network: none|web (default none) }`; omitted means all defaults. `access: \"read\"` requires `deliverable: \"document\"`.",
+          "type": "object",
+          "properties": {
+            "deliverable": {
+              "default": "diff",
+              "type": "string",
+              "enum": [
+                "diff",
+                "document"
+              ]
+            },
+            "access": {
+              "default": "write",
+              "type": "string",
+              "enum": [
+                "write",
+                "read"
+              ]
+            },
+            "network": {
+              "default": "none",
+              "type": "string",
+              "enum": [
+                "none",
+                "web"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
         "missionId": {
           "type": "string",
           "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
@@ -162,6 +193,9 @@
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 86400000
+            },
+            "mode": {
+              "$ref": "#/$defs/TaskMode"
             },
             "missionId": {
               "type": "string",
@@ -253,6 +287,39 @@
             "leaseExpiresAt"
           ],
           "additionalProperties": false
+        },
+        "TaskMode": {
+          "type": "object",
+          "properties": {
+            "deliverable": {
+              "type": "string",
+              "enum": [
+                "diff",
+                "document"
+              ]
+            },
+            "access": {
+              "type": "string",
+              "enum": [
+                "write",
+                "read"
+              ]
+            },
+            "network": {
+              "type": "string",
+              "enum": [
+                "none",
+                "web"
+              ]
+            }
+          },
+          "required": [
+            "deliverable",
+            "access",
+            "network"
+          ],
+          "additionalProperties": false,
+          "description": "How a task runs. `document` tasks deliver a Markdown report (`.mimir/artifacts/*.md`) or `review.json` instead of a diff and skip verification; their worktree edits are never committed as their result. `read` access is only valid with `document`."
         }
       }
     }

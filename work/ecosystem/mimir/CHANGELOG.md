@@ -4,6 +4,27 @@ All notable changes are recorded here. Format follows Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- `TaskInput.mode` (`{ deliverable: diff|document, access: write|read, network: none|web }`,
+  each defaulting to today's behaviour; `read` requires `document`), persisted on `task.created`
+  and exposed as `Task.mode` (`TaskMode`). `read` narrows Claude to read/git tools plus writes
+  under `.mimir/artifacts/`; `web` adds Claude's `WebSearch`/`WebFetch` or Codex network access.
+  `document` tasks get a document contract in their brief, skip the verifier, complete with
+  `task.completed.verificationSkipped: "document_deliverable"` and their base commit, or fail
+  with `document_missing` when this attempt collected no `*.md` report or `review.json` (the
+  retry's brief says so). Document tasks never commit worktree edits and cannot be delivered.
+- Before every attempt the worktree's top-level `.mimir/artifacts/` files are cleared, and a
+  `.mimir` that is a symlink or not a directory fails the task without retries
+  (`workspace_invalid`, new core task event `failed_permanently`).
+- Dependency inputs: completed dependencies' reports, `sources.json` and `review.json` from their
+  completing attempt (stored, redacted copies) are placed under `.mimir/inputs/<title slug>/`,
+  named in the agent brief and in the new optional `session.requested.inputs`, excluded via
+  `info/exclude`, and kept out of diffs, manifests, result commits and artifact collection.
+- Artifact kind `report` for `*.md` files collected from `.mimir/artifacts/`, served as
+  `text/markdown`; a collected `*.json` `file` or `review` (e.g. `sources.json`, `review.json`)
+  is served as `application/json`.
+
 ## [0.3.0] - 2026-11-10
 
 `@mimir/protocol` and `@mimir/sdk` 0.3.0 (wire protocol stays 1; additive).

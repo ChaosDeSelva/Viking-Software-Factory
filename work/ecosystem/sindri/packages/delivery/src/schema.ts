@@ -48,6 +48,10 @@ export function ensureQualitySchema(db: SqliteDatabase): void {
       ["gate_repairs", executions],
       ["gate_evaluations", executions],
       ["reviews", executions],
+      ["document_decisions", executions],
+      ["review_drafts", executions],
+      ["review_posts", executions],
+      ["review_post_attempts", executions],
       ["deliveries", executions],
     ] as const)
       db.prepare(`DELETE FROM ${table} WHERE project_id = @p${extra}`).run({ p: projectId });

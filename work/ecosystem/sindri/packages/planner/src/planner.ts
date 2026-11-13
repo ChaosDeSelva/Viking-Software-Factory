@@ -21,11 +21,12 @@ import {
   type Selection,
   type TaskDescriptor,
 } from "@sindri/harnesses";
-import { INTAKE_MIGRATIONS } from "@sindri/intake";
+import { INTAKE_MIGRATIONS, pullRequestOfSnapshot } from "@sindri/intake";
 import {
   applyMigrations,
   KNOWLEDGE_MIGRATIONS,
   openDatabase,
+  openGuidance,
   redactSecrets,
   type SqliteDatabase,
 } from "@sindri/knowledge";
@@ -34,6 +35,7 @@ import { z } from "zod";
 import {
   deriveWorkAreas,
   implementationDependencies,
+  securitySensitivePaths,
   type AreaKind,
   type RepoIndex,
   type WorkArea,
@@ -49,13 +51,20 @@ import {
 import { PLANNER_MIGRATIONS } from "./migrations.js";
 import { planSystem, SKELETON_MARKER } from "./prompts.js";
 import {
+  CONTEXT_TRUNCATED_MARKER,
   DEFAULT_CAPS,
+  MAX_FOLLOW_UP_CONTEXT_CHARS,
+  MAX_PR_BODY_CHARS,
+  MAX_PR_REVIEW_FILES,
+  MAX_RESEARCH_QUESTION_CHARS,
   MAX_TASK_LESSON_CHARS,
   type Budget,
   type Escalation,
   type Plan,
   type PlanStatus,
+  type PlanWork,
   type PlanTask,
+  type PrReviewPlan,
   type ProjectCaps,
   type Role,
   type TaskLessonContext,
@@ -65,6 +74,54 @@ export { SKELETON_MARKER };
 
 export class PlanStateError extends Error {
   override readonly name = "PlanStateError";
+}
+
+/** The work kind is defined but the planner cannot plan it yet. */
+export class NotSupportedYetError extends Error {
+  override readonly name = "NotSupportedYetError";
+  constructor(readonly feature: string) {
+    super(`${feature} is not yet supported`);
+  }
+}
+
+/** Roles a research plan may hold: it reads and writes a document, never code. */
+export const RESEARCH_ROLES: readonly Role[] = ["investigator", "reviewer"];
+
+/** Roles a PR review plan may hold: reviewers read the PR and write a review, never code. */
+export const PR_REVIEW_ROLES: readonly Role[] = ["reviewer", "security"];
+
+/**
+ * The pull request a PR review reviews, from a GitHub intake's stored snapshot (title, body and
+ * the PR facts the connector stored); null when the snapshot holds no pull request. Secrets are
+ * redacted again and long text is cut. `nonce` keys the brief's data delimiters.
+ */
+export function prReviewWork(
+  snapshot: { title: string; body: string; raw: unknown },
+  nonce: string = createDataNonce(),
+): PrReviewPlan | null {
+  const pr = pullRequestOfSnapshot(snapshot.raw);
+  if (!pr) return null;
+  const files = pr.files.map((f) => f.path);
+  return {
+    owner: pr.owner,
+    repo: pr.repo,
+    number: pr.number,
+    url: pr.url,
+    title: redactSecrets(snapshot.title).text.slice(0, 1000),
+    body: redactSecrets(snapshot.body).text.slice(0, MAX_PR_BODY_CHARS),
+    author: pr.author ? pr.author.slice(0, 100) : null,
+    baseRef: pr.baseRefName,
+    headRef: pr.headRefName,
+    baseSha: pr.baseRefOid,
+    headSha: pr.headRefOid,
+    isCrossRepository: pr.isCrossRepository,
+    files: files.slice(0, MAX_PR_REVIEW_FILES),
+    // Files GitHub or the snapshot left out are counted, so the brief can say so.
+    filesOmitted:
+      Math.max(0, files.length - MAX_PR_REVIEW_FILES) +
+      (typeof pr.filesOmitted === "number" ? pr.filesOmitted : 0),
+    nonce,
+  };
 }
 
 /** Approving a plan built from text with flagged instructions needs an explicit acknowledgement. */
@@ -212,7 +269,7 @@ interface PlanRow {
 
 type PlanBody = Pick<
   Plan,
-  "tasks" | "estimates" | "untrustedInstructionDetected" | "injectionFindings"
+  "tasks" | "estimates" | "untrustedInstructionDetected" | "injectionFindings" | "work" | "guidance"
 >;
 
 const toPlan = (r: PlanRow): Plan => {
@@ -233,11 +290,19 @@ const toPlan = (r: PlanRow): Plan => {
           injectionFindings: body.injectionFindings ?? [],
         }
       : {}),
+    ...(body.work ? { work: body.work } : {}),
+    ...(body.guidance ? { guidance: body.guidance } : {}),
     approvedBy: r.approved_by,
     approvedAt: r.approved_at,
     createdAt: r.created_at,
   };
 };
+
+/** Work kind, research options and guidance of a plan; carried unchanged into revisions. */
+const workOf = (p: Pick<Plan, "work" | "guidance">): Pick<PlanBody, "work" | "guidance"> => ({
+  ...(p.work ? { work: p.work } : {}),
+  ...(p.guidance ? { guidance: p.guidance } : {}),
+});
 
 const min = (a: number | undefined, cap: number | undefined) =>
   a === undefined ? undefined : cap === undefined ? a : Math.min(a, cap);
@@ -355,6 +420,90 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
     };
   };
 
+  /** The work kind and operator input of the intake the spec was drafted from. */
+  /** The research document of an earlier execution, from its stored delivery report. */
+  const earlierDocument = (executionId: string) => {
+    const has = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'deliveries'")
+      .get();
+    if (!has) return null;
+    const row = db
+      .prepare(
+        "SELECT report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(executionId) as { report_json: string } | undefined;
+    let markdown: unknown;
+    try {
+      markdown = row
+        ? (JSON.parse(row.report_json) as { research?: { document?: { markdown?: unknown } } })
+            .research?.document?.markdown
+        : undefined;
+    } catch {
+      markdown = undefined;
+    }
+    if (typeof markdown !== "string" || !markdown) return null;
+    const text = redactSecrets(markdown).text;
+    return {
+      executionId,
+      document:
+        text.length > MAX_FOLLOW_UP_CONTEXT_CHARS
+          ? text.slice(0, MAX_FOLLOW_UP_CONTEXT_CHARS) + CONTEXT_TRUNCATED_MARKER
+          : text,
+    };
+  };
+
+  const loadWork = (specId: string) => {
+    const r = db
+      .prepare(
+        `SELECT i.work_kind, i.research_json, i.notes, i.skill_ids_json, i.title,
+           i.raw_snapshot_json, i.linked_execution_id FROM specifications s
+         JOIN intakes i ON i.id = s.intake_id WHERE s.id = ?`,
+      )
+      .get(specId) as
+      | {
+          work_kind: PlanWork["kind"];
+          research_json: string | null;
+          notes: string;
+          skill_ids_json: string;
+          title: string;
+          raw_snapshot_json: string;
+          linked_execution_id: string | null;
+        }
+      | undefined;
+    const work: PlanWork = { kind: r?.work_kind ?? "change" };
+    if (work.kind === "pr_review") {
+      const snapshot = r
+        ? (JSON.parse(r.raw_snapshot_json) as { body?: string; raw?: unknown })
+        : {};
+      const prReview = r
+        ? prReviewWork({ title: r.title, body: snapshot.body ?? "", raw: snapshot.raw })
+        : null;
+      if (!prReview)
+        throw new PlanValidationError([
+          "a PR review needs an intake imported from a GitHub pull request URL",
+        ]);
+      work.prReview = prReview;
+    }
+    if (work.kind === "research" && r?.research_json) {
+      const body = (JSON.parse(r.raw_snapshot_json) as { body?: string }).body ?? "";
+      // A title that is the body's first line (a follow-up question) is not repeated.
+      const asked = body.startsWith(r.title) ? body : `${r.title}\n\n${body}`;
+      const question = redactSecrets(asked.trim()).text;
+      const context = r.linked_execution_id ? earlierDocument(r.linked_execution_id) : null;
+      work.research = {
+        ...(JSON.parse(r.research_json) as NonNullable<PlanWork["research"]>),
+        question: question.slice(0, MAX_RESEARCH_QUESTION_CHARS),
+        ...(context ? { context } : {}),
+      };
+    }
+    return {
+      work,
+      notes: r?.notes ?? "",
+      skillIds: r ? (JSON.parse(r.skill_ids_json) as string[]) : [],
+    };
+  };
+  const guidance = openGuidance(db, { now: clock });
+
   const insert = (row: PlanRow) => {
     db.prepare(
       `INSERT INTO plans (id, project_id, spec_id, spec_version, lineage_id, version, status,
@@ -385,6 +534,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
     spec: StoredSpec,
     areas: WorkArea[],
     harnesses: HarnessService,
+    work: PlanWork = { kind: "change" },
   ): Promise<SkeletonTask[]> {
     const descriptor = (
       id: string,
@@ -402,6 +552,80 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       if (paths.length > 0) d.paths = paths;
       return d;
     };
+    if (work.kind === "pr_review") {
+      // One reviewer reads the PR at its head commit and writes the review; a security reviewer
+      // joins when the PR changes authentication, secret or other security paths. Both carry
+      // every criterion: the review is the whole deliverable.
+      const all = spec.body.acceptanceCriteria.map((a) => a.id);
+      const pr = work.prReview;
+      const sensitive = securitySensitivePaths(pr?.files ?? []);
+      const review: SkeletonTask[] = [
+        {
+          id: "pr-review",
+          role: "reviewer",
+          acceptanceCriteria: all,
+          dependsOn: [],
+          selection: await select(
+            harnesses,
+            "pr-review",
+            descriptor(
+              "pr-review",
+              ["review", "code-review", "qa"],
+              all,
+              (pr?.files ?? []).slice(0, 50),
+              `Review pull request ${pr ? `${pr.owner}/${pr.repo}#${pr.number}` : ""}`,
+            ),
+          ),
+        },
+      ];
+      if (sensitive.length > 0)
+        review.push({
+          id: "security-review",
+          role: "security",
+          acceptanceCriteria: [...all],
+          dependsOn: [],
+          selection: await select(
+            harnesses,
+            "security-review",
+            descriptor(
+              "security-review",
+              ["security"],
+              all,
+              sensitive.slice(0, 50),
+              "Security review of the pull request's changes",
+            ),
+          ),
+        });
+      return review;
+    }
+    if (work.kind === "research") {
+      // One investigator answers the question in a document; an optional reviewer then
+      // fact-checks it. Both carry every criterion: the document is the whole deliverable.
+      const all = spec.body.acceptanceCriteria.map((a) => a.id);
+      const selection = await select(
+        harnesses,
+        "research",
+        descriptor(
+          "research",
+          ["research", "investigation", "docs"],
+          all,
+          [],
+          `Research and answer: ${spec.title}`,
+        ),
+      );
+      const research: SkeletonTask[] = [
+        { id: "research", role: "investigator", acceptanceCriteria: all, dependsOn: [], selection },
+      ];
+      if (work.research?.factCheck ?? true)
+        research.push({
+          id: "fact-check",
+          role: "reviewer",
+          acceptanceCriteria: [...all],
+          dependsOn: ["research"],
+          selection,
+        });
+      return research;
+    }
     const area = (k: AreaKind) => areas.find((a) => a.kind === k);
     const tasks: SkeletonTask[] = [];
     const impl = (["backend", "frontend"] as const).flatMap((k) => area(k) ?? []);
@@ -565,18 +789,26 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       if (spec.status !== "approved")
         throw new PlanStateError(`specification ${spec.id} must be approved before planning`);
       const caps = capsFor(opts.caps);
-      const areas = deriveWorkAreas(spec.body, opts.repoIndex);
-      if (areas.length === 0)
+      const { work, notes, skillIds } = loadWork(spec.id);
+      const areas = work.kind === "change" ? deriveWorkAreas(spec.body, opts.repoIndex) : [];
+      if (work.kind === "change" && areas.length === 0)
         throw new PlanValidationError([
           "no work area could be derived from the acceptance criteria or impacted paths",
         ]);
-      const skeleton = (await buildSkeleton(spec, areas, opts.harnesses)).map((s) =>
+      const skeleton = (await buildSkeleton(spec, areas, opts.harnesses, work)).map((s) =>
         toTask(s, caps),
       );
       assertValidPlan({ tasks: skeleton }, { spec: spec.body, caps });
       await checkHarnessesKnown(skeleton, opts.harnesses);
 
-      const { lessons, findings } = await loadLessons(options.lessonsFor, spec.projectId);
+      // A research request that leaves the operator's lessons out never loads them. A PR review
+      // never does: its text is posted to GitHub, and lessons stay local.
+      const lessonsWanted =
+        work.kind === "change" ||
+        (work.kind === "research" && work.research?.sources.feedbackGraph);
+      const { lessons, findings } = lessonsWanted
+        ? await loadLessons(options.lessonsFor, spec.projectId)
+        : { lessons: [], findings: [] };
       const nonce = createDataNonce();
       const runOf = (model: string, usage: LlmUsage | null, outcome: string) =>
         recordRun(db, { projectId: spec.projectId, purpose: "plan", model, usage, outcome }, iso());
@@ -624,9 +856,13 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       // A task keeps only citations of lessons this prompt supplied, with their redacted text
       // for the agent brief.
       const supplied = new Map(lessons.map((l) => [l.id, toTaskLesson(l)]));
+      // A research task may cite any supplied lesson as a source, so it gets all of them.
+      const allLessons = work.kind === "research" ? [...supplied.keys()].slice(0, 20) : [];
       const tasks = ordered.map((t): PlanTask => {
         const f = filled.get(t.id) as Fill;
-        const cited = [...new Set(f.lessons ?? [])].filter((id) => supplied.has(id));
+        const cited = [...new Set([...allLessons, ...(f.lessons ?? [])])]
+          .filter((id) => supplied.has(id))
+          .slice(0, 20);
         return {
           ...t,
           objective: clean(f.objective),
@@ -650,6 +886,8 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           tasks,
           estimates: estimatePlan(tasks),
           ...flagFor(findings),
+          work,
+          guidance: guidance.snapshot(spec.projectId, { skillIds, notes }),
         } satisfies PlanBody),
         approved_by: null,
         approved_at: null,
@@ -732,6 +970,32 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       const spec = loadSpec(r.spec_id);
       const caps = capsFor(opts.caps);
       assertValidPlan({ tasks: patch.tasks }, { spec: spec.body, caps });
+      const allowedRoles =
+        prev.work?.kind === "research"
+          ? RESEARCH_ROLES
+          : prev.work?.kind === "pr_review"
+            ? PR_REVIEW_ROLES
+            : null;
+      if (prev.work?.kind === "research") {
+        // Briefs and gates find the research document by its task id; it must stay.
+        const lost = prev.tasks
+          .filter((t) => t.role === "investigator")
+          .filter((t) => !patch.tasks.some((n) => n.id === t.id && n.role === "investigator"));
+        if (lost.length > 0)
+          throw new PlanValidationError(
+            lost.map((t) => `${t.id}: a research plan keeps its investigator task id`),
+          );
+      }
+      if (allowedRoles) {
+        const wrong = patch.tasks.filter((t) => !allowedRoles.includes(t.role));
+        if (wrong.length > 0)
+          throw new PlanValidationError(
+            wrong.map(
+              (t) =>
+                `${t.id}: a ${prev.work?.kind === "research" ? "research" : "PR review"} plan cannot hold a ${t.role} task`,
+            ),
+          );
+      }
       await checkHarnessesKnown(patch.tasks, opts.harnesses);
       const before = new Map(prev.tasks.map((t) => [t.id, t]));
       // Lesson text comes only from what the planner stored, never from the patch.
@@ -798,6 +1062,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           tasks,
           estimates: estimatePlan(tasks),
           ...flagFor(prev.injectionFindings ?? [], prev.untrustedInstructionDetected),
+          ...workOf(prev),
         } satisfies PlanBody),
         approved_by: null,
         approved_at: null,

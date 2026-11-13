@@ -2,7 +2,20 @@
 // requires and a fresh idempotency key unless the caller passes its own.
 export type R = Record<string, any>;
 export type Api = (path: string, options?: RequestInit) => Promise<R>;
-export type Propose = (action: string, id: string, body?: R, extra?: R) => void;
+/** Called with the source's answer, or its refusal; onError returning true closes the dialog. */
+export interface CommandHooks {
+  onSuccess?: (result: R) => void;
+  onError?: (
+    error: Error & { code?: string; details?: unknown },
+  ) => boolean | void;
+}
+export type Propose = (
+  action: string,
+  id: string,
+  body?: R,
+  extra?: R,
+  hooks?: CommandHooks,
+) => void;
 
 // Set by the app: a 401 may mean the session ended, so it re-checks and returns to sign-in.
 let onUnauthorized: (() => void) | null = null;
@@ -27,6 +40,7 @@ export async function api(path: string, options: RequestInit = {}): Promise<R> {
   if (!r.ok)
     throw Object.assign(Error(data.message ?? `HTTP ${r.status}`), {
       code: data.code,
+      details: data.details,
     });
   return data;
 }

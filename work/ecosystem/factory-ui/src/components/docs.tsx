@@ -3,16 +3,40 @@ import { Icon } from "../icons.js";
 import { cn, focusRing, headingSlug, Link } from "../lib.js";
 import { ArchitectureDiagram } from "./architecture.js";
 import { Button } from "./controls.js";
+import { Badge } from "./status.js";
 
 /* ------------------------------------------------------------------ Markdown */
 
 const SAFE_HREF = /^(https?:|mailto:|\/|#|\.{1,2}\/|[^:]*$)/i;
 const safeHref = (href: string) => (SAFE_HREF.test(href.trim()) ? href.trim() : undefined);
 
+const INLINE_CODE = "`[^`]+`";
+/** Opening code fence (``` or ~~~, 3+) at the start of a line: returns the fence run. */
+const fenceOpen = (line: string) => /^(`{3,}|~{3,})/.exec(line)?.[1];
+/** A closing fence uses the opening character, at least as many times, and nothing else. */
+const fenceCloses = (line: string, open: string) =>
+  new RegExp(`^${open[0] === "`" ? "`" : "~"}{${open.length},}\\s*$`).test(line);
+
+/** Per line: inside a fenced code block (fence lines included), as `Markdown` parses them. */
+function codeMask(lines: readonly string[]): boolean[] {
+  let open: string | undefined;
+  return lines.map((l) => {
+    if (open) {
+      if (fenceCloses(l, open)) open = undefined;
+      return true;
+    }
+    open = fenceOpen(l);
+    return Boolean(open);
+  });
+}
+
 /** Inline: `code`, **bold**, *em* / _em_, [text](href). Never injects HTML. */
 function inline(text: string, key: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)/g;
+  const re = new RegExp(
+    String.raw`(${INLINE_CODE})|(\*\*[^*]+\*\*)|(\[[^\]]+\]\([^)\s]+\))|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)`,
+    "g",
+  );
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
@@ -70,7 +94,8 @@ export function Markdown({ source, className }: { source: string; className?: st
   let i = 0;
   let n = 0;
   const anchors = new Map<string, number>();
-  const isBlockStart = (l: string) => /^(#{1,6}\s|```|>\s?|\s*([-*]|\d+\.)\s|\||---+\s*$)/.test(l);
+  const isBlockStart = (l: string) =>
+    /^(#{1,6}\s|```|~~~|>\s?|\s*([-*]|\d+\.)\s|\||---+\s*$)/.test(l);
   while (i < lines.length) {
     const line = lines[i]!;
     const key = `b${n++}`;
@@ -78,11 +103,12 @@ export function Markdown({ source, className }: { source: string; className?: st
       i++;
       continue;
     }
-    if (line.startsWith("```")) {
-      const lang = line.slice(3).trim();
+    const fence = fenceOpen(line);
+    if (fence) {
+      const lang = line.slice(fence.length).trim();
       const body: string[] = [];
       i++;
-      while (i < lines.length && !lines[i]!.startsWith("```")) body.push(lines[i++]!);
+      while (i < lines.length && !fenceCloses(lines[i]!, fence)) body.push(lines[i++]!);
       i++;
       if (lang === "factory-architecture") {
         blocks.push(<ArchitectureDiagram key={key} />);
@@ -176,6 +202,199 @@ export function Markdown({ source, className }: { source: string; className?: st
     blocks.push(<p key={key}>{inline(para.join(" "), key)}</p>);
   }
   return <div className={cn("fui-markdown text-md leading-relaxed", className)}>{blocks}</div>;
+}
+
+/* --------------------------------------------------------------- ResearchDoc */
+
+export interface ResearchSource {
+  id: string;
+  kind: "file" | "url" | "lesson";
+  ref: string;
+  title?: string | undefined;
+  private?: boolean | undefined;
+}
+
+export interface ResearchDocProps {
+  markdown: string;
+  /** Citation `[n]` refers to the source with id `n` (see `citationNumber`). */
+  sources: readonly ResearchSource[];
+  /** Omit private and lesson sources, and their citations, e.g. for a shared view. */
+  hidePrivate?: boolean | undefined;
+  fileHref?: ((ref: string) => string | undefined) | undefined;
+  className?: string | undefined;
+}
+
+export const isPrivateSource = (s: ResearchSource) => s.private === true || s.kind === "lesson";
+
+/** `[n]` cites the source whose id is `n`; a non-numeric id falls back to its 1-based position. */
+export const citationNumber = (s: ResearchSource, index: number) =>
+  /^[1-9]\d*$/.test(s.id) ? Number(s.id) : index + 1;
+
+const SOURCES_HEADING = /^(#{1,6})\s+(?:sources|references|bibliography)\b/i;
+const HEADING = /^(#{1,6})\s/;
+const MARKER = /\[(\d+(?:\s*,\s*\d+)*)\]/g;
+// Not after a word, `]` or `)` (so `items[3]` and `[a][1]` stay); not a `[n](url)` link.
+const CITATION_RUN = /(\s*)(?<![\w\])])((?:\[\d+(?:\s*,\s*\d+)*\](?!\())+)/g;
+
+const finish = (out: string[], original: string) => {
+  while (out.length && !out[out.length - 1]!.trim()) out.pop();
+  return out.join("\n") + (/\n$/.test(original) && out.length ? "\n" : "");
+};
+
+/**
+ * Remove the last "Sources" / "References" / "Bibliography" heading section (to the next heading
+ * of the same or a higher level). `ResearchDoc` lists sources itself.
+ */
+export function withoutSourcesSection(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+  const code = codeMask(lines);
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) if (!code[i] && SOURCES_HEADING.test(lines[i]!)) start = i;
+  if (start < 0) return markdown;
+  const level = SOURCES_HEADING.exec(lines[start]!)![1]!.length;
+  let end = start + 1;
+  while (
+    end < lines.length &&
+    !(!code[end] && (HEADING.exec(lines[end]!)?.[1]?.length ?? 7) <= level)
+  )
+    end++;
+  if (end < lines.length) return [...lines.slice(0, start), ...lines.slice(end)].join("\n");
+  return finish(lines.slice(0, start), markdown);
+}
+
+/**
+ * For copying or sharing: drop the Markdown's own Sources section, `[n]` citations of
+ * private/lesson sources outside code (`[1, 3]` → `[1]`), and their `[n]: …` definitions.
+ * Numbers are not renumbered.
+ */
+export function stripPrivateCitations(
+  markdown: string,
+  sources: readonly ResearchSource[],
+): string {
+  const doc = withoutSourcesSection(markdown);
+  const hidden = new Set(
+    sources.flatMap((s, i) => (isPrivateSource(s) ? [citationNumber(s, i)] : [])),
+  );
+  if (!hidden.size) return doc;
+  const lines = doc.replace(/\r\n?/g, "\n").split("\n");
+  const code = codeMask(lines);
+
+  // A run like `[1][3]` is one citation: drop the space before it only if all of it goes.
+  const strip = (text: string) =>
+    text.replace(CITATION_RUN, (_match, ws: string, run: string) => {
+      const kept = run.replace(MARKER, (m: string, list: string) => {
+        const nums = list.split(",").map((n) => n.trim());
+        const keep = nums.filter((n) => !hidden.has(Number(n)));
+        if (keep.length === nums.length) return m;
+        return keep.length ? `[${keep.join(", ")}]` : "";
+      });
+      return kept ? ws + kept : "";
+    });
+
+  const out: string[] = [];
+  lines.forEach((line, i) => {
+    if (code[i]) return out.push(line);
+    const def = /^\s*\[(\d+)\]:\s/.exec(line);
+    if (def && hidden.has(Number(def[1]))) return;
+    // Odd parts are inline code spans and stay as written.
+    out.push(
+      line
+        .split(new RegExp(`(${INLINE_CODE})`))
+        .map((part, j) => (j % 2 ? part : strip(part)))
+        .join(""),
+    );
+  });
+  return out.join("\n");
+}
+
+function SourceEntry({
+  source: s,
+  fileHref,
+}: {
+  source: ResearchSource;
+  fileHref?: ((ref: string) => string | undefined) | undefined;
+}) {
+  const linkClass = cn("text-accent-fg hover:underline [overflow-wrap:anywhere]", focusRing);
+  if (s.kind === "lesson")
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        <Badge tone="forest">Private lesson</Badge>
+        <span className="[overflow-wrap:anywhere]">{s.title ?? s.ref}</span>
+      </span>
+    );
+  const privateBadge = s.private ? <Badge>Private</Badge> : null;
+  if (s.kind === "file") {
+    const raw = fileHref?.(s.ref);
+    const href = raw ? safeHref(raw) : undefined;
+    const ref = <code className="[overflow-wrap:anywhere]">{s.ref}</code>;
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        {s.title && <span>{s.title}</span>}
+        {href ? (
+          <Link href={href} className={linkClass}>
+            {ref}
+          </Link>
+        ) : (
+          ref
+        )}
+        {privateBadge}
+      </span>
+    );
+  }
+  const href = /^https?:\/\/[^/\s]/i.test(s.ref.trim()) ? s.ref.trim() : undefined;
+  const label = s.title ?? s.ref;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer noopener" className={linkClass}>
+          {label}
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      ) : (
+        <span className="[overflow-wrap:anywhere]">{label}</span>
+      )}
+      {s.title && <span className="text-xs text-muted [overflow-wrap:anywhere]">{s.ref}</span>}
+      {privateBadge}
+    </span>
+  );
+}
+
+/** A research write-up: safe Markdown, then the numbered sources its `[n]` citations point to. */
+export function ResearchDoc({
+  markdown,
+  sources,
+  hidePrivate = false,
+  fileHref,
+  className,
+}: ResearchDocProps) {
+  const headingId = useId();
+  const listed = sources
+    .map((source, i) => ({ source, n: citationNumber(source, i) }))
+    .filter(({ source }) => !(hidePrivate && isPrivateSource(source)))
+    .sort((a, b) => a.n - b.n);
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-6", className)}>
+      <Markdown
+        source={
+          hidePrivate ? stripPrivateCitations(markdown, sources) : withoutSourcesSection(markdown)
+        }
+      />
+      {listed.length > 0 && (
+        <section aria-labelledby={headingId} className="border-t border-line pt-4">
+          <h2 id={headingId} className="text-md font-semibold">
+            Sources
+          </h2>
+          <ol className="mt-2 flex list-decimal flex-col gap-2 pl-6 text-sm">
+            {listed.map(({ source, n }) => (
+              <li key={source.id} value={n}>
+                <SourceEntry source={source} fileHref={fileHref} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ DocsView */

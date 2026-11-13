@@ -139,7 +139,12 @@ export function deliveryTitle(
   const plan = executions.find(
     (e) => e.execution?.id === (row.executionId ?? row.id),
   )?.plan;
-  return specs.find((spec) => spec.id === plan?.specId)?.title ?? plan?.title;
+  return (
+    specs.find((spec) => spec.id === plan?.specId)?.title ??
+    plan?.title ??
+    // A research question or a pull request's title, from the snapshot's summary.
+    (row.work?.title || undefined)
+  );
 }
 
 export const recordLabel = (r: R) =>

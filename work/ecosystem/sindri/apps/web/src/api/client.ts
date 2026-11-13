@@ -32,6 +32,8 @@ import type {
 } from "./types.js";
 import { deliveryMethods } from "./delivery-client.js";
 import { stewardMethods } from "./steward-client.js";
+import { workMethods } from "./work-client.js";
+import type { WorkFields } from "./work-types.js";
 
 /** An API failure carrying the server's `{ error: { code, message } }` envelope. */
 export class ApiError extends Error {
@@ -238,9 +240,10 @@ export function createApiClient(opts: ClientOptions) {
       (await call<{ intakes: Intake[] }>("GET", `/v1/intakes?${qs({ projectId })}`)).intakes,
     getIntake: (id: string) =>
       call<{ intake: Intake; comments: IntakeComment[] }>("GET", `/v1/intakes/${enc(id)}`),
-    createIntake: async (input: { projectId: string; title: string; body: string }) =>
+    createIntake: async (input: { projectId: string; title: string; body: string } & WorkFields) =>
       (await call<{ intake: Intake }>("POST", "/v1/intakes", input)).intake,
-    importIntake: async (input: { projectId: string; url: string }) =>
+    /** A `pr_review` import may omit `projectId`; 422 `project_required` lists candidates. */
+    importIntake: async (input: { projectId?: string; url: string } & WorkFields) =>
       (await call<{ intake: Intake }>("POST", "/v1/intakes/import", input)).intake,
 
     draft: (input: { projectId: string; intakeId?: string; request: string }) =>
@@ -320,6 +323,7 @@ export function createApiClient(opts: ClientOptions) {
     exportData: async () => (await send("GET", "/v1/export")).blob(),
     ...deliveryMethods(call, send),
     ...stewardMethods(call),
+    ...workMethods(call),
   };
 }
 

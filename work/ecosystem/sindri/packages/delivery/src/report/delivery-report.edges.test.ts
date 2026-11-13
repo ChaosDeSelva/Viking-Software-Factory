@@ -494,6 +494,7 @@ describe("renderPrDescription: sparse reports", () => {
     reviews: [],
     limitations: [],
     rollback: { branches: [], commits: [], note: "Rollback note." },
+    workKind: "change",
   };
 
   it("says what is missing in every section", () => {

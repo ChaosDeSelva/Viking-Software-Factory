@@ -73,6 +73,15 @@ export function stewardDetail(path, params) {
   if (project) return `/v1/projects/${project[1]}/feedback-graph`;
   return null;
 }
+/** Sindri path for a skills, project guidance or PR review preview read, or null. */
+export function workDetail(path) {
+  if (path === "/api/details/skills") return "/v1/skills";
+  const guidance = /^\/api\/details\/guidance\/([\w-]{1,200})$/.exec(path);
+  if (guidance) return `/v1/projects/${guidance[1]}/guidance`;
+  const preview = /^\/api\/details\/review-preview\/([\w-]{1,200})$/.exec(path);
+  if (preview) return `/v1/executions/${preview[1]}/review/preview`;
+  return null;
+}
 export async function startHeimdall(options = {}) {
   const env = options.env ?? process.env,
     port = Number(env.HEIMDALL_PORT ?? 4320);
@@ -543,7 +552,7 @@ export async function startHeimdall(options = {}) {
         return json(res, 200, hub.clean(answer));
       }
       if (path.startsWith("/api/details/") && req.method === "GET") {
-        const upstream = stewardDetail(path, url.searchParams);
+        const upstream = stewardDetail(path, url.searchParams) ?? workDetail(path);
         if (upstream)
           return json(res, 200, hub.clean(await request(connections.sindri, upstream)));
       }
@@ -718,6 +727,13 @@ export async function startHeimdall(options = {}) {
           if (unpaired) session.approvalSecret = null;
           const working = e.code === "idempotency_in_progress";
           const final = !unpaired && !working && status < 500;
+          // Refusals the page explains from their details: a PR import matching no single project,
+          // a document decided meanwhile, a pull request that moved since planning.
+          const choose = [
+            "project_required",
+            "already_decided",
+            "pr_changed_since_plan",
+          ].includes(e.code);
           const response = {
             message: timedOut
               ? `The source did not answer within ${Math.round(timeoutMs / 60000) || 1} minute(s). The work may still be running: check the Pipeline before retrying. Sending again with the same details continues this request instead of starting a second one.`
@@ -729,6 +745,9 @@ export async function startHeimdall(options = {}) {
             confirmed: false,
             ...(final ? {} : { retryable: true }),
             ...(unpaired ? { code: "pairing_required" } : {}),
+            ...(choose
+              ? { code: e.code, details: hub.clean(e.details ?? null) }
+              : {}),
           };
           if (final) store.receiptPut(key, fingerprint, status, response);
           store.audit({

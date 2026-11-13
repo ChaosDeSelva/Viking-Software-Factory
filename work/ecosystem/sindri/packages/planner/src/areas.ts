@@ -100,6 +100,18 @@ const keywordHit = (kind: AreaKind, text: string) =>
 
 const IMPLEMENTATION: AreaKind[] = ["backend", "frontend"];
 
+/** Path words that put a changed file in the security area, besides the security keywords. */
+const SECURITY_PATH =
+  /(^|[^a-z0-9])(auth[a-z]*|login|logout|session|sessions|token|tokens|oauth|jwt|password|passwords|crypto|cipher|permissions?|acl|rbac|csp|cors|sanitiz[a-z]*|secrets?|credentials?|security|\.env)([^a-z0-9]|$)/i;
+
+/**
+ * Changed paths that touch authentication, secrets or other security areas: a security keyword
+ * (as for acceptance criteria) or a security path word such as `auth`, `session` or `token`.
+ */
+export function securitySensitivePaths(paths: readonly string[]): string[] {
+  return paths.filter((p) => SECURITY_PATH.test(p) || keywordHit("security", p) !== undefined);
+}
+
 export function deriveWorkAreas(spec: AreaInput, repoIndex: RepoIndex = {}): WorkArea[] {
   const areas = new Map<AreaKind, WorkArea>();
   const area = (kind: AreaKind) => {

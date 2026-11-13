@@ -136,7 +136,7 @@ export function createTasks(
       // own template is accepted; anything else could switch off the agent's safeguards.
       const member = t.argv !== undefined ? memberOf(rm, t.crewId) : undefined;
       if (t.argv !== undefined && member !== undefined && member.agentKind !== "shell") {
-        const template = argvFor(member.agentKind, member.role, t.brief);
+        const template = argvFor(member.agentKind, member.role, t.brief, { mode: t.mode });
         if (JSON.stringify(template) !== JSON.stringify(t.argv)) {
           throw invalid(
             "argv_not_allowed",
@@ -176,6 +176,7 @@ export function createTasks(
         ...(t.argv !== undefined ? { argv: t.argv } : {}),
         ...(t.verification !== undefined ? { verification: t.verification } : {}),
         ...(t.timeoutMs !== undefined ? { timeoutMs: t.timeoutMs } : {}),
+        ...(t.mode !== undefined ? { mode: t.mode } : {}),
       },
     });
   });

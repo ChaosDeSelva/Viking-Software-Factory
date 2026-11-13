@@ -6,7 +6,19 @@ if [ "$(uname -m)" != arm64 ]; then
  printf 'Build this Apple silicon distribution on an arm64 Mac.\n' >&2
  exit 1
 fi
+if [ -n "${VIKING_DEBUG:-}" ] && [ -n "${VIKING_SIGN_IDENTITY:-}" ]; then
+ printf 'VIKING_DEBUG builds enable the Web Inspector and must not be signed for distribution. Unset VIKING_DEBUG or VIKING_SIGN_IDENTITY.\n' >&2
+ exit 1
+fi
 mkdir -p "$out"
+swift=(xcrun swiftc -module-cache-path "$out/swift-cache" -parse-as-library -target arm64-apple-macosx13.0)
+# VIKING_DEBUG=1 builds without optimisation and lets Safari's Web Inspector attach to the factory window.
+if [ -n "${VIKING_DEBUG:-}" ]; then swift+=(-Onone -g -D DEBUG); else swift+=(-O); fi
+# Compiler output, tests and debug symbols stay outside the app bundle.
+build="$out/swift-build"
+mkdir -p "$build"
+"${swift[@]}" "$root/macos/FactoryLinks.swift" "$root/macos/tests/FactoryLinksTests.swift" -o "$build/factory-links-tests"
+"$build/factory-links-tests"
 if [ -f "$root/update-public-key.txt" ] && [ -z "${VIKING_UPDATE_PUBLIC_KEY:-}" ]; then
  export VIKING_UPDATE_PUBLIC_KEY="$(cat "$root/update-public-key.txt")"
 fi
@@ -17,8 +29,11 @@ version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)
 : "${version:?Cargo.toml has no package version}"
 # CFBundleVersion takes only dot-separated integers, so drop any pre-release or build suffix.
 build_number=${version%%[-+]*}
+# Start from an empty bundle so nothing from an earlier build (such as a dSYM) is signed into it.
+rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-xcrun swiftc -module-cache-path "$out/swift-cache" -O -parse-as-library -target arm64-apple-macosx13.0 "$root/macos/main.swift" -framework AppKit -framework ServiceManagement -o "$app/Contents/MacOS/VikingFactory"
+"${swift[@]}" "$root/macos/main.swift" "$root/macos/FactoryLinks.swift" "$root/macos/FactoryWindow.swift" -framework AppKit -framework ServiceManagement -framework WebKit -o "$build/VikingFactory"
+cp "$build/VikingFactory" "$app/Contents/MacOS/VikingFactory"
 cp "$root/target/release/viking" "$app/Contents/Resources/viking"
 cp "$root/../LICENSE" "$root/../NOTICE" "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
@@ -34,6 +49,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSDownloadsFolderUsageDescription</key><string>Files you download from the factory window are saved to Downloads.</string>
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 </dict></plist>
 PLIST
 if [ -n "${VIKING_BUNDLE_DIR:-}" ]; then

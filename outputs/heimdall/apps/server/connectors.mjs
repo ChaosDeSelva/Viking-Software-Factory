@@ -31,6 +31,21 @@ export function readMimirSnapshot(snapshot) {
   return out;
 }
 
+/**
+ * The summary Sindri puts on a deliveries list row (`work`), trimmed to what lists show; null for
+ * other kinds or a row without one. A gate result not yet evaluated (null) has not passed.
+ */
+export function listedWork(row, kind) {
+  const w = row.work;
+  if (!w || typeof w !== "object" || Array.isArray(w)) return null;
+  const title = typeof w.title === "string" ? w.title : null;
+  if (kind === "research")
+    return { kind, title, decision: w.decision ?? null, gatePassed: w.gatePassed === true };
+  if (kind === "pr_review")
+    return { kind, title, posted: w.posted === true, verdict: w.verdict ?? null };
+  return null;
+}
+
 export function localUrl(value) {
   const u = new URL(value);
   if (
@@ -168,7 +183,7 @@ export async function request(connection, path, options = {}) {
           data?.message ??
           `Source returned HTTP ${status}`,
       ),
-      { status, code: data?.error?.code },
+      { status, code: data?.error?.code, details: data?.error?.details },
     );
   return data;
 }
@@ -333,6 +348,7 @@ export class Hub {
                   request(c, `/v1/executions/${encodeURIComponent(e.id)}`),
                 ),
               );
+              this.annotateWork(next);
               this.state.sindri = next;
               for (const { execution: e } of next.executions)
                 this.stream(
@@ -384,6 +400,25 @@ export class Hub {
     if (this.refreshQueued && !this.stopped) {
       this.refreshQueued = false;
       setTimeout(() => void this.refresh(), 100);
+    }
+  }
+  /**
+   * Delivery rows keep Sindri's `workKind` (or take their plan's, from an older Sindri) and a
+   * trimmed `work` summary from the list row. No report is read here; the inspector reads one.
+   */
+  annotateWork(next) {
+    const plans = new Map(next.plans.map((p) => [p.id, p]));
+    for (const v of next.executions) if (v.plan?.id) plans.set(v.plan.id, v.plan);
+    for (const d of next.deliveries) {
+      const view = next.executions.find((v) => v.execution?.id === (d.executionId ?? d.id));
+      const kind =
+        d.workKind ??
+        (plans.get(d.planId ?? view?.execution?.planId) ?? view?.plan)?.work?.kind ??
+        null;
+      if (kind) d.workKind = kind;
+      const work = listedWork(d, kind);
+      if (work) d.work = work;
+      else delete d.work;
     }
   }
   stream(source, path, key, executionId) {

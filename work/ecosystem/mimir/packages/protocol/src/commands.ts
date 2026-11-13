@@ -157,6 +157,19 @@ export const UpdateBudgetResponseSchema = z.object({
 });
 export type UpdateBudgetResponse = z.infer<typeof UpdateBudgetResponseSchema>;
 
+/** `TaskInput.mode`: omitted fields default to how a task without `mode` runs. */
+export const TaskModeInputSchema = z
+  .strictObject({
+    deliverable: z.enum(["diff", "document"]).default("diff"),
+    access: z.enum(["write", "read"]).default("write"),
+    network: z.enum(["none", "web"]).default("none"),
+  })
+  .refine((m) => m.access !== "read" || m.deliverable === "document", {
+    message: 'read access needs deliverable "document" (a read task delivers no diff)',
+    path: ["deliverable"],
+  });
+export type TaskModeInput = z.input<typeof TaskModeInputSchema>;
+
 /** One task of a mission's DAG. */
 export const TaskInputSchema = z.strictObject({
   priority: z.number().int().min(0).max(100).optional(),
@@ -175,6 +188,10 @@ export const TaskInputSchema = z.strictObject({
   crewId: CrewIdSchema.optional(),
   /** Explicit argv, replacing the crew role's template. */
   argv: z.array(z.string()).min(1).optional(),
+  /** Deliverable, tool access and network access of the task (see `TaskMode`). */
+  mode: TaskModeInputSchema.optional().describe(
+    '`{ deliverable: diff|document (default diff), access: write|read (default write), network: none|web (default none) }`; omitted means all defaults. `access: "read"` requires `deliverable: "document"`.',
+  ),
 });
 export type TaskInput = z.infer<typeof TaskInputSchema>;
 

@@ -1,5 +1,7 @@
 // Wire types for the Sindri server API (kept local: the web app does not import server code).
 
+import type { AnyWorkKind, PullRequestInfo, ResearchOptions } from "./work-types.js";
+
 export interface Project {
   id: string;
   name: string;
@@ -57,7 +59,7 @@ export interface SearchHit {
 export interface Intake {
   id: string;
   projectId: string;
-  source: "manual" | "jira" | "linear";
+  source: "manual" | "jira" | "linear" | (string & {});
   externalId: string | null;
   externalUrl: string | null;
   title: string;
@@ -69,6 +71,14 @@ export interface Intake {
   hasPendingSnapshot: boolean;
   /** Sanitized copy for display; never render `title`/`body` as HTML. */
   display: { title: string; body: string };
+  /** Absent on servers from before work kinds (then `change`). */
+  workKind?: AnyWorkKind;
+  notes?: string;
+  skillIds?: string[];
+  research?: ResearchOptions | null;
+  linkedExecutionId?: string | null;
+  /** GitHub pull request intakes only. */
+  pullRequest?: PullRequestInfo | null;
 }
 
 export interface IntakeComment {

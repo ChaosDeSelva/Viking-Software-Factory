@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import {
   APPROVAL_REQUIRED,
   ApprovalService,
@@ -48,6 +49,16 @@ import { emit, type EmitInput } from "../emit.js";
 import { RUNTIME_AT_CAPACITY, isCapacityAware } from "../fleet-runtime/adapter.js";
 import type { FailedCheck, ReadModel } from "../readmodel.js";
 import { argvFor } from "../templates.js";
+import {
+  WORKSPACE_INVALID,
+  WorkspaceInvalidError,
+  inputArtifacts,
+  inputsNote,
+  prepareWorkspace,
+  writeInputs,
+  type DependencyInput,
+  type PlannedInput,
+} from "./inputs.js";
 import type { ArtifactStore } from "./artifacts.js";
 import type { PersistedWorktree, WorktreePort } from "./git-port.js";
 import type { PrRunner } from "./pr.js";
@@ -89,6 +100,8 @@ export const CAPACITY_RETRY_MAX_MS = 30_000;
  */
 export const DEFAULT_CAPACITY_WAIT_MS = Number.POSITIVE_INFINITY;
 export const FLEET_CAPACITY_TIMEOUT = "fleet_capacity_timeout";
+/** `task.failed.reason` of a `document` task that left no `.md` report in `.mimir/artifacts/`. */
+export const DOCUMENT_MISSING = "document_missing";
 
 /** The system actor that requests approvals for actions an operator asked for. */
 export const SYSTEM_ACTOR: Actor = { kind: "system", id: "mimir" };
@@ -161,15 +174,19 @@ export type GatedOutcome =
   | { kind: "approval_required"; approval: Approval }
   | { kind: "denied"; reason: string };
 
-const slug = (text: string, fallback: string): string => {
+export const slug = (text: string, fallback: string, max = 40): string => {
   const s = text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
+    .slice(0, max)
     .replace(/-+$/g, "");
   return s.length > 0 ? s : fallback;
 };
+
+/** Tells the next attempt of a document task that the previous one left no report. */
+export const DOCUMENT_MISSING_NOTE =
+  "The previous attempt produced no report artifact: nothing was found at the top level of .mimir/artifacts/. Write the deliverable there as a Markdown (.md) file (or review.json for a review).";
 
 /** Protocol budget (zod optional fields) → core `BudgetPolicy` (exact optional fields). */
 export function toBudgetPolicy(b: ProtocolBudgetPolicy): BudgetPolicy {
@@ -601,11 +618,15 @@ export class Orchestrator {
     return member;
   }
 
-  /** The argv a task's session runs, and what the policy gate classifies (see `classifiedArgv`). */
+  /**
+   * The argv a task's session runs, and what the policy gate classifies (see `classifiedArgv`).
+   * An agent's brief also names the dependency `inputs` placed in its worktree.
+   */
   private commandFor(
     task: Task,
     member: CrewMember,
     project: Project | undefined,
+    inputs: readonly DependencyInput[] = [],
   ): { argv: string[]; classify: string[] | null } {
     const spec = this.rm.taskSpec(task.id);
     const base = spec.brief ?? [task.title, task.acceptance].filter((s) => s !== "").join("\n\n");
@@ -614,18 +635,26 @@ export class Orchestrator {
     const explicit =
       spec.argv !== undefined &&
       (member.agentKind === "shell" ||
-        JSON.stringify(spec.argv) !== JSON.stringify(argvFor(member.agentKind, member.role, base)));
+        JSON.stringify(spec.argv) !==
+          JSON.stringify(argvFor(member.agentKind, member.role, base, { mode: task.mode })));
     // Only an agent's prompt gets the note: a shell member's brief is its command, and explicit
     // argv is run as given.
-    const note =
+    const notes =
       !explicit && member.agentKind !== "shell"
-        ? verificationFailureNote(this.rm.verificationFailure(task.id))
-        : undefined;
+        ? [
+            verificationFailureNote(this.rm.verificationFailure(task.id)) ??
+              (this.rm.failureReason(task.id) === DOCUMENT_MISSING
+                ? DOCUMENT_MISSING_NOTE
+                : undefined),
+            inputsNote(inputs),
+          ].filter((n): n is string => n !== undefined)
+        : [];
     const argv =
       explicit && spec.argv !== undefined
         ? spec.argv
-        : argvFor(member.agentKind, member.role, note === undefined ? base : `${base}\n\n${note}`, {
+        : argvFor(member.agentKind, member.role, [base, ...notes].join("\n\n"), {
             codexSandbox: projectSettings(project).agent?.codexSandbox,
+            mode: task.mode,
           });
     return { argv, classify: classifiedArgv(argv, explicit, member.agentKind) };
   }
@@ -787,6 +816,13 @@ export class Orchestrator {
         this.taskEvent(now, current, { type: "runtime_failed", reason }, { reason });
       }
     };
+    const failPermanently = (reason: string) => {
+      const current = stillOurs();
+      if (!current) return;
+      this.capacityWaits.delete(current.id);
+      this.taskEvent(this.now(), current, { type: "failed_permanently", reason }, { reason });
+      this.renewals.delete(current.id);
+    };
     const runtime = this.runtime;
     this.track(
       (async () => {
@@ -855,7 +891,26 @@ export class Orchestrator {
         }
         const cwd = worktree.path;
 
-        // 2. session.requested
+        // 2. the worktree's .mimir: earlier attempts' artifacts cleared, dependency inputs placed
+        let inputs: DependencyInput[];
+        try {
+          await prepareWorkspace(cwd);
+          inputs = await writeInputs(cwd, await this.planInputs(input.taskId));
+        } catch (err) {
+          await this.enqueue(() => {
+            if (this.stopped) return;
+            if (err instanceof WorkspaceInvalidError)
+              failPermanently(`${WORKSPACE_INVALID}: ${err.message}`);
+            else failTask(`inputs_failed: ${message(err)}`);
+          });
+          return;
+        }
+        const argv =
+          inputs.length > 0
+            ? this.commandFor(this.task(input.taskId), input.member, input.project, inputs).argv
+            : input.argv;
+
+        // 3. session.requested
         const sessionId = newId("ses");
         const title = this.task(input.taskId).title;
         const workspaceLabel = `mimir/${slug(input.crew.template, "crew")}/${slug(title, "task")}`;
@@ -872,13 +927,14 @@ export class Orchestrator {
               crewId: input.crew.id as never,
               taskId: input.taskId as never,
               workspaceLabel,
+              ...(inputs.length > 0 ? { inputs: inputs as never } : {}),
             },
           });
           return true;
         });
         if (!requested) return;
 
-        // 3. runtime.createSession (off the queue)
+        // 4. runtime.createSession (off the queue)
         const failSession = (err: unknown) =>
           this.enqueue(() => {
             if (this.stopped) return;
@@ -914,7 +970,7 @@ export class Orchestrator {
             crewId: input.crew.id,
             taskId: input.taskId,
             agentKind: input.member.agentKind,
-            argv: input.argv,
+            argv,
             ...(this.task(input.taskId).timeoutMs !== undefined
               ? { timeoutMs: this.task(input.taskId).timeoutMs! }
               : {}),
@@ -1172,6 +1228,10 @@ export class Orchestrator {
   // Verification
 
   private startVerification(taskId: string): void {
+    if (this.rm.tasks.get(taskId)?.mode?.deliverable === "document") {
+      this.track(this.enqueue(() => this.completeDocument(taskId)));
+      return;
+    }
     const ac = new AbortController();
     this.verifications.get(taskId)?.abort();
     this.verifications.set(taskId, ac);
@@ -1215,18 +1275,7 @@ export class Orchestrator {
     if (task?.status !== "verifying" || !worktree) return null;
     const project = this.projectOf(task);
     const now = this.now();
-    let headSha: string | null = null;
-    if (this.git.has(worktree.id)) {
-      try {
-        const diff = await this.git.diff(worktree.id);
-        this.recordArtifact(now, task, "diff", diff.patch);
-        const manifest = await this.git.changedFilesManifest(worktree.id);
-        this.recordArtifact(now, task, "changed-files", JSON.stringify(manifest, null, 2));
-        headSha = manifest.headSha;
-      } catch (err) {
-        this.log.warn({ taskId, err: message(err) }, "diff for verification failed");
-      }
-    }
+    const headSha = await this.recordWorktreeDiff(now, task, worktree);
     // The test command runs in the agent's worktree: classify and gate it like any command (C2).
     const testCommand = testCommandOf(project);
     const action =
@@ -1281,6 +1330,94 @@ export class Orchestrator {
       testCommand,
       ...(harnessRef !== undefined ? { harnessRef } : {}),
     };
+  }
+
+  /**
+   * What each completed dependency hands this task: the reports, `sources.json` and
+   * `review.json` its completing attempt recorded, read from the artifact store (redacted).
+   * One directory per dependency, its title's slug (`-<short id>` on a collision).
+   */
+  private async planInputs(taskId: string): Promise<PlannedInput[]> {
+    const dependencies = [...this.rm.taskDependencies.values()]
+      .filter((d) => d.taskId === taskId)
+      .map((d) => this.rm.tasks.get(d.dependsOnId))
+      .filter((t): t is Task => t?.status === "completed");
+    const planned: PlannedInput[] = [];
+    const used = new Set<string>();
+    for (const dependency of dependencies) {
+      const chosen = inputArtifacts(this.rm.latestAttemptArtifacts(dependency.id), (id) =>
+        this.rm.artifactNames.get(id),
+      );
+      const files: PlannedInput["files"] = [];
+      for (const [name, artifact] of chosen) {
+        const located = this.artifacts.locate(artifact.id);
+        const content = located ? await readFile(located.path).catch(() => null) : null;
+        if (content !== null) files.push({ name, content });
+      }
+      if (files.length === 0) continue;
+      let dir = slug(dependency.title, "task", 60);
+      if (used.has(dir)) dir = `${dir}-${dependency.id.slice(-8).toLowerCase()}`;
+      used.add(dir);
+      planned.push({ dependencyTaskId: dependency.id, dir, files });
+    }
+    return planned;
+  }
+
+  /** Records the worktree's `diff` and `changed-files` artifacts; returns the observed head. */
+  private async recordWorktreeDiff(
+    now: Date,
+    task: Task,
+    worktree: Worktree,
+  ): Promise<string | null> {
+    if (!this.git.has(worktree.id)) return null;
+    try {
+      const diff = await this.git.diff(worktree.id);
+      this.recordArtifact(now, task, "diff", diff.patch);
+      const manifest = await this.git.changedFilesManifest(worktree.id);
+      this.recordArtifact(now, task, "changed-files", JSON.stringify(manifest, null, 2));
+      return manifest.headSha;
+    } catch (err) {
+      this.log.warn({ taskId: task.id, err: message(err) }, "diff for verification failed");
+      return null;
+    }
+  }
+
+  /**
+   * The verifying step of a `document` task: no verifier runs (there is no change to verify).
+   * Worktree edits are recorded as `diff`/`changed-files` for transparency but never committed;
+   * the result commit is the worktree's base. Without a `report` (`*.md`) or `review`
+   * (`review.json`) collected in this attempt it fails with `document_missing` (retried while
+   * attempts are left).
+   */
+  private async completeDocument(taskId: string): Promise<void> {
+    let task = this.rm.tasks.get(taskId);
+    if (task?.status !== "verifying") return;
+    const now = this.now();
+    const worktree = this.activeWorktree(taskId);
+    let reported = false;
+    if (worktree) {
+      await this.recordWorktreeDiff(now, task, worktree);
+      task = this.task(taskId);
+      if (task.status !== "verifying") return;
+      const collected = collectArtifactFiles(worktree.path);
+      recordCollection(collected, {
+        task,
+        write: (content) => this.artifacts.write(content),
+        emit: (input) => this.emit(now, input),
+      });
+      reported = collected.files.some((f) => f.kind === "report" || f.kind === "review");
+    }
+    if (!worktree || !reported) {
+      this.taskEvent(now, task, { type: "verification_errored" }, { reason: DOCUMENT_MISSING });
+    } else {
+      this.taskEvent(
+        now,
+        task,
+        { type: "verification_passed" },
+        { resultCommit: worktree.baseSha, verificationSkipped: "document_deliverable" },
+      );
+    }
+    this.renewals.delete(task.id);
   }
 
   private async finishVerification(
@@ -1988,6 +2125,8 @@ export class Orchestrator {
             "invalid_transition",
             "recheck requires a settled task; active work cannot be checked concurrently",
           );
+        if (task.mode?.deliverable === "document")
+          throw new MimirError("invalid_transition", "a document task has no change to verify");
         const worktree = this.activeWorktree(taskId);
         if (!worktree) throw new MimirError("not_found", "task worktree is unavailable");
         const project = this.projectOf(task);
@@ -2137,6 +2276,12 @@ export class Orchestrator {
         throw new MimirError("invalid_transition", "only a completed task can be delivered", {
           taskId,
           status: task.status,
+        });
+      }
+      if (task.mode?.deliverable === "document") {
+        throw new MimirError("invalid_transition", "a document task has no change to deliver", {
+          taskId,
+          mode: task.mode,
         });
       }
       if (!this.activeWorktree(taskId)) {

@@ -38,6 +38,11 @@ export type TaskEvent =
   | { type: "approval_granted" }
   | { type: "cancel"; reason?: string }
   | { type: "runtime_failed"; reason: string }
+  /**
+   * The attempt cannot succeed however often it is retried (e.g. the worktree is unusable): the
+   * task fails with no attempts left, so the scheduler does not retry it.
+   */
+  | { type: "failed_permanently"; reason: string }
   | { type: "runtime_lost" }
   | { type: "lease_expired" }
   | { type: "retry" }
@@ -183,6 +188,7 @@ const EDGES: Record<TaskEventType, Edge> = {
   approval_granted: { from: ["blocked"], to: "running", guard: notParked },
   cancel: { from: NON_TERMINAL, to: "cancelled" },
   runtime_failed: { from: ["running", "leased"], to: "failed" },
+  failed_permanently: { from: ["leased", "running", "verifying"], to: "failed" },
   runtime_lost: { from: ["running", "leased"], to: "failed" },
   lease_expired: { from: ["running", "leased"], to: "failed" },
   retry: { from: ["failed", "blocked"], to: "ready", guard: retryable },
@@ -242,6 +248,9 @@ function transition(task: Task, event: TaskEvent): Task {
       break;
     case "launch_deferred":
       next.agentId = null;
+      break;
+    case "failed_permanently":
+      next.maxAttempts = Math.min(task.maxAttempts, task.attempt + 1);
       break;
     case "runtime_blocked":
     case "approval_needed":

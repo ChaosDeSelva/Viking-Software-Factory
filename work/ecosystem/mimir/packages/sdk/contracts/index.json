@@ -1,7 +1,7 @@
 {
   "description": "Mimir HTTP contract fixtures: one file per OpenAPI operation with a recorded request and response and their JSON Schemas. Ids and timestamps are placeholders.",
   "protocolVersion": 1,
-  "protocolPackageVersion": "0.3.0",
+  "protocolPackageVersion": "0.4.0",
   "operations": [
     {
       "operation": "GET /v1/health",

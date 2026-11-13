@@ -53,6 +53,10 @@ describe("artifactKindForFile", () => {
     ["screenshot-home.jpg", "file"],
     ["my-review.json", "file"],
     ["home.png", "file"],
+    ["research.md", "report"],
+    ["README.md", "report"],
+    ["research.md.bak", "file"],
+    ["sources.json", "file"],
   ])("%s -> %s", (name, kind) => {
     expect(artifactKindForFile(name)).toBe(kind);
   });

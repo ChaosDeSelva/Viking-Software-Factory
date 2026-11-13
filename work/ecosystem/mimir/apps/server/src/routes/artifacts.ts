@@ -48,7 +48,10 @@ export function artifactRoutes(app: FastifyInstance, maxBytes = DEFAULT_MAX_ARTI
       });
     }
     return reply
-      .header("content-type", artifactContentType(artifact.kind))
+      .header(
+        "content-type",
+        artifactContentType(artifact.kind, ctx.readModel.artifactNames.get(id)),
+      )
       .header("content-length", String(file.bytes))
       .header("x-artifact-hash", artifact.hash)
       .header("x-content-type-options", "nosniff")

@@ -77,6 +77,12 @@ function assertOutsideDataDirs(root: string, dataDirs: readonly string[]): void 
 }
 /** Directory under the worktree root holding Mimir's private scratch repositories. */
 export const SCRATCH_DIR = ".mimir-scratch";
+/**
+ * Read-only copies of dependency results that Mimir places in a worktree before the agent
+ * starts. Left out of every snapshot, so never part of a diff, manifest or result commit.
+ */
+export const INPUTS_DIR = ".mimir/inputs";
+const isInput = (p: string) => p === INPUTS_DIR || p.startsWith(`${INPUTS_DIR}/`);
 
 export const OwnerClaimSchema = z.object({
   taskId: TaskIdSchema,
@@ -1042,9 +1048,13 @@ export class GitManager {
       );
     }
     const head = await scratch.treeEntries(headSha);
-    const paths = new Set([...listed.stdout.split("\0").filter(Boolean), ...head.keys()]);
+    const paths = new Set(
+      [...listed.stdout.split("\0").filter(Boolean), ...head.keys()].filter((p) => !isInput(p)),
+    );
     const snap = await scratch.snapshot(path, headSha, [...paths].sort(), new Set([OWNER_FILE]));
-    const changed = new Set([...snap.changed, ...(await this.indexChanges(path, head))]);
+    const changed = new Set(
+      [...snap.changed, ...(await this.indexChanges(path, head))].filter((p) => !isInput(p)),
+    );
     return { headSha, tree: snap.tree, changed: [...changed].sort() };
   }
 
@@ -1173,18 +1183,20 @@ export class GitManager {
     });
   }
 
+  /** Adds the owner file and the inputs directory to the repository's `info/exclude`. */
   private async ensureOwnerFileIgnored(repoPath: string): Promise<void> {
     const r = await git(repoPath, ["rev-parse", "--git-common-dir"]);
     const raw = r.stdout.trim();
     const commonDir = isAbsolute(raw) ? raw : resolve(repoPath, raw);
     const infoDir = join(commonDir, "info");
     const exclude = join(infoDir, "exclude");
-    const line = `/${OWNER_FILE}`;
     const current = await readFile(exclude, "utf8").catch(() => "");
-    if (current.split(/\r?\n/).includes(line)) return;
+    const present = new Set(current.split(/\r?\n/));
+    const missing = [`/${OWNER_FILE}`, `/${INPUTS_DIR}/`].filter((l) => !present.has(l));
+    if (missing.length === 0) return;
     await mkdir(infoDir, { recursive: true });
     const sep = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
-    await appendFile(exclude, `${sep}${line}\n`);
+    await appendFile(exclude, `${sep}${missing.join("\n")}\n`);
   }
 
   /** Commit that work must be reachable from to count as merged: the live base ref, else baseSha. */

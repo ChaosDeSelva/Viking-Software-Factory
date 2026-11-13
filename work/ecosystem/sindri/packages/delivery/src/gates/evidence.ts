@@ -15,6 +15,8 @@ export interface RecordedArtifact {
   uri: string;
   hash: string;
   occurredAt: string;
+  /** The collected file's name (`.mimir/artifacts/<name>`), when Mimir recorded one. */
+  name: string | null;
 }
 
 export interface TestRun {
@@ -83,6 +85,7 @@ export function recordedArtifacts(
       uri: p.uri,
       hash: p.hash,
       occurredAt: e.occurredAt,
+      name: typeof p.name === "string" ? p.name : null,
     });
   }
   return out;

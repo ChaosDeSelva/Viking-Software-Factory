@@ -19,9 +19,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import { GateFailureList, ReasonCode } from "../components/ReasonCode.js";
 import type {
+  DeliveryDetail as DeliveryDetailWire,
   DeliveryReport,
   ExecutionSummary,
   PrDelivery,
+  TraceDocument,
   TraceNode,
 } from "../api/delivery-types.js";
 import { traceTree } from "../api/trace-tree.js";
@@ -40,7 +42,9 @@ import {
   textareaClass,
   Timestamp,
 } from "../components/ui.js";
-import { useApi, useLoad, useReportError, useStore } from "../store/context.js";
+import { useApi, useLoad, useReportError, useStore, type Loadable } from "../store/context.js";
+import { PrReviewDelivery } from "./PrReviewDelivery.js";
+import { ResearchDelivery } from "./ResearchDelivery.js";
 import { APPROVALS_LOCKED } from "./RunsScreen.js";
 
 /** "Delivery 2": numbered by creation within the project, so the list never leads with UUIDs. */
@@ -165,9 +169,50 @@ export function DeliveriesScreen() {
 
 function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
   const api = useApi();
+  const detail = useLoad(() => api.getDelivery(deliveryId), [deliveryId]);
+  // A reload keeps the loaded delivery on screen, so its tab, drafts and export state survive.
+  const last = useRef<DeliveryDetailWire | null>(null);
+  if (detail.state.status === "ready") last.current = detail.state.data;
+  const shown: Loadable<DeliveryDetailWire> =
+    detail.state.status === "loading" && last.current
+      ? { status: "ready", data: last.current }
+      : detail.state;
+  return (
+    <LoadState state={shown} what="delivery" onRetry={detail.reload}>
+      {(d) => {
+        const kind = d.report.workKind ?? "change";
+        if (kind === "research" && d.report.research)
+          return <ResearchDelivery deliveryId={deliveryId} detail={d} reload={detail.reload} />;
+        if (kind === "pr_review" && d.report.review)
+          return <PrReviewDelivery deliveryId={deliveryId} detail={d} reload={detail.reload} />;
+        return (
+          <ChangeDelivery
+            deliveryId={deliveryId}
+            d={d}
+            reload={detail.reload}
+            unknownKind={kind === "change" ? null : String(kind)}
+          />
+        );
+      }}
+    </LoadState>
+  );
+}
+
+function ChangeDelivery({
+  deliveryId,
+  d,
+  reload,
+  unknownKind,
+}: {
+  deliveryId: string;
+  d: DeliveryDetailWire;
+  reload: () => void;
+  unknownKind: string | null;
+}) {
+  const api = useApi();
   const { dispatch } = useStore();
   const report = useReportError();
-  const detail = useLoad(() => api.getDelivery(deliveryId), [deliveryId]);
+  const detail = { reload };
   const trace = useLoad(() => api.deliveryTrace(deliveryId), [deliveryId], { live: false });
   const local = useLoad(() => api.localDelivery(deliveryId), [deliveryId], { live: false });
   const [busy, setBusy] = useState(false);
@@ -208,234 +253,231 @@ function DeliveryDetail({ deliveryId }: { deliveryId: string }) {
       });
   };
 
+  const r = d.report;
+  const pendingExports =
+    exportRequest?.prs.filter((p) => p.status === "awaiting_approval" && p.approvalId) ?? [];
   return (
-    <LoadState state={detail.state} what="delivery" onRetry={detail.reload}>
-      {(d) => {
-        const r = d.report;
-        const pendingExports =
-          exportRequest?.prs.filter((p) => p.status === "awaiting_approval" && p.approvalId) ?? [];
-        return (
-          <div className="flex min-w-0 flex-col gap-6">
-            <Stack gap={3}>
-              <Cluster gap={3} justify="between" align="start">
-                <Cluster gap={3} className="min-w-0">
-                  <DetailHeading>{r.spec.title}</DetailHeading>
-                  <Status value={r.status} domain="delivery" size="md" />
-                </Cluster>
-                <Cluster gap={2}>
-                  <Button variant="secondary" disabled={busy} onClick={reassess}>
-                    {assessing ? "Re-running quality checks…" : "Re-run quality checks"}
-                  </Button>
-                  <Button
-                    disabled={busy}
-                    {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
-                    aria-describedby="pr-hint"
-                    onClick={exportResult}
-                  >
-                    Export local result
-                  </Button>
-                </Cluster>
-              </Cluster>
-              <p id="pr-hint" className="text-sm text-muted">
-                Exporting requires passing quality gates and delivery approval. Download the patch
-                and apply it in your project folder. GitHub is not required.
-              </p>
-              <KeyValue
-                items={[
-                  { label: "Spec", term: "Spec", value: `Version ${r.spec.version}` },
-                  { label: "Plan", term: "Plan", value: `Version ${r.plan.version}` },
-                  {
-                    label: "Mission",
-                    term: "Mission",
-                    value: <Id value={r.missionId} label="Mission ID" />,
-                  },
-                  { label: "Built", value: <Timestamp value={r.createdAt} /> },
-                ]}
-              />
-              {locked ? (
-                <Callout tone="info" title="Approvals are locked">
-                  <ApprovalUnlock
-                    id="pr-approval-code"
-                    onUnlocked={() => setUnlockTick((n) => n + 1)}
-                  />
-                </Callout>
-              ) : null}
-            </Stack>
-            <Tabs
-              label="Delivery sections"
-              value={tab}
-              onValueChange={setTab}
-              items={[
-                { value: "report", label: "Report", content: <Report report={r} /> },
-                {
-                  value: "export",
-                  label: "Local export",
-                  ...(pendingExports.length ? { count: pendingExports.length } : {}),
-                  content: (
-                    <Stack gap={6}>
-                      {pendingExports.length > 0 ? (
-                        <Callout tone="warning" title="Approve the local export">
-                          <Cluster gap={2}>
-                            {pendingExports.map((p) => (
-                              <Button
-                                key={p.approvalId}
-                                disabled={busy}
-                                {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
-                                onClick={() => {
-                                  setBusy(true);
-                                  api
-                                    .decideApproval(
-                                      deliveryId,
-                                      p.approvalId!,
-                                      "approved",
-                                      "Approve verified local export",
-                                    )
-                                    .then(() => api.requestPr(deliveryId))
-                                    .then(setExportRequest, report)
-                                    .finally(() => {
-                                      setBusy(false);
-                                      local.reload();
-                                      detail.reload();
-                                    });
-                                }}
-                              >
-                                Approve local export: {p.planTaskId}
-                              </Button>
-                            ))}
-                          </Cluster>
-                        </Callout>
-                      ) : null}
-                      <Card
-                        title="Local result"
-                        term="Local export"
-                        description="The verified change as a patch for your project folder."
-                      >
-                        <LoadState state={local.state} what="local result" onRetry={local.reload}>
-                          {(result) =>
-                            result ? (
-                              <Stack gap={4}>
-                                <KeyValue
-                                  items={[
-                                    {
-                                      label: "Project folder",
-                                      value: (
-                                        <code className="text-xs [overflow-wrap:anywhere]">
-                                          {result.repoPath}
-                                        </code>
-                                      ),
-                                    },
-                                    {
-                                      label: "Verified result",
-                                      value: <Id value={result.resultCommit} label="Commit" />,
-                                    },
-                                  ]}
-                                />
-                                {result.followUp ? (
-                                  <PatchBlock
-                                    title="Follow-up only — use this if you already applied the earlier delivery"
-                                    note={`Only what changed since the earlier delivery's result (${result.followUp.baseSha}). It applies on top of that result, not on a project without it.`}
-                                    patch={result.followUp.patch}
-                                    fileName="follow-up.patch"
-                                    name="follow-up patch"
-                                  />
-                                ) : null}
-                                <PatchBlock
-                                  title={
-                                    result.followUp ? "Full patch — the whole change" : "Patch"
-                                  }
-                                  note="The exact patch, complete and unaltered. Download or copy it, then apply it with the command below."
-                                  patch={result.patch}
-                                  fileName="result.patch"
-                                  name="patch"
-                                />
-                                <CodeBlock
-                                  title="Apply — from the project folder, using the downloaded patch path"
-                                  code={result.apply}
-                                />
-                                <CodeBlock title="Undo the same patch" code={result.undo} />
-                              </Stack>
-                            ) : (
-                              <Empty
-                                body="Export the local result once the quality gates pass."
-                                action={
-                                  <Button
-                                    disabled={busy}
-                                    {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
-                                    onClick={exportResult}
-                                  >
-                                    Export now
-                                  </Button>
-                                }
-                              >
-                                No approved local export yet.
-                              </Empty>
-                            )
+    <div className="flex min-w-0 flex-col gap-6">
+      {unknownKind ? (
+        <Callout tone="info" title="Unrecognised kind of work">
+          This delivery is of a kind this version of Sindri does not know ({unknownKind}). It is
+          shown as a code change; some sections may be empty.
+        </Callout>
+      ) : null}
+      <Stack gap={3}>
+        <Cluster gap={3} justify="between" align="start">
+          <Cluster gap={3} className="min-w-0">
+            <DetailHeading>{r.spec.title}</DetailHeading>
+            <Status value={r.status} domain="delivery" size="md" />
+          </Cluster>
+          <Cluster gap={2}>
+            <Button variant="secondary" disabled={busy} onClick={reassess}>
+              {assessing ? "Re-running quality checks…" : "Re-run quality checks"}
+            </Button>
+            <Button
+              disabled={busy}
+              {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
+              aria-describedby="pr-hint"
+              onClick={exportResult}
+            >
+              Export local result
+            </Button>
+          </Cluster>
+        </Cluster>
+        <p id="pr-hint" className="text-sm text-muted">
+          Exporting requires passing quality gates and delivery approval. Download the patch and
+          apply it in your project folder. GitHub is not required.
+        </p>
+        <KeyValue
+          items={[
+            { label: "Spec", term: "Spec", value: `Version ${r.spec.version}` },
+            { label: "Plan", term: "Plan", value: `Version ${r.plan.version}` },
+            {
+              label: "Mission",
+              term: "Mission",
+              value: <Id value={r.missionId} label="Mission ID" />,
+            },
+            { label: "Built", value: <Timestamp value={r.createdAt} /> },
+          ]}
+        />
+        {locked ? (
+          <Callout tone="info" title="Approvals are locked">
+            <ApprovalUnlock id="pr-approval-code" onUnlocked={() => setUnlockTick((n) => n + 1)} />
+          </Callout>
+        ) : null}
+      </Stack>
+      <Tabs
+        label="Delivery sections"
+        value={tab}
+        onValueChange={setTab}
+        items={[
+          { value: "report", label: "Report", content: <Report report={r} /> },
+          {
+            value: "export",
+            label: "Local export",
+            ...(pendingExports.length ? { count: pendingExports.length } : {}),
+            content: (
+              <Stack gap={6}>
+                {pendingExports.length > 0 ? (
+                  <Callout tone="warning" title="Approve the local export">
+                    <Cluster gap={2}>
+                      {pendingExports.map((p) => (
+                        <Button
+                          key={p.approvalId}
+                          disabled={busy}
+                          {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
+                          onClick={() => {
+                            setBusy(true);
+                            api
+                              .decideApproval(
+                                deliveryId,
+                                p.approvalId!,
+                                "approved",
+                                "Approve verified local export",
+                              )
+                              .then(() => api.requestPr(deliveryId))
+                              .then(setExportRequest, report)
+                              .finally(() => {
+                                setBusy(false);
+                                local.reload();
+                                detail.reload();
+                              });
+                          }}
+                        >
+                          Approve local export: {p.planTaskId}
+                        </Button>
+                      ))}
+                    </Cluster>
+                  </Callout>
+                ) : null}
+                <Card
+                  title="Local result"
+                  term="Local export"
+                  description="The verified change as a patch for your project folder."
+                >
+                  <LoadState state={local.state} what="local result" onRetry={local.reload}>
+                    {(result) =>
+                      result ? (
+                        <Stack gap={4}>
+                          <KeyValue
+                            items={[
+                              {
+                                label: "Project folder",
+                                value: (
+                                  <code className="text-xs [overflow-wrap:anywhere]">
+                                    {result.repoPath}
+                                  </code>
+                                ),
+                              },
+                              {
+                                label: "Verified result",
+                                value: <Id value={result.resultCommit} label="Commit" />,
+                              },
+                            ]}
+                          />
+                          {result.followUp ? (
+                            <PatchBlock
+                              title="Follow-up only — use this if you already applied the earlier delivery"
+                              note={`Only what changed since the earlier delivery's result (${result.followUp.baseSha}). It applies on top of that result, not on a project without it.`}
+                              patch={result.followUp.patch}
+                              fileName="follow-up.patch"
+                              name="follow-up patch"
+                            />
+                          ) : null}
+                          <PatchBlock
+                            title={result.followUp ? "Full patch — the whole change" : "Patch"}
+                            note="The exact patch, complete and unaltered. Download or copy it, then apply it with the command below."
+                            patch={result.patch}
+                            fileName="result.patch"
+                            name="patch"
+                          />
+                          <CodeBlock
+                            title="Apply — from the project folder, using the downloaded patch path"
+                            code={result.apply}
+                          />
+                          <CodeBlock title="Undo the same patch" code={result.undo} />
+                        </Stack>
+                      ) : (
+                        <Empty
+                          body="Export the local result once the quality gates pass."
+                          action={
+                            <Button
+                              disabled={busy}
+                              {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
+                              onClick={exportResult}
+                            >
+                              Export now
+                            </Button>
                           }
-                        </LoadState>
-                      </Card>
-                      <Card
-                        title="Delivery summary"
-                        term="Delivery report"
-                        description="Markdown summary to paste into a ticket or pull request."
-                        actions={
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() =>
-                              navigator.clipboard
-                                .writeText(d.prDescription)
-                                .then(
-                                  () => notify("Delivery summary copied to the clipboard"),
-                                  report,
-                                )
-                            }
-                          >
-                            Copy summary
-                          </Button>
-                        }
-                      >
-                        <section aria-label="Delivery description">
-                          <pre
-                            tabIndex={0}
-                            className="max-h-80 overflow-auto rounded-md bg-sunken p-3 font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]"
-                          >
-                            {d.prDescription}
-                          </pre>
-                        </section>
-                      </Card>
-                    </Stack>
-                  ),
-                },
-                {
-                  value: "changes",
-                  label: "Request changes",
-                  content: <RequestChanges deliveryId={deliveryId} />,
-                },
-                {
-                  value: "trace",
-                  label: "Trace",
-                  content: (
-                    <Card
-                      title="Trace"
-                      term="Trace"
-                      description="Ticket → spec → plan → mission → tasks, with their artifacts and events."
+                        >
+                          No approved local export yet.
+                        </Empty>
+                      )
+                    }
+                  </LoadState>
+                </Card>
+                <Card
+                  title="Delivery summary"
+                  term="Delivery report"
+                  description="Markdown summary to paste into a ticket or pull request."
+                  actions={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        navigator.clipboard
+                          .writeText(d.prDescription)
+                          .then(() => notify("Delivery summary copied to the clipboard"), report)
+                      }
                     >
-                      <LoadState state={trace.state} what="trace" onRetry={trace.reload}>
-                        {(doc) => (
-                          <ul aria-label="Trace" className="min-w-0 text-sm">
-                            <TraceItem node={traceTree(doc)} />
-                          </ul>
-                        )}
-                      </LoadState>
-                    </Card>
-                  ),
-                },
-              ]}
-            />
-          </div>
-        );
-      }}
-    </LoadState>
+                      Copy summary
+                    </Button>
+                  }
+                >
+                  <section aria-label="Delivery description">
+                    <pre
+                      tabIndex={0}
+                      className="max-h-80 overflow-auto rounded-md bg-sunken p-3 font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]"
+                    >
+                      {d.prDescription}
+                    </pre>
+                  </section>
+                </Card>
+              </Stack>
+            ),
+          },
+          {
+            value: "changes",
+            label: "Request changes",
+            content: <RequestChanges deliveryId={deliveryId} />,
+          },
+          {
+            value: "trace",
+            label: "Trace",
+            content: <TraceCard state={trace.state} reload={trace.reload} />,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/** Ticket → spec → plan → mission → tasks, from a loaded trace. */
+function TraceCard({ state, reload }: { state: Loadable<TraceDocument>; reload: () => void }) {
+  return (
+    <Card
+      title="Trace"
+      term="Trace"
+      description="Ticket → spec → plan → mission → tasks, with their artifacts and events."
+    >
+      <LoadState state={state} what="trace" onRetry={reload}>
+        {(doc) => (
+          <ul aria-label="Trace" className="min-w-0 text-sm">
+            <TraceItem node={traceTree(doc)} />
+          </ul>
+        )}
+      </LoadState>
+    </Card>
   );
 }
 

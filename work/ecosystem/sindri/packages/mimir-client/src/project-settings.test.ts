@@ -129,6 +129,28 @@ describe("ensureProject with an execution profile", () => {
     expect(project.settings).toEqual({ protectedBranches: ["main"], ...SETTINGS });
   });
 
+  it("names a project and takes its settings from another repository's profile", async () => {
+    const asked: string[] = [];
+    const { facade, fake, patches } = await boot({
+      projectSettingsFor: (p) => {
+        asked.push(p);
+        return p === "/repos/app" ? SETTINGS : undefined;
+      },
+    });
+    await facade.ensureProject(
+      "/mirrors/app",
+      {},
+      { name: "review: o/app", profileOf: "/repos/app" },
+    );
+    expect(asked).toEqual(["/repos/app"]);
+    expect(created(fake)).toEqual([
+      { name: "review: o/app", repoPath: "/mirrors/app", settings: SETTINGS },
+    ]);
+    // Reusing it keeps the settings in step (no patch when they already match).
+    await facade.ensureProject("/mirrors/app", {}, { profileOf: "/repos/app" });
+    expect(patches).toHaveLength(0);
+  });
+
   it("reads the profile of the Sindri project stored for the repository by default", async () => {
     const { facade, fake, db } = await boot();
     const knowledge = openKnowledge(db);

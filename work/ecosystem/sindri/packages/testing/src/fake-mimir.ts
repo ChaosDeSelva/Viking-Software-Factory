@@ -79,7 +79,10 @@ import { z } from "zod";
 export type TaskStep =
   | {
       kind: "complete";
-      /** Artifact kinds recorded before `task.completed`. Default test.output, diff, changed-files. */
+      /**
+       * Artifact kinds recorded before `task.completed`. Default test.output, diff, changed-files.
+       * `kind@name` also records the collected file name (e.g. `report@research.md`).
+       */
       artifacts?: string[];
       /** Content per artifact kind; defaults are generated (`changed-files` carries `headSha`). */
       contents?: Record<string, string | ((taskId: string) => string)>;
@@ -425,8 +428,9 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
     transition(st, "task.verifying", "verifying");
     later(() => {
       emit("test.run_completed", { command: "pnpm test", passed: true, total: 1, failed: 0 }, refs);
-      for (const kind of step.artifacts ?? ["diff", "changed-files", "test.output"]) {
-        const given = step.contents?.[kind];
+      for (const entry of step.artifacts ?? ["diff", "changed-files", "test.output"]) {
+        const [kind, name] = entry.split("@") as [string, string | undefined];
+        const given = step.contents?.[entry];
         const content =
           (typeof given === "function" ? given(st.task.id) : given) ??
           (kind === "changed-files"
@@ -456,6 +460,7 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
             kind,
             uri: artifact.uri,
             hash: artifact.hash,
+            ...(name ? { name } : {}),
           },
           refs,
         );
@@ -519,6 +524,7 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       maxAttempts,
       agentId: null,
       leaseExpiresAt: null,
+      ...(req.mode ? { mode: req.mode } : {}),
     };
     tasks.set(task.id, {
       task,
@@ -594,16 +600,14 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       return { status: 200, body: ListMissionsResponseSchema.parse({ missions: list }) };
     },
     "POST /v1/missions": ({ body }) => {
-      // `baseCommits` is newer than the vendored protocol's strict schema; the real server takes it.
-      const known = { ...((body ?? {}) as Record<string, unknown>) };
-      delete known["baseCommits"];
-      const req = parseWith(CreateMissionRequestSchema, known, "body");
+      const req = parseWith(CreateMissionRequestSchema, body ?? {}, "body");
       need(projects, req.projectId, "project");
       const mission: Mission = {
         ...base(newId("msn")),
         projectId: req.projectId,
         objective: req.objective,
         status: "draft",
+        ...(req.baseCommits?.length ? { baseCommits: [...req.baseCommits] } : {}),
       };
       // Like Mimir, all or nothing: every task is checked before the mission exists.
       const batch = new Set<string>();

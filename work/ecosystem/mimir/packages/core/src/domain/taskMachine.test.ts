@@ -36,6 +36,7 @@ const EVENTS: Record<TaskEvent["type"], TaskEvent> = {
   approval_granted: { type: "approval_granted" },
   cancel: { type: "cancel" },
   runtime_failed: { type: "runtime_failed", reason: "crash" },
+  failed_permanently: { type: "failed_permanently", reason: "workspace_invalid" },
   runtime_lost: { type: "runtime_lost" },
   lease_expired: { type: "lease_expired" },
   retry: { type: "retry" },
@@ -137,6 +138,10 @@ const ALLOWED: ReadonlyArray<[State, TaskEvent["type"], TaskStatus]> = [
   ["leased", "launch_deferred", "ready"],
   // the next attempt after a failed verification waits for a worker instead of failing
   ["verifying", "verification_deferred", "ready"],
+  // an attempt that can never succeed fails with no attempts left
+  ["leased", "failed_permanently", "failed"],
+  ["running", "failed_permanently", "failed"],
+  ["verifying", "failed_permanently", "failed"],
 ];
 
 it("launch_deferred gives the lease back without using an attempt", () => {
@@ -455,5 +460,16 @@ describe("helpers", () => {
     ["pending", 0, false],
   ] as const)("isTaskSettled(%s, attempt=%i of 3)=%s", (status, attempt, want) => {
     expect(isTaskSettled(makeTask({ status, attempt, maxAttempts: 3 }))).toBe(want);
+  });
+});
+
+describe("failed_permanently", () => {
+  it("fails with no attempts left, so it is settled and not retryable", () => {
+    const task = makeTask({ status: "running", attempt: 0, maxAttempts: 3 });
+    const next = taskMachine.transition(task, { type: "failed_permanently", reason: "x" });
+    expect(next.status).toBe("failed");
+    expect(attemptsLeft(next)).toBe(false);
+    expect(isTaskSettled(next)).toBe(true);
+    expect(taskMachine.can(next, "retry")).toBe(false);
   });
 });

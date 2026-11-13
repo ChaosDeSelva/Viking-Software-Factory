@@ -12,7 +12,7 @@ bash scripts/build-app.sh
 open 'dist/Viking Factory.app'
 ```
 
-The app uses a V menu bar item. Its window provides bundle installation, health checks, service controls, private access codes, update checks, rollback, local logs and metadata diagnostics. Quitting the companion leaves managed services running. Use Stop services to stop them. Launch at login is optional.
+The app uses a V menu bar item. Its companion window provides bundle installation, health checks, service controls, private access codes, update checks, rollback, local logs and metadata diagnostics. Open Heimdall (or Open Factory Window, Command-O) shows the factory's web pages in one app window with a tab each for Heimdall, Sindri, Mimir, Skidbladnir and the docs; Command-1 to Command-5 switch tabs. Sign-ins there persist across launches, downloads are saved to Downloads, and the app appears in the Dock while that window is open. Links outside the factory open in your default browser, and Open in browser under More options or in the window's toolbar opens a page there instead. Build with `VIKING_DEBUG=1` to enable Safari's Web Inspector for these pages; such builds cannot be signed for distribution. Quitting the companion leaves managed services running. Use Stop services to stop them. Launch at login is optional.
 
 The CLI is at `target/release/viking`, and is also embedded in the app at `Contents/Resources/viking`.
 

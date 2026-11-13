@@ -5,7 +5,9 @@ When a task's agent finishes, the task enters `verifying`. In that step Mimir, i
 1. Records the worktree's `diff` and `changed-files` manifest (base and head commit, including uncommitted edits).
 2. Collects files the agent left under `<worktree>/.mimir/artifacts/` (top level only):
    `review.json` as `review`, `screenshot-*.png` as `screenshot`, `*.log` as `test.output`,
-   anything else as `file`. Each entry is `lstat`ed; symlinks (also a symlinked `.mimir` or
+   `*.md` as `report` (served as `text/markdown`), anything else as `file`. A `review` or `file`
+   whose name ends in `.json` (e.g. `review.json`, `sources.json`) is served as
+   `application/json`. Each entry is `lstat`ed; symlinks (also a symlinked `.mimir` or
    `artifacts` directory), directories, FIFOs and devices are skipped. Limits: 8 MB per file,
    64 MB in total, the first 200 entries by name. Text is redacted before it is stored. Each file
    is an `artifact.recorded` event (provenance `observed`, source `mimir.server`, SHA-256 of the
@@ -13,6 +15,48 @@ When a task's agent finishes, the task enters `verifying`. In that step Mimir, i
    (`symlink`, `not_a_file`, `file_too_large`, `total_too_large`, `unreadable`,
    `outside_worktree`); more than 200 entries emit one `artifact.collection_truncated`.
 3. Runs the verifier with the task id, mission id, worktree, base commit and observed head.
+
+## Task modes
+
+A task created with `mode` (see `TaskMode` in [api.md](api.md)) changes this step:
+
+- `deliverable: "document"`: no verifier runs. The brief ends with a contract asking for the
+  deliverable as Markdown in `.mimir/artifacts/<name>.md` (or `review.json` for a review) and no
+  source changes. Mimir records `diff` and `changed-files` for transparency and collects the
+  artifacts as above. With at least one `report` (`*.md`) or `review` (`review.json`) collected
+  in this attempt the task completes with
+  `task.completed.verificationSkipped: "document_deliverable"` and the worktree's base commit as
+  `resultCommit`; worktree edits are never committed. Without one the attempt fails with
+  `task.failed.reason: "document_missing"`; it is retried while attempts are left, and the next
+  attempt's brief says that no report artifact was produced. A document task cannot be delivered
+  (`POST /v1/tasks/{id}/pr`) or rechecked.
+- `access: "read"` (only with `deliverable: "document"`; `{ access: "read", deliverable: "diff" }`
+  is refused with a validation error): Claude runs with the `default` permission mode and only
+  `Read`, `Grep`, `Glob`, `git diff/log/show/status` and `Write`/`Edit` under
+  `.mimir/artifacts/`. Codex keeps `workspace-write` (so it can write artifacts); its edits are
+  discarded as for any document task.
+- `network: "web"`: Claude also gets `WebSearch` and `WebFetch`; Codex gets
+  `sandbox_workspace_write.network_access=true` whatever the project setting.
+
+### Before every attempt
+
+Before each session starts (any mode), Mimir prepares the worktree's `.mimir`:
+
+- `.mimir` must be a directory (or absent). A symlink or a file there fails the task with
+  `task.failed.reason: "workspace_invalid: ..."` and `retryable: false`: no attempt is used up
+  retrying it.
+- The top-level files of `.mimir/artifacts/` are removed: earlier attempts' files were collected
+  already, or belong to a failed attempt. Only what this attempt leaves is collected.
+- `.mimir/inputs/` is replaced. Because a document task's result commit is its base, its output
+  reaches dependent tasks as files: per completed dependency, the `report` artifacts (`*.md`),
+  `sources.json` and `review.json` recorded by its completing attempt, copied from the stored
+  (redacted) artifacts, never from the dependency's worktree. Each dependency gets
+  `.mimir/inputs/<slug>/`, the slug of its title (lowercase, non-alphanumerics as `-`, at most 60
+  characters; `-<last 8 characters of its id>` on a collision). The agent's brief lists the
+  files, and `session.requested.inputs` lists them as `{ dependencyTaskId, dir, files }`.
+  `.mimir/inputs/` is in the repository's `info/exclude`, is left out of `diff`,
+  `changed-files` and result commits, and is not collected (only the top level of
+  `.mimir/artifacts/` is).
 
 ## Verifiers
 

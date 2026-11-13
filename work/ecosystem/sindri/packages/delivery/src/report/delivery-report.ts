@@ -27,7 +27,30 @@ import type {
   MimirActions,
   PrRequestResult,
 } from "../gates/ports.js";
-import type { ReviewFinding, ReviewRecord } from "../review/review-orchestrator.js";
+import {
+  ReviewFileSchema,
+  type ReviewFinding,
+  type ReviewRecord,
+} from "../review/review-orchestrator.js";
+import {
+  readResearchArtifacts,
+  ResearchSourceSchema,
+  type ResearchSource,
+} from "../gates/research.js";
+import type { GuidanceView, PlanView, PrDiffReader, ResearchSourcesView } from "../gates/ports.js";
+import {
+  currentDraft,
+  parseChangedHunks,
+  parsePrReview,
+  placeFindings,
+  readPrReviewArtifacts,
+  type ChangedHunks,
+  type PlacedFinding,
+  type PrReviewFile,
+  type PrReviewVerdict,
+  type ReviewDraft,
+} from "../review/pr-review.js";
+import { PrReviewStore, type ReviewPost } from "../review/pr-review-store.js";
 import { validateCitations, type CitedSentence, type StrippedSentence } from "./citations.js";
 
 /** A JSON manifest of changed files (`{ files: [{ path, status? }] }` or `string[]`). */
@@ -112,6 +135,103 @@ export interface DeliveryReport {
     commits: { eventId: string; planTaskId: string | null; sha: string; branch: string }[];
     note: string;
   };
+  /** `change` for plans from before work kinds. */
+  workKind: "change" | "research" | "pr_review";
+  /** Absent when the plan carried no guidance. */
+  guidance?: GuidanceUsed;
+  /** Research deliveries only. */
+  research?: ResearchReport;
+  /** PR review deliveries only. */
+  review?: PrReviewReport;
+}
+
+/** The review part of a PR review delivery, read from recorded artifacts only. */
+export interface PrReviewReport {
+  pr: {
+    owner: string;
+    repo: string;
+    number: number;
+    url: string;
+    title: string;
+    baseSha: string;
+    headSha: string;
+    /** Where the head branched from the base; LEFT-side finding lines refer to it. */
+    mergeBaseSha: string | null;
+  };
+  /** The primary reviewer's task. */
+  planTaskId: string | null;
+  /** The agent's verdict (the draft starts at `comment` regardless). */
+  verdict: PrReviewVerdict | null;
+  summary: string;
+  /** review.md of the primary reviewer. */
+  markdown: string | null;
+  reviewArtifactId: string | null;
+  markdownArtifactId: string | null;
+  /** Every reviewer's findings, placed inline or general; none dropped. */
+  findings: PlacedFinding[];
+  /** One entry per reviewer task (the PR reviewer, then a security reviewer if planned). */
+  reviews: {
+    planTaskId: string;
+    role: string;
+    verdict: PrReviewVerdict | null;
+    summary: string;
+    markdown: string | null;
+    gatePassed: boolean | null;
+    /** The Mimir task (the original or a repair task) whose review.json was read. */
+    taskId: string | null;
+  }[];
+  /** All reviewer gates passed. */
+  gatePassed: boolean;
+  gateFailures: GateFailure[];
+  /** False when the diff could not be read from the mirror (every located finding is general). */
+  hunksAvailable: boolean;
+  /** The operator's current draft (what would be posted); added when the report is read. */
+  draft?: ReviewDraft;
+  /** The posted review, once posted; added when the report is read. */
+  posted?: ReviewPost | null;
+}
+
+/** Which operator guidance a delivery's briefs carried: names and digests, never skill text. */
+export interface GuidanceUsed {
+  skills: { id: string; name: string; digest: string }[];
+  omitted: { id: string; name: string; digest: string }[];
+  projectNotes: string;
+  requestNotes: string;
+  projectNotesDigest: string | null;
+  requestNotesDigest: string | null;
+}
+
+export type DocumentDecision = "accepted" | "rejected";
+
+/** A source of a research document. `private` marks operator lessons, which stay local. */
+export type ReportSource = ResearchSource & { private?: true };
+
+/** The document part of a research delivery, read from recorded artifacts only. */
+export interface ResearchReport {
+  question: string | null;
+  sourcesAllowed: ResearchSourcesView;
+  planTaskId: string | null;
+  /** `taskId`: the Mimir task (the original or a repair task) that recorded the document. */
+  document: { markdown: string; artifactId: string; taskId: string | null } | null;
+  sources: ReportSource[];
+  sourcesArtifactId: string | null;
+  /** True when a lesson is cited: the document carries private operator context. */
+  containsPrivateSources: boolean;
+  /** The research task's latest gate evaluation. */
+  gate: { passed: boolean; failures: GateFailure[] } | null;
+  factCheck: {
+    planTaskId: string;
+    verdict: "approve" | "request_changes" | null;
+    findings: ReviewFinding[];
+    reviewArtifactId: string | null;
+    gatePassed: boolean | null;
+  } | null;
+  decision: {
+    decision: DocumentDecision;
+    actor: string;
+    reason: string | null;
+    decidedAt: string;
+  } | null;
 }
 
 export interface PrDelivery {
@@ -132,13 +252,17 @@ export type DeliveryErrorCode =
   | "unknown_spec"
   | "unknown_delivery"
   | "gates_not_passed"
-  | "nothing_to_deliver";
+  | "nothing_to_deliver"
+  | "not_exportable"
+  | "not_a_document"
+  | "already_decided";
 
 export class DeliveryError extends Error {
   override readonly name = "DeliveryError";
   constructor(
     readonly code: DeliveryErrorCode,
     message: string,
+    readonly details?: unknown,
   ) {
     super(message);
   }
@@ -152,8 +276,14 @@ export interface DeliveryReportsOptions {
   context: ContextReader;
   /** Used for the implementation summary only, from evidence text only. */
   provider: LlmProvider;
-  gates: { latest(executionId: string, planTaskId: string): GateResult | undefined };
+  gates: {
+    latest(executionId: string, planTaskId: string): GateResult | undefined;
+    /** The plan task's Mimir task and its repair tasks (`GateRunner.lineage`). */
+    lineage?(executionId: string, planTaskId: string, mimirTaskId: string): string[];
+  };
   reviews: { list(executionId: string): ReviewRecord[] };
+  /** Reads a PR review's diff (for placing findings on changed lines). */
+  prDiff?: PrDiffReader;
   /** Roles whose worktrees become PRs. Default implementer and docs. */
   prRoles?: readonly string[];
   maxSummaryTokens?: number;
@@ -200,6 +330,7 @@ export class DeliveryReports {
   readonly #o: DeliveryReportsOptions;
   readonly #now: () => Date;
   readonly #trust: EvidenceTrust;
+  readonly #reviewStore: PrReviewStore;
 
   constructor(options: DeliveryReportsOptions) {
     this.#o = options;
@@ -207,6 +338,7 @@ export class DeliveryReports {
     this.#now = options.now ?? (() => new Date());
     this.#trust = evidenceTrust(options.trustedSources);
     ensureQualitySchema(this.#db);
+    this.#reviewStore = new PrReviewStore(this.#db, this.#now);
   }
 
   async build(executionId: string): Promise<DeliveryReport> {
@@ -367,15 +499,24 @@ export class DeliveryReports {
       };
     });
 
-    // Summary (provider, evidence only) ----------------------------------------------------------
-    const summary = await this.#summary(
-      tasks,
-      testResults,
-      reviewRecords,
-      events,
-      planIdOf,
-      limitations,
-    );
+    const workKind = plan.work?.kind ?? "change";
+    const research =
+      workKind === "research"
+        ? await this.#research(executionId, plan, tasks, execTasks, artifacts)
+        : undefined;
+    if (research && !research.document) limitations.push("no research document was recorded");
+    const review =
+      workKind === "pr_review"
+        ? await this.#prReview(executionId, plan, tasks, execTasks, artifacts)
+        : undefined;
+    if (review && !review.hunksAvailable)
+      limitations.push("the pull request's diff could not be read; located findings are general");
+
+    // Summary (provider, evidence only); a research document speaks for itself --------------------
+    const summary =
+      research || review
+        ? { sentences: [], stripped: [] }
+        : await this.#summary(tasks, testResults, reviewRecords, events, planIdOf, limitations);
 
     const row: DeliveryRow = {
       id: `dlv_${randomUUID()}`,
@@ -411,6 +552,10 @@ export class DeliveryReports {
       reviews,
       limitations,
       rollback,
+      workKind,
+      ...(plan.guidance ? { guidance: guidanceUsed(plan.guidance) } : {}),
+      ...(research ? { research } : {}),
+      ...(review ? { review } : {}),
     };
     row.report_json = JSON.stringify(report);
     this.#db
@@ -419,20 +564,102 @@ export class DeliveryReports {
          VALUES (@id, @execution_id, @project_id, @status, @report_json, @created_at, @delivered_at)`,
       )
       .run(row);
-    return report;
+    // The stored report never holds the decision, draft or post: they are read at return time.
+    return this.#withDecision(report);
   }
 
   get(deliveryId: string): DeliveryReport | undefined {
     const row = this.#db.prepare("SELECT * FROM deliveries WHERE id = ?").get(deliveryId) as
       DeliveryRow | undefined;
-    return row && fromRow(row);
+    return row && this.#withDecision(fromRow(row));
   }
 
   latestFor(executionId: string): DeliveryReport | undefined {
     const row = this.#db
       .prepare("SELECT * FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1")
       .get(executionId) as DeliveryRow | undefined;
-    return row && fromRow(row);
+    return row && this.#withDecision(fromRow(row));
+  }
+
+  /** The stored accept/reject decision of a document delivery. */
+  decision(executionId: string): ResearchReport["decision"] {
+    const r = this.#db
+      .prepare(
+        "SELECT decision, actor, reason, decided_at FROM document_decisions WHERE execution_id = ?",
+      )
+      .get(executionId) as
+      | { decision: DocumentDecision; actor: string; reason: string | null; decided_at: string }
+      | undefined;
+    return r
+      ? { decision: r.decision, actor: r.actor, reason: r.reason, decidedAt: r.decided_at }
+      : null;
+  }
+
+  /**
+   * Ends a document delivery with a human decision. Accepting needs every quality gate passed;
+   * a decision is final.
+   */
+  async decide(
+    executionId: string,
+    input: { decision: DocumentDecision; actor: string; reason?: string },
+  ): Promise<DeliveryReport> {
+    const execution = await this.#o.executions.execution(executionId);
+    if (!execution)
+      throw new DeliveryError("unknown_execution", `unknown execution ${executionId}`);
+    if (execution.plan.work?.kind !== "research")
+      throw new DeliveryError("not_a_document", "only a document delivery is accepted or rejected");
+    const decided = () =>
+      new DeliveryError("already_decided", "this document was already accepted or rejected", {
+        decision: this.decision(executionId),
+      });
+    if (this.decision(executionId)) throw decided();
+    if (input.decision === "accepted") {
+      const blocked = execution.plan.tasks.filter(
+        (t) => this.#o.gates.latest(executionId, t.id)?.passed !== true,
+      );
+      if (blocked.length > 0)
+        throw new DeliveryError(
+          "gates_not_passed",
+          `quality gates have not passed for: ${blocked.map((t) => t.id).join(", ")}`,
+        );
+    }
+    const report = this.latestFor(executionId) ?? (await this.build(executionId));
+    // The insert is the check: a decision that arrived while this one awaited the report wins.
+    const inserted = this.#db
+      .prepare(
+        `INSERT INTO document_decisions (execution_id, project_id, delivery_id, decision, actor,
+           reason, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(execution_id) DO NOTHING`,
+      )
+      .run(
+        executionId,
+        report.projectId,
+        report.id,
+        input.decision,
+        input.actor,
+        input.reason ?? null,
+        this.#now().toISOString(),
+      );
+    if (inserted.changes === 0) throw decided();
+    return this.#withDecision(report);
+  }
+
+  #withDecision(report: DeliveryReport): DeliveryReport {
+    if (report.review) {
+      const store = this.#reviewStore;
+      return {
+        ...report,
+        review: {
+          ...report.review,
+          draft: currentDraft(report.review, store.latestDraft(report.executionId)),
+          posted: store.posted(report.executionId),
+        },
+      };
+    }
+    if (!report.research) return report;
+    return {
+      ...report,
+      research: { ...report.research, decision: this.decision(report.executionId) },
+    };
   }
 
   prRequests(deliveryId: string): PrDelivery["prs"] {
@@ -473,6 +700,11 @@ export class DeliveryReports {
     const execution = await this.#o.executions.execution(executionId);
     if (!execution)
       throw new DeliveryError("unknown_execution", `unknown execution ${executionId}`);
+    if ((execution.plan.work?.kind ?? "change") !== "change")
+      throw new DeliveryError(
+        "not_exportable",
+        "this delivery is a document; accept or reject it instead of requesting a PR",
+      );
     const blocked = execution.plan.tasks.filter(
       (t) => this.#o.gates.latest(executionId, t.id)?.passed !== true,
     );
@@ -558,6 +790,170 @@ export class DeliveryReports {
   }
 
   // -------------------------------------------------------------------------------------------
+
+  /**
+   * The artifacts of a plan task's whole lineage (its Mimir task, then its repair tasks), as the
+   * gates read them: the latest recorded file wins, so a repaired document replaces the first.
+   */
+  #lineageArtifacts(
+    executionId: string,
+    planTaskId: string,
+    execTasks: { planTaskId: string; mimirTaskId: string }[],
+    artifacts: RecordedArtifact[],
+  ): RecordedArtifact[] {
+    const mimirTaskId = execTasks.find((t) => t.planTaskId === planTaskId)?.mimirTaskId;
+    if (!mimirTaskId) return [];
+    const lineage = new Set(
+      this.#o.gates.lineage?.(executionId, planTaskId, mimirTaskId) ?? [mimirTaskId],
+    );
+    return artifacts.filter((a) => lineage.has(a.taskId));
+  }
+
+  async #prReview(
+    executionId: string,
+    plan: PlanView,
+    tasks: DeliveryReport["tasks"],
+    execTasks: { planTaskId: string; mimirTaskId: string }[],
+    artifacts: RecordedArtifact[],
+  ): Promise<PrReviewReport> {
+    const pr = plan.work!.prReview!;
+    const gateOf = (id: string) => tasks.find((t) => t.planTaskId === id)?.gate ?? null;
+    const reviewers = plan.tasks.filter((t) => t.role === "reviewer" || t.role === "security");
+    const parsed: { planTaskId: string; review: PrReviewFile }[] = [];
+    const reviews: PrReviewReport["reviews"] = [];
+    let primary: { json: string | null; md: string | null; markdown: string | null } | null = null;
+    for (const t of reviewers) {
+      const own = this.#lineageArtifacts(executionId, t.id, execTasks, artifacts);
+      const read = await readPrReviewArtifacts(this.#o.mimir, this.#o.content, own);
+      const p = read.json ? parsePrReview(read.json.text) : null;
+      if (p?.ok) parsed.push({ planTaskId: t.id, review: p.review });
+      const gate = gateOf(t.id);
+      reviews.push({
+        planTaskId: t.id,
+        role: t.role,
+        verdict: p?.ok ? p.review.verdict : null,
+        summary: p?.ok ? p.review.summary : "",
+        markdown: read.markdown?.text ?? null,
+        gatePassed: gate ? gate.passed : null,
+        taskId: own.find((a) => a.artifactId === read.json?.artifactId)?.taskId ?? null,
+      });
+      primary ??= {
+        json: read.json?.artifactId ?? null,
+        md: read.markdown?.artifactId ?? null,
+        markdown: read.markdown?.text ?? null,
+      };
+    }
+    let hunks: ChangedHunks | null = null;
+    let mergeBaseSha: string | null = null;
+    if (this.#o.prDiff) {
+      try {
+        const read = await this.#o.prDiff.diff(plan.projectId, pr);
+        hunks = parseChangedHunks(read.diff);
+        mergeBaseSha = read.mergeBaseSha;
+      } catch {
+        hunks = null;
+      }
+    }
+    const first = reviews[0];
+    const gates = reviewers.map((t) => gateOf(t.id));
+    return {
+      pr: {
+        owner: pr.owner,
+        repo: pr.repo,
+        number: pr.number,
+        url: pr.url,
+        title: pr.title,
+        baseSha: pr.baseSha,
+        headSha: pr.headSha,
+        mergeBaseSha,
+      },
+      planTaskId: first?.planTaskId ?? null,
+      verdict: first?.verdict ?? null,
+      summary: first?.summary ?? "",
+      markdown: primary?.markdown ?? null,
+      reviewArtifactId: primary?.json ?? null,
+      markdownArtifactId: primary?.md ?? null,
+      findings: placeFindings(parsed, hunks, new Set(pr.files)),
+      reviews,
+      gatePassed: gates.length > 0 && gates.every((g) => g?.passed === true),
+      gateFailures: gates.flatMap((g) => g?.failures ?? []),
+      hunksAvailable: hunks !== null,
+    };
+  }
+
+  async #research(
+    executionId: string,
+    plan: PlanView,
+    tasks: DeliveryReport["tasks"],
+    execTasks: { planTaskId: string; mimirTaskId: string }[],
+    artifacts: RecordedArtifact[],
+  ): Promise<ResearchReport> {
+    const settings = plan.work!.research!;
+    const investigator = plan.tasks.find((t) => t.role === "investigator");
+    const own = investigator
+      ? this.#lineageArtifacts(executionId, investigator.id, execTasks, artifacts)
+      : [];
+    const read = await readResearchArtifacts(this.#o.mimir, this.#o.content, own);
+    let sources: ReportSource[] = [];
+    if (read.sources) {
+      try {
+        const parsed = ResearchSourceSchema.array().safeParse(JSON.parse(read.sources.text));
+        if (parsed.success)
+          sources = parsed.data.map((s) => (s.kind === "lesson" ? { ...s, private: true } : s));
+      } catch {
+        sources = [];
+      }
+    }
+    const gateOf = (id: string) => tasks.find((t) => t.planTaskId === id)?.gate ?? null;
+    const reviewer = plan.tasks.find((t) => t.role === "reviewer");
+    let factCheck: ResearchReport["factCheck"] = null;
+    if (reviewer) {
+      const review = this.#lineageArtifacts(executionId, reviewer.id, execTasks, artifacts)
+        .filter((a) => a.kind === "review")
+        .at(-1);
+      let parsed: ReturnType<typeof ReviewFileSchema.safeParse> | null = null;
+      if (review) {
+        const r = await readVerifiedArtifact(this.#o.mimir, this.#o.content, review.artifactId, {
+          taskId: review.taskId,
+          kind: review.kind,
+        });
+        if (r.ok) {
+          try {
+            parsed = ReviewFileSchema.safeParse(JSON.parse(r.text));
+          } catch {
+            parsed = null;
+          }
+        }
+      }
+      const gate = gateOf(reviewer.id);
+      factCheck = {
+        planTaskId: reviewer.id,
+        verdict: parsed?.success ? parsed.data.verdict : null,
+        findings: parsed?.success ? parsed.data.findings : [],
+        reviewArtifactId: review?.artifactId ?? null,
+        gatePassed: gate ? gate.passed : null,
+      };
+    }
+    const gate = investigator ? gateOf(investigator.id) : null;
+    return {
+      question: settings.question ?? null,
+      sourcesAllowed: settings.sources,
+      planTaskId: investigator?.id ?? null,
+      document: read.document
+        ? {
+            markdown: read.document.text,
+            artifactId: read.document.artifactId,
+            taskId: own.find((a) => a.artifactId === read.document!.artifactId)?.taskId ?? null,
+          }
+        : null,
+      sources,
+      sourcesArtifactId: read.sources?.artifactId ?? null,
+      containsPrivateSources: sources.some((s) => s.private),
+      gate: gate ? { passed: gate.passed, failures: gate.failures } : null,
+      factCheck,
+      decision: null,
+    };
+  }
 
   async #changedFiles(
     manifests: RecordedArtifact[],
@@ -692,12 +1088,24 @@ export class DeliveryReports {
 }
 
 function fromRow(row: DeliveryRow): DeliveryReport {
+  const report = JSON.parse(row.report_json) as DeliveryReport;
   return {
-    ...(JSON.parse(row.report_json) as DeliveryReport),
+    ...report,
+    // Reports stored before work kinds were code changes.
+    workKind: report.workKind ?? "change",
     status: row.status,
     deliveredAt: row.delivered_at,
   };
 }
+
+const guidanceUsed = (g: GuidanceView): GuidanceUsed => ({
+  skills: g.skills.map(({ id, name, digest }) => ({ id, name, digest })),
+  omitted: g.omitted,
+  projectNotes: g.projectNotes,
+  requestNotes: g.requestNotes,
+  projectNotesDigest: g.projectNotesDigest,
+  requestNotesDigest: g.requestNotesDigest,
+});
 
 /** `headSha`/`baseSha` of a verified `changed-files` manifest (Mimir's server-recorded head). */
 interface ManifestHead {

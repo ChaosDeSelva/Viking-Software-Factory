@@ -6,6 +6,7 @@ export {
   DEFAULT_WORKTREE_ROOT,
   defaultWorktreeRoot,
   SCRATCH_DIR,
+  INPUTS_DIR,
   OwnerClaimSchema,
   type DiffOptions,
   type RestoreResult,

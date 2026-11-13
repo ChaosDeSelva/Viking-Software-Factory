@@ -22,6 +22,8 @@ export interface SettingsRouteOptions {
   approvals: ApprovalAuthority;
   /** After settings are saved (re-attach Mimir runs, review m2). */
   afterChange?: () => Promise<void>;
+  /** After a project purge: removes the factory-owned clone its PR reviews ran in. */
+  removeReviewMirror?: (projectId: string) => void;
 }
 
 const DeleteBody = z.object({
@@ -124,6 +126,8 @@ export function settingsRoutes(app: FastifyInstance, s: Services, o: SettingsRou
       })();
       // The planner's exported copies of the project's source go with the rest of its data.
       await removeSnapshots(s.dataDir, project.id);
+      // So does the factory-owned clone its PR reviews ran in.
+      o.removeReviewMirror?.(project.id);
       // Move the zeroed pages out of the WAL so purged text does not linger on disk.
       s.db.pragma("wal_checkpoint(TRUNCATE)");
       intake.deleteUnreferencedBlobs(blobs);
