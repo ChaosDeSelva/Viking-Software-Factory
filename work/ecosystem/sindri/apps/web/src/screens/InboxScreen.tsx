@@ -297,6 +297,7 @@ export function InboxScreen() {
       {kind === "research" ? (
         <ResearchForm
           projectId={projectId}
+          localOnly={github.state.status === "ready" && github.state.data.localOnly}
           onCreated={(i) => added(i, "Added research question")}
         />
       ) : kind === "pr_review" && !prUnavailable ? (

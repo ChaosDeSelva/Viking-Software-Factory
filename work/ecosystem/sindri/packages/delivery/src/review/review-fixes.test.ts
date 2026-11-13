@@ -42,7 +42,7 @@ const RESEARCH = {
   research: { sources: { code: false, feedbackGraph: false, web: true }, factCheck: false },
 };
 
-function researchWorld(document: string) {
+function researchWorld(document: string, localOnly = false) {
   const plan = storedPlan(
     [planTaskView("research", { role: "investigator", maxRetries: 2 })],
     RESEARCH,
@@ -58,6 +58,7 @@ function researchWorld(document: string) {
     mimir: w,
     content: w,
     gatesFor: () => [{ id: "research", kind: "research", required: true }],
+    localOnly: () => localOnly,
   });
   const reports = new DeliveryReports({
     db,
@@ -112,6 +113,13 @@ describe("repair tasks keep the task's mode and brief contract", () => {
     expect(create.mode).toEqual({ deliverable: "document", access: "read", network: "web" });
     expect(create.instruction).toContain("section_missing");
     expect(create.instruction).toContain(".mimir/artifacts/research.md");
+  });
+
+  it("research in local-only mode: the repair gets no web access", async () => {
+    const { w, gates } = researchWorld("## Answer\nNo sections [1].", true);
+    expect((await gates.enforce(w.executionId, "research")).action).toBe("repair_task_created");
+    const create = w.calls.find((c) => c.method === "createTask")!.args[0] as { mode?: unknown };
+    expect(create.mode).toEqual({ deliverable: "document", access: "read", network: "none" });
   });
 
   it("pr_review: document/read/none, never write", () => {

@@ -2,7 +2,13 @@
 // lenient readers for research and PR review reports. Pure, so node --test covers it.
 type R = Record<string, any>;
 
-export type WorkKind = "change" | "research" | "pr_review";
+/** The work kinds this UI labels; checked against @factory/docs in a test. */
+export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+/** Decisions a research document can carry; checked against @factory/docs in a test. */
+export const RESEARCH_DECISIONS = ["accepted", "rejected"] as const;
+/** The PR review post states shown as a status (an unposted review reads "Not posted"). */
+export const REVIEW_POST_STATES = ["posted"] as const;
 export type BadgeTone =
   "neutral" | "accent" | "forest" | "info" | "warning" | "danger";
 
@@ -93,10 +99,24 @@ export interface ResearchInput {
   lessons: boolean;
   lessonsAvailable: boolean;
   web: boolean;
+  /** Sindri's local-only mode: the Web source is unavailable and never sent. */
+  localOnly?: boolean;
   factCheck: boolean;
   notes: string;
   skillIds: string[];
 }
+
+/** Why the Web source cannot be ticked; "" when it can. */
+export const webSourceBlock = (localOnly: boolean | undefined): string =>
+  localOnly
+    ? "Local-only mode is on: web research is unavailable. Turn it off in Sindri's Settings."
+    : "";
+
+/** Whether Sindri's GitHub status (`GET /v1/github/status`) says local-only mode is on. */
+export const localOnlyOf = (status: R | null | undefined): boolean =>
+  status?.localOnly === true;
+
+const webOf = (f: ResearchInput) => f.web && !f.localOnly;
 
 /** Why the research form cannot be sent yet; "" when it can. */
 export function researchBlock(f: ResearchInput): string {
@@ -104,7 +124,7 @@ export function researchBlock(f: ResearchInput): string {
   if (!f.question.trim()) return "Ask a question first.";
   if (f.question.trim().length > QUESTION_MAX_CHARS)
     return `Keep the question to ${QUESTION_MAX_CHARS} characters (it has ${f.question.trim().length}); put the rest in Background.`;
-  if (!f.code && !(f.lessons && f.lessonsAvailable) && !f.web)
+  if (!f.code && !(f.lessons && f.lessonsAvailable) && !webOf(f))
     return "Pick at least one source.";
   if (utf8Bytes(f.notes) > REQUEST_NOTES_MAX_BYTES)
     return "Notes are too long.";
@@ -127,7 +147,7 @@ export function researchBody(f: ResearchInput): R {
       sources: {
         code: f.code,
         feedbackGraph: f.lessons && f.lessonsAvailable,
-        web: f.web,
+        web: webOf(f),
       },
       factCheck: f.factCheck,
     },

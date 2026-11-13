@@ -36,6 +36,13 @@ README, docs and code can contain injections and secrets, or point outside the r
 * Connectors are read only (GET, and GraphQL queries without mutations). Use read scoped tokens on a dedicated account (`docs/connectors.md`).
 * `sindri doctor` reports only whether a key is present.
 
+### GitHub pull request reviews
+
+* Sindri stores no GitHub token. It runs the operator's own `gh` (hardened environment, timeout, size cap) to read a pull request, and the review mirror's git config uses only `gh auth git-credential` for github.com, with hooks, fsmonitor and submodules off.
+* The mirror is Sindri's own partial clone under `<dataDir>/review-mirrors/<projectId>`; nothing is written to the operator's checkout. Reviewer tasks are read only document tasks without network. PR title and body are untrusted text.
+* The only GitHub write is posting a review: it needs the approval secret, is refused in local only mode, when the PR head moved since the review (`pr_head_moved`) or when it was already posted (a hidden marker in the body is looked up before and after posting).
+* A leak check runs on everything that would be posted and refuses (422 `post_blocked`) text that names private local tooling, cites a lesson, or matches the secret scanners. The preview shows the exact payload.
+
 ### Provider data egress
 
 When a remote provider is configured, the request text, retrieved project excerpts and ticket text are sent to that provider.
@@ -50,7 +57,7 @@ When a remote provider is configured, the request text, retrieved project excerp
 
 Coding agents that Mimir launches (through HerdR) run as the same OS user as Sindri. They can read `~/.sindri`, including the bearer token and the SQLite database, so the bearer token cannot tell a human from an agent.
 
-* Approving a spec or plan, requesting a PR, deciding an agent's gated action (`/v1/executions/:id/approvals/:approvalId`) and erasing task evidence need a second factor (`apps/server/src/approval.ts`): an approval secret sent as `X-Sindri-Approval`. It is minted by `POST /v1/approval-session` only in exchange for the pairing code that `sindri start` prints to its own terminal. The code exists only in server memory and on that terminal; every five wrong codes lock minting for 60 s, doubling with each lockout. Expired sessions are pruned.
+* Approving a spec or plan, requesting a PR, accepting or rejecting a research document, posting a PR review to GitHub, deciding an agent's gated action (`/v1/executions/:id/approvals/:approvalId`) and erasing task evidence need a second factor (`apps/server/src/approval.ts`): an approval secret sent as `X-Sindri-Approval`. It is minted by `POST /v1/approval-session` only in exchange for the pairing code that `sindri start` prints to its own terminal. The code exists only in server memory and on that terminal; every five wrong codes lock minting for 60 s, doubling with each lockout. Expired sessions are pruned.
 * The approval secret is returned once (`cache-control: no-store`, no idempotency record, never logged) and kept by the server only as a SHA-256 hash in memory for 12 hours. The web app holds it in tab memory only (not `localStorage` or `sessionStorage`).
 * `sindri approve <spec|plan|pr> <id>` refuses to run without a TTY, asks for the pairing code and a typed confirmation, then uses a `cli` approval session.
 * The recorded approver is the authenticated principal (`local:<os user>/<web|cli>#<session>`); the free text `approver` field is gone.

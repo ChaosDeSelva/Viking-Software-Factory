@@ -1,6 +1,6 @@
 # How the factory works
 
-The factory turns a request ("add CSV export to the reports page") into a verified change you can apply to your repository. Five programs share the work. Everything runs on your machine.
+The factory turns a request ("add CSV export to the reports page") into a verified change you can apply to your repository. It can also answer a question with a cited research document, or review a GitHub pull request for you. Five programs share the work. Everything runs on your machine.
 
 ```factory-architecture
 
@@ -46,6 +46,7 @@ Each restart prints new codes, except Sindri's and Mimir's access tokens, which 
 | Sindri   | Mimir           | Mimir SDK over HTTP, plus Mimir's event stream           | the approved plan as a mission; events and evidence back |
 | Sindri   | Claude Code     | the local CLI                                            | spec and plan drafting (Director and planner)            |
 | Sindri   | Feedback Graph  | HTTP, read only                                          | approved lessons for the Director, planner and steward   |
+| Sindri   | GitHub          | your own `gh` login (PR reviews only)                    | the PR and its commits in; a review you approved out     |
 | Mimir    | Agents          | Codex or Claude Code in a git worktree per task          | the task; the agent's changes and transcript             |
 | Mimir    | Brokkr          | library call after each task                             | a signed verification report and verdict                 |
 | Mimir    | Skidbladnir     | its API, when a task runs on a worker machine (optional) | worker lifecycle and command evidence                    |
@@ -59,6 +60,18 @@ A request lands in Sindri's inbox. The **Director** drafts a **spec** from it, c
 
 The full walkthrough with screen names is in [From ticket to delivery](/docs/ticket-to-delivery).
 
+## Three kinds of work
+
+You choose the kind when you add a request. All three go through the same spec, plan and run; they differ in what the agents may do and what you get back.
+
+| Kind      | The agents                                                     | You get                                                      | It ends when                      |
+| --------- | -------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------- |
+| Change    | write code in their worktrees                                  | a verified patch                                             | you export and apply it           |
+| Research  | only read: the project's code, lessons, and the web if allowed | a Markdown document whose claims cite numbered sources       | you accept or reject it           |
+| PR review | only read a copy of the pull request Sindri keeps for itself   | a review draft you edit, preview and post to GitHub yourself | you post it, or leave it unposted |
+
+See [Research questions](/docs/research) and [PR reviews](/docs/pr-reviews). Research and reviews can use **skills** and **notes** you give them; see [Skills and guidance](/docs/research#skills-and-guidance).
+
 ## Names for the same thing
 
 | You see   | In                          | Means                                                 |
@@ -68,12 +81,13 @@ The full walkthrough with screen names is in [From ticket to delivery](/docs/tic
 | Execution | Sindri API, raw ids `exe_…` | the API name for a run                                |
 | Task      | everywhere                  | one piece of a plan, done by one agent                |
 | Delivery  | Sindri                      | the verified result of a run                          |
+| Work kind | Sindri, Heimdall            | change, research or PR review; a badge on each item   |
 
 ## What needs a human
 
 The factory never does these by itself:
 
-- **Approving** a spec, a plan, a local export or a steward mode change. These need the **approval pairing code** printed when Sindri starts.
+- **Approving** a spec, a plan, a local export or a steward mode change, **accepting or rejecting** a research document, and **posting** a PR review to GitHub. These need the **approval pairing code** printed when Sindri starts.
 - **Approving risky agent actions** that Mimir's policy does not allow on its own.
 - **Answering escalations** when a task gives up (retry, skip, replan, abort).
 - **Raising a budget** that ran out.
@@ -87,4 +101,4 @@ Completion is judged only on evidence Mimir recorded: exit codes, test logs, dif
 
 ## Local only
 
-By default nothing leaves your machine except model calls by the agents you configured. Ticket imports from a tracker and services on other hosts need local-only mode turned off in Sindri's {{screen:sindri.settings}}.
+By default nothing leaves your machine except model calls by the agents you configured. Ticket imports from a tracker, PR reviews and services on other hosts need local-only mode turned off in Sindri's {{screen:sindri.settings}}. A research agent reaches the web only when you tick **Web** for that question, and web research is unavailable while local-only mode is on.

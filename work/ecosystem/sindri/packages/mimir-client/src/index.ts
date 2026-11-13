@@ -20,6 +20,7 @@ export {
   mimirInputSlug,
   mimirTitleFor,
   modeFor,
+  needsWeb,
   RESEARCH_DOCUMENT,
   RESEARCH_INPUT_DIR,
   RESEARCH_SECTION_TITLES,

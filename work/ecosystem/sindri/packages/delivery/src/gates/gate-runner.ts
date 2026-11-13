@@ -129,6 +129,8 @@ export interface GateRunnerOptions {
   reviews?: ReviewVerdictSource;
   /** Envelope sources accepted as evidence. Default `["mimir.server"]`. */
   trustedSources?: readonly string[];
+  /** Local-only mode: a repair task never gets web access. */
+  localOnly?: () => boolean;
   now?: () => Date;
 }
 
@@ -191,11 +193,12 @@ export function repairInstruction(
 export function repairContract(
   plan: PlanView,
   task: PlanTaskView,
+  { localOnly = false }: { localOnly?: boolean } = {},
 ): { mode?: CreateTaskInput["mode"]; brief: string } | null {
   // The stored plan is checked against the planner's schema, not assumed to be one.
   const parsed = PlanSchema.safeParse(plan);
   if (!parsed.success) return null;
-  return taskContract(parsed.data, task.id);
+  return taskContract(parsed.data, task.id, { localOnly });
 }
 
 const TERMINAL_MISSION = new Set(["completed", "cancelled", "failed"]);
@@ -277,7 +280,9 @@ export class GateRunner {
       if (TERMINAL_MISSION.has(mission.status) || !crewId) return { action: "escalated", result };
       // A repair without the original brief and mode could break the task's contract (a
       // read-only document task given write access): a human decides instead.
-      const contract = repairContract(ctx.execution.plan, ctx.planTask);
+      const contract = repairContract(ctx.execution.plan, ctx.planTask, {
+        localOnly: this.#o.localOnly?.() ?? false,
+      });
       if (!contract) return { action: "escalated", result, error: "repair_contract_unavailable" };
       const attempt = await this.#o.executions.claimAttempt(executionId, planTaskId);
       if (attempt > ctx.planTask.maxRetries) return { action: "exhausted", result };

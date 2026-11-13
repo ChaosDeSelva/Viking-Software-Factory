@@ -29,7 +29,7 @@ One mission, in tabs:
 - _Agents_: sessions that worked on it; open one for {{screen:mimir.agent}}.
 - _Files_: diffs the agents produced.
 - _Tests_: test runs Mimir observed.
-- _Artifacts_: recorded files with kind and hash.
+- _Artifacts_: recorded files with kind and hash. A research or PR review task is a [document task](/docs/glossary#document-task): it leaves no diff, and its result is the `report` (`*.md`) or `review` (`review.json`) artifact here.
 - _Costs_: usage for this mission.
 
 **Raise budget** shows the budget that ran out (the task's crew, or the mission budget when that is the one exhausted), the tokens used and the current limit, and suggests a new token limit. It must be above the current limit; the cost limit is left as it is. If someone changed the budget meanwhile, reload the numbers and try again. Blocked tasks start again on the scheduler's next pass. A project-wide budget is set on the server and cannot be raised here.
@@ -49,7 +49,7 @@ One crew: its _Summary_ with the mission, its _Roster_ of agents (each running o
 One agent session.
 
 - _State_: what the runtime reports, with provenance. Mimir never guesses from terminal text.
-- _Inputs_: the instruction it was given.
+- _Inputs_: the instruction it was given. It names any files the task got from finished dependencies under `.mimir/inputs/` (see [Task inputs](/docs/glossary#task-inputs)).
 - _Controls_: send an instruction, **Soft stop** (ask it to finish) or **Force stop**.
 - _Terminal_: the last 200 lines of output, when the runtime supports reading it. **Read terminal** reads it once (at most every 2 seconds). While the agent is live, the **Follow** switch re-reads it every 5 seconds and keeps the newest line in view; a **Live output** link turns it on for you.
 - _Timeline_ and _Cost_.

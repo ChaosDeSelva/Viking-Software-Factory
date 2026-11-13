@@ -37,6 +37,8 @@ Each item below exists in the code on this branch.
 * **Budgets and usage.** Token and cost samples are tagged `measured`, `estimated`, or `unavailable`; budgets can park tasks.
 * **Restart recovery.** On boot Mimir reconciles with the runtime; a task whose session vanished becomes `blocked` with `unknown_after_restart` instead of being marked done.
 * **Artifacts.** Diffs, changed file manifests, and test output are stored, size bounded, and redacted.
+* **Task modes.** A task's `mode` sets its deliverable (`diff` or `document`), access (`write` or `read`) and network (`none` or `web`). A document task delivers a Markdown `report` artifact or `review.json` instead of a diff, skips the verifier and never commits worktree edits; read access narrows Claude to read and git tools; web adds web search and fetch. See [docs/verification.md](docs/verification.md#task-modes).
+* **Dependency inputs.** A task gets its completed dependencies' reports, `sources.json` and `review.json` (stored, redacted copies) under `.mimir/inputs/<title slug>/`, listed in its brief.
 * **Redaction.** Secrets are redacted before storage and in `mimir export`.
 * **Fake runtime.** `packages/fake-runtime` simulates sessions on a scripted clock, so you can run missions without HerdR or any model.
 * **TypeScript SDK and web app.** `@mimir/sdk` (client with SSE reconnect) and a React web app with Missions, Crews, Activity, Reviews, and Agent Inspector screens.

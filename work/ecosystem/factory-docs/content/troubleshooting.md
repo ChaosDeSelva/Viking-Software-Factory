@@ -99,6 +99,39 @@ Lessons are optional. Without them everything works, just without your past feed
    - [Not linked](/docs/statuses#not-linked-feedback-graph-link-status): it does not. Enter the Feedback Graph project key to link it by hand, or add the repository in Feedback Graph.
 4. Only **approved** lessons are used. Links and lessons are cached for 60 seconds.
 
+## Research checks fail
+
+The research gates read `research.md` and `sources.json` as Mimir recorded them. A failing gate sends the task back for a repair; when attempts run out it escalates to {{screen:sindri.needs-you}}. The reasons:
+
+| Reason                                                                                       | Means                                                                                                                                |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `document_missing`                                                                           | no `research.md` was recorded. In Mimir the same reason fails an attempt that wrote no report; it is retried while attempts are left |
+| `section_missing:<name>`                                                                     | `research.md` lacks _Answer_, _Findings_, _Open questions_ or _Sources_                                                              |
+| `sources_missing`, `sources_unparseable`, `source_duplicate:<id>`, `no_sources`              | `sources.json` is missing, not valid, repeats an id, or is empty                                                                     |
+| `no_citations`, `citation_unresolved:<n>`                                                    | the document cites nothing, or a `[n]` has no source `n`                                                                             |
+| `citation_range_unsupported`                                                                 | a range such as `[1-3]`; cite `[1, 2, 3]` instead                                                                                    |
+| `file_ref_invalid`, `file_not_found`, `line_range_invalid`                                   | a file source is not `path:line` or `path:start-end`, does not exist at the run's base commit, or its lines are outside the file     |
+| `file_unverifiable:<id>:<why>`                                                               | the file could not be checked, for example because the repository or base commit is not available                                    |
+| `web_not_allowed`, `lesson_not_allowed`, `lesson_unknown`, `code_not_allowed`, `url_invalid` | a source you did not allow for this question (web, lessons, project code), a lesson the agent was not given, or a malformed URL      |
+
+If the document is still wrong after the repairs, **Reject…** it with a reason and **Ask a follow-up…** with a sharper question. See [Research questions](/docs/research).
+
+The **Web** source is disabled, and a question or follow-up that asks for the web is refused with `local_only`, while local-only mode is on: web research is unavailable in local-only mode. **Execute plan** refuses a plan that needs the web for the same reason. Turn local-only mode off in {{screen:sindri.settings}}, or ask the question again without **Web**.
+
+## PR review problems
+
+| You see                                                                 | What to do                                                                                                                                                                                                               |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Review a PR** is disabled                                             | Its hint says why: install the GitHub CLI and run `gh auth login`; turn local-only mode off in {{screen:sindri.settings}}; or GitHub pull requests were turned off in the settings. `local_only` refusals mean the same. |
+| _Which project is this pull request for?_ (`project_required`)          | No single registered project's git remote names the repository. Choose the project, or register the repository first.                                                                                                    |
+| **Execute plan** refused with `pr_changed_since_plan`                   | The PR was imported again with a new head after the plan was made. Propose and approve a new plan from the spec; it picks up the new head.                                                                               |
+| _Could not prepare Sindri's review clone_ (`mirror_failed`)             | Cloning or fetching failed: check your `gh` login and access to the repository, then run again. `blobs_missing` means some changed files could not be fetched; `invalid_pr` means import the PR again.                   |
+| _Posting is blocked by the leak check_ (`post_blocked`)                 | The preview names the finding and field. Untick or reword that finding, **Save edits**, **Refresh preview**, then post.                                                                                                  |
+| _The reviewers' checks have not passed_ (`gates_not_passed`)            | A reviewer did not write a valid `review.json` and `review.md`. Run the review again.                                                                                                                                    |
+| _The pull request changed since this review_ (`pr_head_moved`)          | New commits were pushed after the review ran. Nothing was posted. Import the PR again from the Inbox and run a new review; this one stays unposted.                                                                      |
+| _This review was already posted_ (`already_posted`, `post_in_progress`) | The review is on GitHub already, or another click is posting it right now. Sindri never posts twice; refresh to see the link.                                                                                            |
+| _GitHub refused the review_ (`github_error`)                            | `gh` failed while posting. Check `gh auth status` and that you may review the PR, then try again; a review that did reach GitHub is found by its marker and not posted twice.                                            |
+
 ## Something else
 
 - Heimdall's {{screen:heimdall.connections}} → _Audit history_ shows every action and whether the source confirmed it.

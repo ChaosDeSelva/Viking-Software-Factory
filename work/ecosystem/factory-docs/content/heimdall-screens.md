@@ -1,6 +1,6 @@
 # Heimdall screens
 
-Heimdall watches Sindri and Mimir together. It is read-only until you unlock operator controls; then every action asks for a reason and is recorded in the audit history. Clicking any record (a task, a run, a crew, an agent) opens its inspector with details, raw source data and the actions that apply to it.
+Heimdall watches Sindri and Mimir together. It is read-only until you unlock operator controls; then every action asks for a reason and is recorded in the audit history. Clicking any record (a task, a run, a crew, an agent) opens its inspector with details, raw source data and the actions that apply to it. Intakes, runs and deliveries carry a kind badge: Change, Research or PR review. A research delivery's inspector shows the document with its sources, checks and guidance, and **Accept document**, **Reject document** and _Ask a follow-up question_. A PR review's inspector shows the review read-only, with **Edit and post in Sindri**: editing and posting happen there.
 
 The top bar groups the project tabs in two: **Watch** (Overview, Pipeline, Crews & agents, Execution graph, Activity) and **Decide** (Quality & approvals, with a count, and Autonomy). **New work** is the primary button at the right end of the top bar. The bottom bar holds the global pages (Notifications, Projects, Connections, Fleet, Autonomy (all)), then Docs, Ask, the theme menu and Sign out. The session item at its left (_Read-only_ or _Operator unlocked_) opens the operator unlock and Sindri pairing forms. `⌘K` / `Ctrl+K` jumps to a page, project or task.
 
@@ -20,7 +20,7 @@ The project's health in one page. Choose **All projects** in the picker for the 
 
 ## {{label:heimdall.new-work}}
 
-The **New work** button at the right end of the top bar. The ticket-to-run steps in one place, for the selected project: describe the work and save it as intake, draft and approve the spec, propose, edit and approve the plan, then **Start approved plan**. Needs operator controls unlocked and Sindri paired. The same steps in Sindri are described in [From ticket to delivery](/docs/ticket-to-delivery).
+The **New work** button at the right end of the top bar. The ticket-to-run steps in one place, for the selected project. First choose the kind: **Change**, **Research** (question, sources, fact-check) or **Review a PR** (a GitHub pull request URL); research and reviews also take notes and skills. Then save it as intake, draft and approve the spec, propose, edit and approve the plan, then **Start approved plan**. Needs operator controls unlocked and Sindri paired. The same steps in Sindri are described in [From ticket to delivery](/docs/ticket-to-delivery).
 
 ## {{label:heimdall.pipeline}}
 
@@ -43,6 +43,7 @@ Events from Sindri and Mimir, in their original order within each stream. Filter
 Where you act on runs.
 
 - _Human decisions_: approvals, escalations and budget blocks. Approvals for runs that belong to Sindri go through Sindri and need it paired. A budget row has a **Raise budget** button; see [Budget blocked](/docs/troubleshooting#budget-blocked).
+- _Documents and reviews_: research documents waiting for your decision and PR reviews not yet posted, with their kind and what they wait for. Open one to read it in the inspector.
 - Gate results and reviewer findings per task.
 - _Verification & delivery_: **Re-run quality checks**, **Export** the local delivery and download the patch, **Retry task**, or **Re-run verification only** (re-checks a finished task's worktree; it does not start an agent).
 

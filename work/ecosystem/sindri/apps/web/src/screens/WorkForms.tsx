@@ -60,9 +60,12 @@ function useSkills() {
 export function ResearchForm({
   projectId,
   onCreated,
+  localOnly = false,
 }: {
   projectId: string;
   onCreated: (intake: Intake) => void;
+  /** Local-only mode: the Web source is unavailable. */
+  localOnly?: boolean;
 }) {
   const api = useApi();
   const report = useReportError();
@@ -76,7 +79,8 @@ export function ResearchForm({
   const [body, setBody] = useState("");
   const [code, setCode] = useState(true);
   const [lessons, setLessons] = useState(false);
-  const [web, setWeb] = useState(false);
+  const [webTicked, setWeb] = useState(false);
+  const web = webTicked && !localOnly;
   const [factCheck, setFactCheck] = useState(true);
   const [notes, setNotes] = useState("");
   const [skillIds, setSkillIds] = useState<string[]>([]);
@@ -170,8 +174,13 @@ export function ResearchForm({
           id="research-src-web"
           label="Web"
           checked={web}
+          disabled={localOnly}
           onChange={setWeb}
-          description="Lets the agent search and fetch public web pages."
+          description={
+            localOnly
+              ? "Local-only mode is on: web research is unavailable. Turn it off in Settings."
+              : "Lets the agent search and fetch public web pages."
+          }
         />
         <p id="research-sources-hint" className="text-xs text-muted">
           Pick at least one. Every claim in the document cites one of these.

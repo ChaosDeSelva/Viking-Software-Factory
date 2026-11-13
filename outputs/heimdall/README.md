@@ -32,11 +32,12 @@ Token environment variables `MIMIR_TOKEN` and `SINDRI_TOKEN` are alternatives to
 
 ## Daily workflow
 
-1. **New work:** register a local Git repository, bootstrap its context, save intake or draft a specification.
+1. **New work:** register a local Git repository, bootstrap its context, choose the kind of work (**Change**, **Research** or **Review a PR**), save intake or draft a specification. Research takes a question, its sources (project code, lessons from your feedback history, web), a fact-check switch, notes and skills; Review a PR imports a GitHub pull request URL through Sindri with notes and skills.
 2. Open the specification to inspect requirements, answer questions, revise it, submit it for review and approve it. Flagged source instructions require an explicit acknowledgement for that specification.
 3. Propose a plan. Open its editor to change objectives, priority, dependencies, inputs/outputs, acceptance criterion IDs, time/token/cost budgets and retry limits. Save a new revision, submit it, approve it, then **Start approved plan**.
 4. Follow **Overview**, **Pipeline**, **Crews & agents**, and **Execution graph**. Click records for objectives, attempts, blockers, worktrees, plan mappings, evidence, activity and controls.
 5. Use **Quality & approvals** for policy decisions, escalation recovery, gate assessments, local delivery exports and patch downloads. Human actions require a reason and show the source confirmed outcome.
+6. Research documents and PR reviews waiting on you are listed under **Quality & approvals → Documents and reviews**, with a kind badge. A research document opens in the inspector with its sources, checks, fact-check findings and guidance used: **Accept document**, **Reject document** (with a reason) or **Ask a follow-up question**. A PR review opens read-only (summary, findings, leak check, posted state); **Edit and post in Sindri** opens it where the draft is edited and posted.
 
 ## Interface and component library
 
@@ -51,6 +52,7 @@ See the [release plan](docs/factory-release-plan.md) and [third party source not
 * Configurable pipeline stage order. Stage state remains source owned; moving presentation order does not move work through gates.
 * Live agent output, structured tool call extraction, runtime observation freshness, session state and elapsed time. Unreported model, usage or heartbeat data stays unknown. Historical output remains available through source events/evidence.
 * Mission pause/resume/cancel, crew scheduling pause/resume, graceful session stop, task retry, verification only rechecks, approval decisions and Sindri recovery/export controls.
+* Work kind badges (Change, Research, PR review) on records, a research document view with accept, reject and follow-up, and a read-only PR review view that links to Sindri for editing and posting.
 * Deduplicated persistent notifications for failures, blockers, unavailable agents/sources, approvals, verification failures and deliveries. Read state survives restart. Desktop alerts are opt in and subject to browser/OS permission.
 * Separate persisted SSE cursors, replay/deduplication, reconnect reconciliation, stale/disconnected labels, history gap notices and a bounded 20,000-event display cache.
 * SHA-256-checked artifact previews for text, JSON, diffs and safe raster images up to 12 MB. Local patch download; no automatic patch application.

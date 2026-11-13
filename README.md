@@ -22,6 +22,16 @@ The operator interface is at http://127.0.0.1:4320. Keep terminal access and app
 
 For a first run, clone [hello-factory](https://github.com/ChaosDeSelva/hello-factory): a tiny two-service app with ready-made example tickets. Add it as a project in Sindri, paste a ticket from its `examples/` folder into the Inbox, and follow it to a verified delivery in Heimdall.
 
+## Kinds of work
+
+Sindri's Inbox and Heimdall's New work offer three kinds of work:
+
+- **Change**: a code change, verified by Brokkr and exported as a patch you apply yourself.
+- **Research**: ask a question and get a Markdown document with numbered citations. The investigator runs read-only, uses the web only when you allow it, and an optional second agent fact-checks the claims. Gates check the sections, the sources and that cited files exist. You accept it, reject it or ask a follow-up.
+- **PR review**: paste a GitHub pull request URL. Sindri reads it with your own `gh` login and reviews it in its own clone under the data directory, never in your repositories. You edit the draft, see exactly what will be posted, and post it once with the approval code. A leak check blocks private context and secrets.
+
+Skills (SKILL.md folders imported under Sindri Settings → Skills), standing notes per project and notes per request are given to the agents as guidance.
+
 Skidbladnir is in `outputs/skidbladnir`. AWS setup is documented there in `docs/AWS.md`; it requires an explicit account, region and isolated fleet configuration. Do not point acceptance tests at existing workloads.
 
 ## Verification and limits
@@ -46,4 +56,4 @@ The experimental public source prerelease is `v0.1.0`. See [release scope and se
 
 ## Mac companion and managed installation
 
-The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. [Download the signed Mac setup](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.2.0/Viking-Factory-Setup-0.2.0-macos-arm64.zip) and follow [installation and release notes](RELEASE-v0.2.0.md). The v0.2.0 preview includes notarized apps and signed update manifests. Manual accessibility and a separate clean Mac acceptance remain pending.
+The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. Its Viking Factory window shows Heimdall, Sindri, Mimir, Skidbladnir and the docs as tabs in one app window. [Download the signed Mac setup](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.2.0/Viking-Factory-Setup-0.2.0-macos-arm64.zip) and follow [installation and release notes](RELEASE-v0.2.0.md). The v0.2.0 preview includes notarized apps and signed update manifests. Manual accessibility and a separate clean Mac acceptance remain pending.

@@ -21,12 +21,14 @@ import {
   REQUEST_NOTES_MAX_BYTES,
   kindBadge,
   lessonsLinked,
+  localOnlyOf,
   prReviewBlock,
   prReviewBody,
   projectCandidates,
   researchBlock,
   researchBody,
   utf8Bytes,
+  webSourceBlock,
 } from "./workKinds";
 import { actionBlock } from "./workflowState";
 
@@ -194,6 +196,9 @@ export function ResearchForm({ projectId }: { projectId: string }) {
     (r) => r,
   );
   const linked = fg.status === "ready" && lessonsLinked(fg.data);
+  const github = useDetail<boolean>("details/github-status", localOnlyOf);
+  const localOnly = github.status === "ready" && github.data;
+  const webBlock = webSourceBlock(localOnly);
   const [question, setQuestion] = useState(""),
     [background, setBackground] = useState(""),
     [code, setCode] = useState(true),
@@ -214,6 +219,7 @@ export function ResearchForm({ projectId }: { projectId: string }) {
     lessons,
     lessonsAvailable: linked,
     web,
+    localOnly,
     factCheck,
     notes,
     skillIds,
@@ -262,9 +268,12 @@ export function ResearchForm({ projectId }: { projectId: string }) {
         <Checkbox
           id="research-src-web"
           label="Web"
-          checked={web}
+          checked={web && !localOnly}
+          disabled={localOnly}
           onChange={(e) => setWeb(e.target.checked)}
-          description="Lets the agent search and fetch public web pages."
+          description={
+            webBlock || "Lets the agent search and fetch public web pages."
+          }
         />
         <p id="research-sources-hint" className="text-xs text-muted">
           Pick at least one. Every claim in the document cites one of these.

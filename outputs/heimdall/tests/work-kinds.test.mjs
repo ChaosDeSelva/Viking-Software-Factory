@@ -2,6 +2,7 @@
 // snapshot carries for research documents and PR reviews.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { statuses } from "@factory/docs";
 import { commandRoute } from "../apps/server/commands.mjs";
 import { listedWork } from "../apps/server/connectors.mjs";
 import { workDetail } from "../apps/server/main.mjs";
@@ -21,6 +22,12 @@ import {
   researchBlock,
   researchBody,
   reviewDraft,
+  localOnlyOf,
+  webSourceBlock,
+  isWorkKind,
+  RESEARCH_DECISIONS,
+  REVIEW_POST_STATES,
+  WORK_KINDS,
 } from "../apps/web/src/features/workKinds.ts";
 import { setup, until } from "./support.mjs";
 
@@ -34,6 +41,15 @@ test("known kinds have their own badge; a missing kind is a change and an unknow
   );
   assert.match(kindBadge("audit").hint, /audit/);
   assert.equal(kindBadge(42).text, "Other");
+});
+
+test("work kinds, research decisions and review posts match @factory/docs", () => {
+  const documented = (domain) =>
+    statuses.filter((s) => s.app === "heimdall" && s.domain === domain).map((s) => s.value).sort();
+  assert.deepEqual(documented("work-kind"), [...WORK_KINDS].sort());
+  assert.deepEqual(documented("research-decision"), [...RESEARCH_DECISIONS].sort());
+  assert.deepEqual(documented("review-post"), [...REVIEW_POST_STATES].sort());
+  assert.deepEqual(documented("work-kind").filter((k) => !isWorkKind(k)), []);
 });
 
 test("the kind comes from the intake, the run's plan, or the delivery's plan", () => {
@@ -86,6 +102,19 @@ test("the research body sends lessons only when linked, and notes and skills onl
   assert.deepEqual(linked.research, { sources: { code: true, feedbackGraph: true, web: true }, factCheck: false });
   assert.equal(linked.notes, "Be brief");
   assert.deepEqual(linked.skillIds, ["sk1"]);
+});
+
+test("local-only mode disables the Web source and the body never asks for the web", () => {
+  assert.equal(localOnlyOf({ localOnly: true }), true);
+  assert.equal(localOnlyOf({ localOnly: false }), false);
+  assert.equal(localOnlyOf(null), false);
+  assert.match(webSourceBlock(true), /^Local-only mode is on/);
+  assert.equal(webSourceBlock(false), "");
+  const local = { ...research, web: true, localOnly: true };
+  assert.equal(researchBody(local).research.sources.web, false);
+  // The Web source alone does not count as a source in local-only mode.
+  assert.equal(researchBlock({ ...local, code: false }), "Pick at least one source.");
+  assert.equal(researchBody({ ...local, localOnly: false }).research.sources.web, true);
 });
 
 test("a PR review needs a github.com pull request URL, and a project once Sindri asked for one", () => {
@@ -208,8 +237,9 @@ test("research decisions, follow-ups and PR imports route to Sindri with the app
   assert.throws(() => commandRoute({ action: "research.accept", id: "../x", body: {} }));
 });
 
-test("skills, guidance and review previews are the only work reads relayed", () => {
+test("skills, guidance, GitHub status and review previews are the only work reads relayed", () => {
   assert.equal(workDetail("/api/details/skills"), "/v1/skills");
+  assert.equal(workDetail("/api/details/github-status"), "/v1/github/status");
   assert.equal(workDetail("/api/details/guidance/prj_1"), "/v1/projects/prj_1/guidance");
   assert.equal(workDetail("/api/details/review-preview/exe_1"), "/v1/executions/exe_1/review/preview");
   assert.equal(workDetail("/api/details/guidance/../x"), null);
@@ -336,7 +366,7 @@ test("a PR import that matches no single project returns Sindri's candidates to 
   assert.equal((await chosen.json()).result.intake.workKind, "pr_review");
 });
 
-test("skills, guidance and the review preview are relayed for a signed-in session", async (t) => {
+test("skills, guidance, GitHub status and the review preview are relayed for a signed-in session", async (t) => {
   const { source, signIn, call } = await setup(t);
   source.work = {
     skills: [{ id: "sk1", name: "Security", token: "x" }],
@@ -348,4 +378,6 @@ test("skills, guidance and the review preview are relayed for a signed-in sessio
   assert.deepEqual((await (await call("details/guidance/prj_demo")).json()).guidance.defaultSkillIds, ["sk1"]);
   assert.equal((await (await call("details/review-preview/exe_p")).json()).canPost, true);
   assert.equal((await call("details/review-preview/exe_none")).status, 404);
+  source.work.localOnly = true;
+  assert.equal((await (await call("details/github-status")).json()).localOnly, true);
 });

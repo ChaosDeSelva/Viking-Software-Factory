@@ -120,6 +120,22 @@ const ImportIntake = z.strictObject({
   ...WorkFields,
 });
 
+/** 422 `local_only` for a research request that asks for the web while local-only mode is on. */
+export function refuseLocalOnlyWeb(
+  s: Pick<Services, "settings">,
+  work: {
+    workKind?: string | undefined;
+    research?: { sources?: { web?: boolean | undefined } | undefined } | undefined;
+  },
+) {
+  if (work.workKind === "research" && work.research?.sources?.web && s.settings.get().localOnly)
+    throw new ApiError(
+      422,
+      "local_only",
+      "local-only mode is on: web research is unavailable; untick the Web source or turn off local-only mode in Settings",
+    );
+}
+
 export function intakeRoutes(app: FastifyInstance, s: Services) {
   const requireProject = (id: string) => {
     if (!s.knowledge.projects.get(id)) throw notFound("project");
@@ -163,6 +179,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
 
   app.post("/v1/intakes", sanitized, (req, reply) => {
     const body = parseBody(ManualIntake, req.body);
+    refuseLocalOnlyWeb(s, body);
     requireProject(body.projectId);
     requireSkills(body.skillIds);
     const rec = s.intake().createManual(body);
@@ -171,6 +188,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
 
   app.post("/v1/intakes/import", sanitized, async (req, reply) => {
     const body = parseBody(ImportIntake, req.body);
+    refuseLocalOnlyWeb(s, body);
     if (s.settings.get().localOnly)
       throw new ApiError(503, "local_only", "local-only mode is on: ticket imports are disabled");
     if (body.projectId) requireProject(body.projectId);

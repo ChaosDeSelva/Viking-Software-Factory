@@ -44,6 +44,10 @@ Good questions:
 - "What does the steward want me to decide?"
 - "Why can't I export this delivery?"
 
+## The factory window
+
+On a Mac with the Viking Factory menu bar app, **Open Factory Window** (`⌘O`, or **Open Heimdall** in the companion) shows every page in one app window instead of browser tabs. Its toolbar has a tab each for Heimdall, Sindri, Mimir, Skidbladnir and Docs (`⌘1` … `⌘5`), **Back**, **Forward** and **Reload** (`⌘[`, `⌘]`, `⌘R`), and **Open in Browser** (`⇧⌘O`) for the current page. Each tab remembers its last page, and sign-ins persist across launches; signing in to a browser is separate. Downloads such as patches go to your Downloads folder. Links outside the factory open in your default browser. While the window is open the app sits in the Dock and in `⌘Tab`; the setup and update window is now called _Viking Factory Companion_.
+
 ## Keyboard shortcuts
 
 Press `?` in Sindri, Mimir or Heimdall to see the shortcuts (on a narrow screen also under **More** → Shortcuts). Today:

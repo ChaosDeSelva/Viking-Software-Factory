@@ -4,6 +4,14 @@
 
 **Intake.** A request that enters the system: manual text, or a read only snapshot of a Jira or Linear issue and its comments. Intake text is untrusted data. The UI shows a sanitized `display` view; the raw snapshot is not served.
 
+**Work kind.** Every intake is a `change` (the default), `research` or `pr_review`, chosen by the operator. A change is planned, verified and exported as a patch. A research question becomes an investigator task and an optional fact-check; a pull request becomes a reviewer task, plus a security reviewer when the changed paths touch security areas. Both are read only document tasks in Mimir with no Brokkr verification and their own gates. The director may suggest research for an investigation, but never changes the kind. See [api.md](api.md#work-kinds).
+
+**Guidance.** Skills are SKILL.md folders imported into a library with their sha256 digest; the library flags a skill whose file changed or disappeared on disk. Each project has standing notes and default skills (Project settings → Guidance), and each request may add notes and skills. The plan records the guidance with digests, and every brief gets it as an "Operator guidance" block of at most 48 KB; a skill that does not fit is listed as omitted, never cut.
+
+**Research.** The investigator writes `research.md` (Answer, Findings, Open questions, Sources) and `sources.json`, citing `[n]` sources: files of the project, web pages (only when web is allowed) or lessons from your feedback history (marked private). Gates check sections, sources, that every citation resolves, that cited files and lines exist at the base commit, and the source policy. The operator accepts or rejects the document with the approval code, or asks a follow-up, which becomes a new research intake with the earlier document as context. Copying the document removes private lesson citations.
+
+**PR review.** A GitHub pull request URL is imported with the operator's `gh` login. Sindri fetches the PR into its own partial clone under `<dataDir>/review-mirrors/`, never the operator's checkout, and pins the run to the head commit. Reviewers write `review.json` and `review.md`; findings inside a changed hunk (against the merge base) become inline comments, the rest go to the review body. The operator edits a versioned draft (include, reword, verdict; `comment` by default), previews exactly what will be sent, and posts it with the approval code. The post is refused when a leak check finds private context or secrets, when the PR head moved since the review, or when it was already posted (a hidden marker in the body finds earlier posts).
+
 **Director.** The LLM backed component that classifies a request, retrieves project context and drafts a spec through a provider neutral interface. Output is advisory and validated. It asks only blocking questions. Every call is recorded in `director_runs`.
 
 **Spec.** A versioned document with structured sections whose claims cite sources. Status flows draft, review, approved. Revising creates a new version; approving one supersedes its predecessor. Approval is refused while blocking questions remain. An approved version is immutable.
@@ -20,4 +28,4 @@
 
 **Execution and delivery.** Sindri submits missions to Mimir through `@mimir/sdk` and reconciles Mimir's events (`packages/mimir-client`, `packages/delivery`). Quality gates, the delivery report and knowledge write back are task S6, in progress.
 
-**Local only mode.** The default. No connector fetches and no remote provider. See ADR-007.
+**Local only mode.** The default. No connector fetches, no GitHub pull request import or posting, and no remote provider. See ADR-007.

@@ -1,6 +1,6 @@
 # From ticket to delivery
 
-This is the whole path of one piece of work, with the screen you use at each step. Screen names follow the redesigned layout: project tabs in the top bar (in Sindri grouped **Intake**, **Define**, **Execute**, **Ship & learn**; in Heimdall **Watch** and **Decide**), global things in the fixed bottom bar.
+This is the whole path of one code change, with the screen you use at each step. A research question or a PR review takes the same path through steps 1 to 6 and ends differently: see [Research questions](/docs/research) and [PR reviews](/docs/pr-reviews). Screen names follow the redesigned layout: project tabs in the top bar (in Sindri grouped **Intake**, **Define**, **Execute**, **Ship & learn**; in Heimdall **Watch** and **Decide**), global things in the fixed bottom bar.
 
 > Screen names in this page come from one table in the docs package (`src/navigation.ts`). When a screen is renamed or moved, change it there and this page follows.
 
@@ -14,6 +14,7 @@ Before you start, you need three things from the terminal that started the facto
 
 ## 1. Capture the request: {{screen:sindri.inbox}}
 
+- _Kind of work_ is **Change** for a code change (the default). **Research** and **Review a PR** open their own forms.
 - Type the idea under _New idea or ticket_, or import a tracker issue under _Import a ticket_ (needs local-only mode off).
 - Open the item and choose **Draft spec from this**.
 
@@ -94,7 +95,7 @@ On the delivery, describe what should change under **Request changes**. Sindri d
 
 | Step | Heimdall                                                                                                                          | Mimir                                                                              |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| 1-4  | {{screen:heimdall.new-work}} walks the same steps                                                                                 | –                                                                                  |
+| 1-4  | {{screen:heimdall.new-work}} walks the same steps, with the same kind switch                                                      | –                                                                                  |
 | 5    | {{screen:heimdall.overview}}, {{screen:heimdall.pipeline}}, {{screen:heimdall.crews-agents}}, {{screen:heimdall.execution-graph}} | {{screen:mimir.missions}}, {{screen:mimir.mission-detail}}, {{screen:mimir.crews}} |
 | 6    | {{screen:heimdall.overview}} → _Needs you_, {{screen:heimdall.quality-approvals}} (both with **Raise budget**)                    | {{screen:mimir.reviews}}; **Raise budget** on {{screen:mimir.mission-detail}}      |
 | 7-8  | {{screen:heimdall.quality-approvals}} (exports, patch download)                                                                   | –                                                                                  |

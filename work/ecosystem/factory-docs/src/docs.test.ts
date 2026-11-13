@@ -587,6 +587,19 @@ describe("search and bundling", () => {
     expect(new Set(searchDocs("status").map((h) => h.key)).size).toBe(searchDocs("status").length);
   });
 
+  it.each([
+    ["PR reviews", "/docs/pr-reviews"],
+    ["research questions", "/docs/research"],
+    ["leak check", "/docs/pr-reviews"],
+    ["skills and guidance", "/docs/research#skills-and-guidance"],
+  ])("search for %j has %s among its top 3 hits", async (query, href) => {
+    const { searchDocs } = await import("./index.js");
+    const top = searchDocs(query)
+      .slice(0, 3)
+      .map((h) => h.href);
+    expect(top, `top 3 hits for ${JSON.stringify(query)}: ${top.join(", ")}`).toContain(href);
+  });
+
   it("page bodies drop the leading title line", async () => {
     const { pages } = await import("./index.js");
     for (const p of pages) {

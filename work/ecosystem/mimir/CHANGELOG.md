@@ -4,6 +4,8 @@ All notable changes are recorded here. Format follows Keep a Changelog.
 
 ## [Unreleased]
 
+`@mimir/protocol` and `@mimir/sdk` 0.4.0 (wire protocol stays 1; additive).
+
 ### Added
 
 - `TaskInput.mode` (`{ deliverable: diff|document, access: write|read, network: none|web }`,

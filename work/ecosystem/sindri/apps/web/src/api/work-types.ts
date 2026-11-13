@@ -1,7 +1,13 @@
 // Wire types for work kinds (research, PR review) and operator guidance (skills, project notes).
 // Enums are open (`string & {}`): an unknown value from a newer server must render, never throw.
 
-export type WorkKind = "change" | "research" | "pr_review";
+/** The work kinds this UI labels (`WorkKindBadge`); checked against @factory/docs in a test. */
+export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export type WorkKind = (typeof WORK_KINDS)[number];
+/** Decisions a research document can carry; checked against @factory/docs in a test. */
+export const RESEARCH_DECISIONS = ["accepted", "rejected"] as const;
+/** The PR review post states shown as a status (an unposted review reads "Local only"). */
+export const REVIEW_POST_STATES = ["posted"] as const;
 export type AnyWorkKind = WorkKind | (string & {});
 
 export interface ResearchOptions {
@@ -97,7 +103,7 @@ export interface ResearchReport {
     gatePassed: boolean | null;
   } | null;
   decision: {
-    decision: "accepted" | "rejected" | (string & {});
+    decision: (typeof RESEARCH_DECISIONS)[number] | (string & {});
     actor: string;
     reason: string | null;
     decidedAt: string;

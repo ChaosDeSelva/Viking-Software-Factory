@@ -8,7 +8,7 @@ import { ApiError, notFound, parseBody } from "../errors.js";
 import { asMimirUnavailable, type ExecutionHub } from "../execution-hub.js";
 import type { Factory } from "../factory.js";
 import { deliveriesWork, executionsByProject, projectOfExecution } from "../queries.js";
-import { intakeView } from "./intakes.js";
+import { intakeView, refuseLocalOnlyWeb } from "./intakes.js";
 import { reworkRequestText } from "../rework.js";
 import type { Services } from "../services.js";
 import { DELIVERED_STATUSES, FINAL_STATUSES } from "../statuses.js";
@@ -429,15 +429,20 @@ export function deliveryRoutes(
       // loads from `linkedExecutionId`, so it can never crowd the question out.
       const firstLine = body.question.split("\n")[0]!.slice(0, 120);
       const research = plan.work?.research;
+      const work = {
+        workKind: "research" as const,
+        ...(research
+          ? { research: { sources: research.sources, factCheck: research.factCheck } }
+          : {}),
+      };
+      refuseLocalOnlyWeb(s, work);
       const intake = s.intake().createManual({
         projectId,
         title: firstLine,
         body: body.question,
-        workKind: "research",
         linkedExecutionId: execution.id,
-        ...(research
-          ? { research: { sources: research.sources, factCheck: research.factCheck } }
-          : {}),
+        ...work,
+        ...(earlier?.notes ? { notes: earlier.notes } : {}),
         ...(earlier?.skillIds.length ? { skillIds: earlier.skillIds } : {}),
       });
       req.log.info(

@@ -24,10 +24,14 @@ Secret stores:
 3. In Settings, set the connector base URL and email (Jira) and the secret name, then turn local only off.
 4. In Inbox, import by URL. Re importing a changed issue keeps the earlier snapshot and holds the update as pending.
 
+## GitHub pull requests
+
+A `https://github.com/<owner>/<repo>/pull/<n>` URL imports a pull request for review (`workKind: "pr_review"`). There is nothing to configure in Sindri: it runs the operator's own `gh` CLI, signed in with `gh auth login`, and stores no GitHub token. `GET /v1/github/status` reports whether `gh` is installed. Without a `projectId`, the registered project whose git remote names that repository is used. Set `settings.connectors.github.enabled` to false to turn it off. Unlike Jira and Linear, posting the finished review back to the pull request is possible, only after the operator's approval. See "PR reviews" in [api.md](api.md#pr-reviews).
+
 ## Local only mode
 
-With `localOnly` on (the default), `POST /v1/intakes/import` returns 503 `local_only` and no connector request is made. Manual intake still works.
+With `localOnly` on (the default), `POST /v1/intakes/import` returns 503 `local_only` and no connector request is made; pull request reviews cannot be imported, run or posted. Manual intake still works.
 
 ## What leaves your machine
 
-Imports send the issue URL's request to your tracker with your token. Nothing else is sent to the tracker. Provider egress is covered in `docs/security.md`.
+Imports send the issue URL's request to your tracker with your token. Nothing else is sent to the tracker. For GitHub, `gh` reads the pull request and fetches its commits into Sindri's review mirror; a review is sent only when you post it. Provider egress is covered in `docs/security.md`.

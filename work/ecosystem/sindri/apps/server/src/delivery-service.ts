@@ -92,6 +92,8 @@ export interface S6DeliveryOptions {
   repo?: RepoReader;
   /** Reads a PR review's diff from the review mirror. */
   prDiff?: PrDiffReader;
+  /** Local-only mode, read per gate repair. */
+  localOnly?: () => boolean;
   now?: () => Date;
 }
 
@@ -205,6 +207,7 @@ export class S6DeliveryService implements DeliveryService {
       reviews,
       gatesFor,
       ...(this.#o.repo ? { repo: this.#o.repo } : {}),
+      ...(this.#o.localOnly ? { localOnly: this.#o.localOnly } : {}),
       ...now,
     });
     // Resolved per call, so provider settings changes apply to cached parts.

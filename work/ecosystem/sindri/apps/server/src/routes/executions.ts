@@ -12,6 +12,7 @@ import type { Services } from "../services.js";
 import { FINAL_STATUSES } from "../statuses.js";
 import { MirrorError } from "../review-mirror.js";
 import { pullRequestOfSnapshot } from "@sindri/intake";
+import { needsWeb } from "@sindri/mimir-client";
 import type { Plan } from "@sindri/planner";
 
 const Create = z.strictObject({ planId: z.string().min(1).max(200) });
@@ -170,6 +171,12 @@ export function executionRoutes(
       );
     const project = s.knowledge.projects.get(plan.projectId);
     if (!project) throw notFound("project");
+    if (needsWeb(plan) && s.settings.get().localOnly)
+      throw new ApiError(
+        503,
+        "local_only",
+        "local-only mode is on: this research plan needs the web; turn off local-only mode in Settings to run it",
+      );
     if (plan.work?.kind === "pr_review")
       return reply.code(201).send(view(await runPrReview(plan, project)));
     const conn = await hub.connection();

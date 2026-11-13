@@ -1,7 +1,7 @@
 import { fitGuidance, GUIDANCE_CAP_BYTES, sha256Text } from "@sindri/knowledge";
 import type { Plan } from "@sindri/planner";
 import { describe, expect, it } from "vitest";
-import { mapPlan, mimirInputSlug, modeFor } from "./mapping.js";
+import { mapPlan, mimirInputSlug, modeFor, needsWeb, taskContract } from "./mapping.js";
 import { approvedPlan, planTask } from "./testing.js";
 
 const research = (
@@ -52,6 +52,20 @@ describe("task modes", () => {
     });
     const on = mapPlan(research({ code: false, feedbackGraph: false, web: true }));
     expect(on.tasks.map((t) => t.mode?.network)).toEqual(["web", "web"]);
+  });
+
+  it("never sends web access in local-only mode, and refuses a plan that needs it", () => {
+    const web = research({ code: true, feedbackGraph: false, web: true });
+    expect(needsWeb(web)).toBe(true);
+    expect(() => mapPlan(web, { localOnly: true })).toThrow(/local-only/);
+    expect(modeFor(web, { role: "investigator" }, { localOnly: true })?.network).toBe("none");
+    expect(taskContract(web, "research", { localOnly: true })?.mode?.network).toBe("none");
+    const local = research({ code: true, feedbackGraph: false, web: false });
+    expect(needsWeb(local)).toBe(false);
+    expect(mapPlan(local, { localOnly: true }).tasks.map((t) => t.mode?.network)).toEqual([
+      "none",
+      "none",
+    ]);
   });
 });
 

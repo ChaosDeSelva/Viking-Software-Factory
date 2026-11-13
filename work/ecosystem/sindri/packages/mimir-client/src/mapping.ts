@@ -30,6 +30,8 @@ export interface MapPlanOptions {
   run?: number;
   /** Extra Mimir attempts a human may grant per task after retries run out. Default 2. */
   humanRetries?: number;
+  /** Local-only mode: no task gets web access, and a plan that needs the web is refused. */
+  localOnly?: boolean;
 }
 
 /** Mimir attempts a human can add with `DeliveryLoop.resolveEscalation(..., "retry")`. */
@@ -117,17 +119,22 @@ export const inputDirFor = (plan: Pick<Plan, "work">, dependency: PlanTask): str
 export const PR_REVIEW_JSON = "review.json";
 export const PR_REVIEW_MARKDOWN = "review.md";
 
+/** Whether a plan's research tasks search the web (impossible in local-only mode). */
+export const needsWeb = (plan: Pick<Plan, "work">): boolean =>
+  plan.work?.kind === "research" && Boolean(plan.work.research?.sources.web);
+
 /** The mode a plan task runs in, or `undefined` for the default. */
 export function modeFor(
   plan: Pick<Plan, "work">,
   task: Pick<PlanTask, "role">,
+  { localOnly = false }: { localOnly?: boolean } = {},
 ): TaskMode | undefined {
   // A PR reviewer reads the mirror at the PR's head and writes review.json and review.md; the
   // Markdown file makes it a document task, which completes without a diff or Brokkr.
   if (plan.work?.kind === "pr_review")
     return { deliverable: "document", access: "read", network: "none" };
   if (plan.work?.kind !== "research") return undefined;
-  const network = plan.work.research?.sources.web ? "web" : "none";
+  const network = needsWeb(plan) && !localOnly ? "web" : "none";
   // Both research tasks are read-only documents: the investigator's is research.md, the
   // fact-check's is review.json (Mimir accepts either as a document deliverable).
   if (task.role !== "investigator" && task.role !== "reviewer") return undefined;
@@ -356,12 +363,12 @@ function instructionFor(
 export function taskContract(
   plan: Plan,
   taskId: string,
-  options: Pick<MapPlanOptions, "acceptanceCriteria" | "agentKindFor"> = {},
+  options: Pick<MapPlanOptions, "acceptanceCriteria" | "agentKindFor" | "localOnly"> = {},
 ): { brief: string; mode?: TaskMode } | null {
   const task = plan.tasks.find((t) => t.id === taskId);
   if (!task) return null;
   const agentKind = (options.agentKindFor ?? (() => DEFAULT_AGENT_KIND))(task.harnessId, task.role);
-  const mode = modeFor(plan, task);
+  const mode = modeFor(plan, task, { localOnly: options.localOnly ?? false });
   return {
     brief: instructionFor(task, agentKind, options.acceptanceCriteria, plan),
     ...(mode ? { mode } : {}),
@@ -375,6 +382,9 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
   }
   const { order, cycle } = topoOrder(plan.tasks);
   if (cycle.length > 0) throw new Error(`plan has a dependency cycle: ${cycle.join(" -> ")}`);
+  const localOnly = options.localOnly ?? false;
+  if (localOnly && needsWeb(plan))
+    throw new Error(`plan ${plan.id} needs web research, which local-only mode does not allow`);
   const agentKindFor = options.agentKindFor ?? (() => DEFAULT_AGENT_KIND);
   const concurrency = { ...DEFAULT_CONCURRENCY, ...options.concurrency };
   const run = options.run ?? 1;
@@ -457,7 +467,7 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
       ),
       dependsOn: [...task.dependsOn],
     };
-    const mode = modeFor(plan, task);
+    const mode = modeFor(plan, task, { localOnly });
     // Mimir refuses a read-only task that must deliver a diff (it could never produce one).
     if (mode?.access === "read" && mode.deliverable === "diff")
       throw new Error(`task ${id} would be read-only with a diff deliverable`);

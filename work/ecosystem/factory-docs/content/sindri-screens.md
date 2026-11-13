@@ -20,9 +20,10 @@ The project at a glance. Start here after picking a project.
 
 Where requests land. Group: Intake.
 
+- _Kind of work_: **Change** (the default), **Research** or **Review a PR**. Research asks for a question, its sources (project code, lessons from your feedback history, web) and whether to fact-check; Review a PR asks for a GitHub pull request URL and is disabled, with the reason, while `gh` is missing, GitHub pull requests are turned off in {{screen:sindri.settings}}, or local-only mode is on. The **Web** source is disabled while local-only mode is on. Both take optional notes and skills. See [Research questions](/docs/research) and [PR reviews](/docs/pr-reviews).
 - _New idea or ticket_: type a request. It becomes an intake.
 - _Import a ticket_: paste a tracker URL. Needs a tracker connector on the Sindri server and local-only mode off in {{screen:sindri.settings}}. Nothing is written back to the tracker.
-- _Inbox items_: the list. Open one for its detail and comments.
+- _Inbox items_: the list, each with a kind badge. Open one for its detail, its _Work details_ (sources, fact-check, skills, the delivery it follows up on) or _Pull request_ (author, branches, size), and comments.
 - **Draft spec from this** hands it to the Director.
 
 An imported item can show [Update available](/docs/statuses#update-available-intake-sync-status) or [Conflict](/docs/statuses#conflict-intake-sync-status) when the issue changed in the tracker. Pick which copy to keep.
@@ -88,7 +89,7 @@ Gates are checked when a run is verified: Brokkr's verdict first, which is never
 
 ## {{label:sindri.deliveries}}
 
-Verified results of this project's runs. Group: Ship & learn. Open one for {{screen:sindri.delivery-detail}}.
+Verified results of this project's runs. Group: Ship & learn. Each shows its kind: a change, a research document or a PR review. Open one for {{screen:sindri.delivery-detail}}.
 
 ## {{label:sindri.delivery-detail}}
 
@@ -100,6 +101,10 @@ One delivery.
 - _Trace_: ticket → spec → plan → mission → tasks → events and artifacts.
 
 See [Export a delivery](/docs/operator-guide#export-a-delivery).
+
+A **research** delivery has no patch. Its tabs are _Document_ (the answer with numbered sources, **Copy as Markdown**), _Checks_ (research gates and the fact-check) and _Guidance_; **Accept**, **Reject…** and **Ask a follow-up…** sit in its header. See [Research questions](/docs/research).
+
+A **PR review** delivery has _Review_ (verdict, summary, findings to include, exclude or edit; **Save edits**), _Preview and post_ (exactly what GitHub receives, the leak check, **Post review to GitHub**), _Reviewers_ and _Guidance_. See [PR reviews](/docs/pr-reviews).
 
 ## {{label:sindri.knowledge}}
 
@@ -121,10 +126,11 @@ Modes and pause live in {{screen:sindri.autonomy-all}}.
 
 ## {{label:sindri.project-settings}}
 
-Settings for the selected project: the gear at the right end of the top bar. Four tabs:
+Settings for the selected project: the gear at the right end of the top bar. Five tabs:
 
 - _Execution profile_: checks, check network, environment variables, PATH additions, agent sandbox and verification timeout. See [Execution profile](/docs/glossary#execution-profile).
 - _Feedback Graph_: whether lessons are linked (automatically, by you, or not), the lessons in use, and an override of the Feedback Graph project key.
+- _Guidance_: standing notes for this project's research and review agents (at most 16 KB) and its default skills. **Save guidance** applies to plans proposed afterwards.
 - _Repository & index_: **Bootstrap** the project and search its index (docs, ADRs, manifests); _Repository signals_, what Sindri noticed about the repository; and _Why this harness?_, which explains which harness and skills a plan would pick for a task you describe.
 - _Danger zone_: **Delete project data** (index, inbox, specs, knowledge; the repository is not touched). Type the project name to confirm. A project with recorded evidence can only be deleted by also erasing it: tick the box, type `ERASE EVIDENCE` and unlock with the pairing code.
 
@@ -145,7 +151,7 @@ The steward for every project (global).
 
 ## {{label:sindri.settings}}
 
-Machine-wide settings (global).
+Machine-wide settings (global), in two tabs: _General_ and _Skills_.
 
 - _Model provider_: provider and model, the API key's secret **name** (never the secret), and _Offline mode_ (local-only mode).
 - _Agents_: the implementation agent and the review and QA agent.
@@ -153,3 +159,4 @@ Machine-wide settings (global).
 - _Feedback Graph_: URL (usually `http://127.0.0.1:8787`), token secret name, on or off.
 - _Export_: a zip of Sindri's database and settings, without secrets.
 - _Project data_: points to {{screen:sindri.project-settings}}, where a project's data is deleted.
+- _Skills_ tab: the skills library. **Import** a folder with a `SKILL.md` (or a parent folder of several), preview one, **Re-import** it when it shows _Changed on disk_, or delete it. The library keeps a copy with its digest; the file on disk is never changed.

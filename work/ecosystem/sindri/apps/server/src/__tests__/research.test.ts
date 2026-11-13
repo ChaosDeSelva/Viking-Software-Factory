@@ -34,6 +34,17 @@ const skillFolder = (name: string, text: string) => {
   return join(dir, name);
 };
 
+/** Turns local-only mode on or off, keeping the other settings. */
+async function setLocalOnly(flow: Flow, localOnly: boolean) {
+  const st = (await flow.h.call({ url: "/v1/settings" })).json().settings;
+  const put = await flow.h.call({
+    method: "PUT",
+    url: "/v1/settings",
+    payload: { ...st, localOnly },
+  });
+  expect(put.statusCode).toBe(200);
+}
+
 describe("skills library and project guidance routes", () => {
   it("imports, lists, previews, re-imports and deletes skills", async () => {
     const flow = (f = await startFlow());
@@ -112,6 +123,7 @@ describe("skills library and project guidance routes", () => {
 describe("intake work kind", () => {
   it("creates a research intake with notes and skills, and refuses unknown skills", async () => {
     const flow = (f = await startFlow());
+    await setLocalOnly(flow, false);
     const skill = (
       await flow.h.call({
         method: "POST",
@@ -157,10 +169,46 @@ describe("intake work kind", () => {
     });
     expect(bad.statusCode).toBe(422);
   });
+
+  it("refuses web research while local-only mode is on (the default)", async () => {
+    const flow = (f = await startFlow());
+    const research = (web: boolean) => ({
+      workKind: "research",
+      research: { sources: { code: true, web } },
+    });
+    const create = (web: boolean) =>
+      flow.h.call({
+        method: "POST",
+        url: "/v1/intakes",
+        payload: { projectId: flow.projectId, title: "Q", body: "", ...research(web) },
+      });
+    const refused = await create(true);
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json().error).toMatchObject({
+      code: "local_only",
+      message: expect.stringContaining("web research is unavailable"),
+    });
+    expect((await create(false)).statusCode).toBe(201);
+    // An import (or re-import) asking for the web gets the same answer, not the generic 503.
+    const imported = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes/import",
+      payload: {
+        projectId: flow.projectId,
+        url: "https://github.com/o/r/issues/1",
+        ...research(true),
+      },
+    });
+    expect(imported.statusCode).toBe(422);
+    expect(imported.json().error.code).toBe("local_only");
+    await setLocalOnly(flow, false);
+    expect((await create(true)).statusCode).toBe(201);
+  });
 });
 
-/** A research intake through spec, plan and a finished execution. */
-async function researchExecution(flow: MimirFlow) {
+/** A research intake (web on, so local-only is turned off) through spec and an approved plan. */
+async function approvedResearchPlan(flow: MimirFlow, notes = "") {
+  await setLocalOnly(flow, false);
   const intake = (
     await flow.h.call({
       method: "POST",
@@ -170,6 +218,7 @@ async function researchExecution(flow: MimirFlow) {
         title: "How does the reports export work?",
         body: "Explain the CSV export path.",
         workKind: "research",
+        ...(notes ? { notes } : {}),
         research: { sources: { web: true, feedbackGraph: false }, factCheck: false },
       },
     })
@@ -208,6 +257,12 @@ async function researchExecution(flow: MimirFlow) {
     headers: await flow.h.approvalHeaders(),
   });
   expect(ok.statusCode).toBe(200);
+  return { plan: plan as { id: string }, intake };
+}
+
+/** A research intake through spec, plan and a finished execution. */
+async function researchExecution(flow: MimirFlow, notes = "") {
+  const { plan, intake } = await approvedResearchPlan(flow, notes);
   const ex = await flow.h.call({
     method: "POST",
     url: "/v1/executions",
@@ -239,7 +294,7 @@ describe("research delivery routes", () => {
   it("sends the task mode, gates the document and ends with an approved decision", async () => {
     // The fake Mimir stamps its events `fake-mimir`; production trusts only `mimir.server`.
     const flow = (f = await startMimirFlow(researchScript(), TRUST_FAKE));
-    const { execution, intake } = await researchExecution(flow);
+    const { execution, intake } = await researchExecution(flow, "Start from the reports page");
     const created = flow.fake.requests.find((r) => r.method === "POST" && r.path === "/v1/tasks");
     expect((created!.body as { mode?: unknown }).mode).toEqual({
       deliverable: "document",
@@ -317,6 +372,7 @@ describe("research delivery routes", () => {
       title: "Which columns are exported?",
       workKind: "research",
       linkedExecutionId: execution.id,
+      notes: "Start from the reports page",
       research: { sources: { web: true, feedbackGraph: false }, factCheck: false },
     });
     // The question alone is the request; the earlier document is linked, not pasted in.
@@ -367,6 +423,33 @@ describe("research delivery routes", () => {
       payload: { question: "y".repeat(8001) },
     });
     expect(tooLong.statusCode).toBe(422);
+
+    // With local-only mode back on, a follow-up would ask for the web again: refused.
+    await setLocalOnly(flow, true);
+    const local = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/follow-up`,
+      payload: { question: "And the PDF export?" },
+    });
+    expect(local.statusCode).toBe(422);
+    expect(local.json().error.code).toBe("local_only");
+  });
+
+  it("refuses to start a web research plan while local-only mode is on", async () => {
+    const flow = (f = await startMimirFlow(researchScript(), TRUST_FAKE));
+    const { plan } = await approvedResearchPlan(flow);
+    await setLocalOnly(flow, true);
+    const ex = await flow.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: plan.id },
+    });
+    expect(ex.statusCode).toBe(503);
+    expect(ex.json().error).toMatchObject({
+      code: "local_only",
+      message: expect.stringContaining("needs the web"),
+    });
+    expect(flow.fake.requests.some((r) => r.path === "/v1/tasks")).toBe(false);
   });
 
   it("refuses to accept a document whose gates failed, but takes a rejection", async () => {

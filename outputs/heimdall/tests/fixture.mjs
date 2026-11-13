@@ -236,6 +236,10 @@ export async function fixture() {
     const work = api.work;
     if (work && req.method === "GET") {
       if (req.url === "/v1/skills") return res.end(JSON.stringify({ skills: work.skills ?? [] }));
+      if (req.url === "/v1/github/status")
+        return res.end(
+          JSON.stringify({ enabled: true, configured: true, ghInstalled: true, localOnly: work.localOnly ?? false }),
+        );
       const guidance = /^\/v1\/projects\/([\w-]+)\/guidance$/.exec(req.url);
       if (guidance)
         return res.end(

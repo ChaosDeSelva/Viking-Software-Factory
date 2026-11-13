@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Added:
+
+- Work kinds: intakes carry `workKind` (`change`, `research`, `pr_review`), plus `notes` and `skillIds`; the planner, gates and delivery report branch on it. The director's investigation kind only suggests `research` (`meta.suggestedWorkKind`).
+- Research: a read only investigator document task (web only when allowed) and an optional fact-check reviewer; gates `research-document`, `research-sources`, `research-citations`, `research-file-sources`, `research-source-policy`; `POST /v1/executions/:id/accept`, `/reject` (approval secret) and `/follow-up`.
+- PR review: GitHub pull request import through the operator's `gh` (`GET /v1/github/status`), a factory-owned review mirror under `<dataDir>/review-mirrors/`, reviewer and security reviewer tasks, gates `pr-review-schema` and `pr-review-markdown`, findings mapped to hunks against the merge base, an editable draft (`GET`/`PUT /v1/executions/:id/review`), `GET .../review/preview` with a leak check, and `POST .../review/post` (approval secret) with a marker-based duplicate guard.
+- Skills library (`/v1/skills`: import, re-import, delete, changed and missing on disk) and project guidance (`/v1/projects/:id/guidance`: standing notes, default skills). Plans record guidance digests; briefs get an operator guidance block capped at 48 KB.
+- Web UI: kind switch in the Inbox (Change, Research, Review a PR), research document and PR review views on deliveries, Settings → Skills, Project settings → Guidance.
+- Error codes: `not_exportable`, `already_decided`, `already_posted`, `post_in_progress`, `pr_head_moved`, `pr_changed_since_plan`, `gates_not_passed`, `project_required`, `post_blocked`, `mirror_failed`, `github_error`.
+- `@mimir/sdk` and `@mimir/protocol` 0.4.0 (task modes), `@factory/ui` 0.1.9.
+
 ## 0.1.0 (unreleased)
 
 Local recovery build integrates the demo, acceptance workflow and installable packaging. No remote release has been published.

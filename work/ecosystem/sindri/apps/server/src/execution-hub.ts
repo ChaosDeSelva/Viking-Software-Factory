@@ -343,6 +343,7 @@ export class ExecutionHub {
           ? (st.reviewerAgent ?? "claude")
           : (st.workerAgent ?? "claude");
       },
+      localOnly: () => this.#o.settings.get().localOnly,
       ...(this.#o.mimirFetch ? { fetch: this.#o.mimirFetch } : {}),
       ...(this.#o.now ? { now: this.#o.now } : {}),
     };

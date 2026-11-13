@@ -27,7 +27,19 @@ Humans stay in control of merges, secrets and destructive operations.
   (`packages/git`). Agents never share a working directory.
 * **Approval**: a human decision (`approved` or `rejected`) on a privileged action. Agents and
   system actors cannot approve, and nobody approves their own request.
-* **Artifact**, **usage**: recorded outputs and token or cost samples.
+* **Task mode**: how a task runs, `{ deliverable: diff|document, access: write|read, network:
+  none|web }`, all defaulting to `diff`, `write`, `none`. A `document` task delivers a Markdown
+  report (`.mimir/artifacts/*.md`) or `review.json` instead of a diff, skips the verifier
+  (`verificationSkipped: "document_deliverable"`), fails with `document_missing` when it records
+  neither, and cannot be delivered. `read` is only valid with `document`. `web` gives the agent
+  web search and fetch. See [verification](verification.md#task-modes).
+* **Artifact**, **usage**: recorded outputs and token or cost samples. Artifact kinds include
+  `diff`, `review`, `screenshot`, `test.output`, `report` (`*.md`, served as `text/markdown`) and
+  `file`.
+* **Dependency inputs**: before each attempt Mimir copies the `report` artifacts, `sources.json`
+  and `review.json` of each completed dependency into `.mimir/inputs/<slug>/` of the task's
+  worktree, so a document task's output reaches the tasks after it. The folder is excluded from
+  diffs, commits and artifact collection.
 
 ## Events
 

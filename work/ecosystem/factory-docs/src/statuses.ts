@@ -234,6 +234,11 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
     values: [
       v("approve", "Approve", "The reviewer accepts the change."),
       v(
+        "comment",
+        "Comment",
+        "Remarks only: neither approves nor asks for changes. The default verdict of a PR review draft.",
+      ),
+      v(
         "request_changes",
         "Request changes",
         "The reviewer wants changes. The review gate does not pass.",
@@ -246,6 +251,7 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
     concept: "severity",
     values: [
       v("info", "Info", "A remark. Does not block."),
+      v("nit", "Nit", "A matter of taste or style. Does not block. Used by PR reviews."),
       v("minor", "Minor", "A small issue. Does not block."),
       v("major", "Major", "A real problem. Blocks the review gate."),
       v("critical", "Critical", "A serious problem. Blocks the review gate."),
@@ -289,6 +295,60 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
         "deprecated",
         "Deprecated",
         "A recorded decision that no longer applies but is kept for history.",
+      ),
+    ],
+  },
+  {
+    key: "work-kind",
+    noun: "work kind",
+    concept: "work-kind",
+    values: [
+      v(
+        "change",
+        "Change",
+        "A code change. Ends as a verified patch you export and apply.",
+        "Every request made before work kinds existed is a change.",
+      ),
+      v(
+        "research",
+        "Research",
+        "A question answered with a cited Markdown document. Ends when you accept or reject it.",
+      ),
+      v(
+        "pr_review",
+        "PR review",
+        "A review of a GitHub pull request. Ends when you post it to GitHub, or leave it local.",
+      ),
+    ],
+  },
+  {
+    key: "research-decision",
+    noun: "research decision",
+    concept: "research",
+    values: [
+      v(
+        "accepted",
+        "Accepted",
+        "You accepted the research document as the answer.",
+        "Accepting needs the pairing code and passing research checks.",
+      ),
+      v(
+        "rejected",
+        "Rejected",
+        "You rejected the research document, with a reason. Ask a follow-up to try again.",
+      ),
+    ],
+  },
+  {
+    key: "review-post",
+    noun: "PR review",
+    concept: "pr-review",
+    values: [
+      v(
+        "posted",
+        "Posted",
+        "The review is on the pull request. It was posted once, from your gh login; edits are closed.",
+        "Until then the review shows _Not posted_ and stays on this machine.",
       ),
     ],
   },
@@ -989,6 +1049,9 @@ export const APP_GROUPS: Readonly<Record<AppId, readonly string[]>> = {
     "fg-connection",
     "approvals",
     "connection",
+    "work-kind",
+    "research-decision",
+    "review-post",
   ],
   mimir: [
     "mission",
@@ -1047,6 +1110,11 @@ export const APP_GROUPS: Readonly<Record<AppId, readonly string[]>> = {
     "intake-sync",
     "open-question",
     "heimdall-compat",
+    "work-kind",
+    "research-decision",
+    "review-post",
+    "review-verdict",
+    "severity",
   ],
   skidbladnir: ["skid-worker", "ssm-command", "terminal", "skid-mode", "connection"],
 };

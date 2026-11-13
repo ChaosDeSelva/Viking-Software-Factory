@@ -32,7 +32,11 @@ Sindri deliberately does not do several things. It does not run agents or open t
 - **Quality gates.** Command, artifact and review gates evaluated from recorded evidence, bound to the Brokkr report.
 - **Delivery report and PR.** Report with citations, a trace from delivery back to plan, spec and intake, and a PR request that waits for approval.
 - **Knowledge update.** Post delivery write back of sourced claims.
-- **Local only mode.** On by default; blocks connector fetches.
+- **Work kinds.** An intake is a `change` (the default), `research` or `pr_review`; the planner, gates and delivery branch on it. The director only suggests research, it never changes the kind.
+- **Research.** A question becomes a read only investigator task (web only when allowed) that writes `research.md` and `sources.json` with numbered citations, plus an optional fact-check reviewer. Research gates check the sections, sources, citations, file sources at the base commit and the source policy. The operator accepts, rejects (approval code) or asks a follow-up.
+- **PR review.** Imports a GitHub pull request URL with the operator's own `gh` login, reviews it in Sindri's own clone under `<dataDir>/review-mirrors/` (never the operator's checkout), maps findings to the changed hunks, and lets the operator edit the draft, preview the exact payload and post it once with the approval code. A leak check blocks private context and secrets; a hidden marker prevents duplicate posts; a moved PR head refuses the post.
+- **Skills and guidance.** A skills library of imported SKILL.md folders with digests and changed on disk detection, standing notes and default skills per project, and notes and skills per request. Plans record the guidance with digests; briefs get it capped at 48 KB, listing what was omitted.
+- **Local only mode.** On by default; blocks connector fetches and GitHub.
 - **Server and web UI.** Fastify API with bearer auth plus a React UI served on one origin.
 - **Export and delete.** Zip snapshot of the database and settings; per project data deletion.
 
@@ -131,13 +135,14 @@ Pipeline stages:
 
 Connectors:
 
-| Connector | Access                        | Auth handle      | Notes                              |
-| --------- | ----------------------------- | ---------------- | ---------------------------------- |
-| Jira      | `GET` issue and comments only | `apiTokenSecret` | Limited to the configured base URL |
-| Linear    | GraphQL queries only          | `apiKeySecret`   | No mutations are sent              |
-| Manual    | none                          | none             | Always available                   |
+| Connector | Access                                                           | Auth handle           | Notes                                                 |
+| --------- | ---------------------------------------------------------------- | --------------------- | ----------------------------------------------------- |
+| Jira      | `GET` issue and comments only                                    | `apiTokenSecret`      | Limited to the configured base URL                    |
+| Linear    | GraphQL queries only                                             | `apiKeySecret`        | No mutations are sent                                 |
+| GitHub    | `gh pr view` and `gh api` reads; posts a review only on approval | operator's `gh` login | Pull request URLs only; Sindri stores no GitHub token |
+| Manual    | none                                                             | none                  | Always available                                      |
 
-Server API (all under `/v1`, bearer auth): `projects`, `intakes` (including `intakes/import`), `director/draft`, `specs`, `plans`, `harnesses`, `executions`, `reviews`, `deliveries`, `knowledge`, `settings`, `export`, `mimir/status`. Route tables are in `apps/server/src/routes/`.
+Server API (all under `/v1`, bearer auth): `projects`, `intakes` (including `intakes/import`), `director/draft`, `specs`, `plans`, `harnesses`, `executions` (including `accept`, `reject`, `follow-up` and `review`), `reviews`, `deliveries`, `knowledge`, `skills`, `projects/:id/guidance`, `settings`, `export`, `mimir/status`, `github/status`. Route tables are in `apps/server/src/routes/`.
 
 ## Ecosystem
 
@@ -158,7 +163,7 @@ Sindri runs locally with no hosted service and no telemetry. The server listens 
 ## Documentation
 
 - `docs/getting-started.md`: install, init, doctor, connect Mimir, run.
-- `docs/concepts.md`: projects, intake, director, specs, knowledge, evidence, plans.
+- `docs/concepts.md`: projects, intake, work kinds, guidance, director, specs, knowledge, evidence, plans, research and PR reviews.
 - `docs/api.md`: HTTP API reference.
 - `docs/connectors.md`: Jira and Linear setup, credential handles, local only.
 - `docs/compatibility.md`: Sindri, `@mimir/sdk`, Mimir protocol and `@brokkr/sdk` versions.

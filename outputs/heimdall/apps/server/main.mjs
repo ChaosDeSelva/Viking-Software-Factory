@@ -73,9 +73,11 @@ export function stewardDetail(path, params) {
   if (project) return `/v1/projects/${project[1]}/feedback-graph`;
   return null;
 }
-/** Sindri path for a skills, project guidance or PR review preview read, or null. */
+/** Sindri path for a skills, project guidance, GitHub status or PR review preview read, or null. */
 export function workDetail(path) {
   if (path === "/api/details/skills") return "/v1/skills";
+  // Carries `localOnly`: the research form disables its Web source in local-only mode.
+  if (path === "/api/details/github-status") return "/v1/github/status";
   const guidance = /^\/api\/details\/guidance\/([\w-]{1,200})$/.exec(path);
   if (guidance) return `/v1/projects/${guidance[1]}/guidance`;
   const preview = /^\/api\/details\/review-preview\/([\w-]{1,200})$/.exec(path);

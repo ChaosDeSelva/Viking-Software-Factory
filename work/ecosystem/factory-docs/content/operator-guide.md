@@ -6,13 +6,13 @@ What you do as the person running the factory, and what each control really does
 
 The factory uses separate secrets on purpose. The terminal that started it prints them all.
 
-| Secret                 | Used for                                                                  | Where                                                         |
-| ---------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Sindri access token    | signing in to Sindri and its API                                          | `sindri token show`, or _Access token_ in the launcher output |
-| Approval pairing code  | approving specs, plans, local exports, knowledge and steward mode changes | printed when Sindri starts; changes on every start            |
-| Mimir access token     | signing in to Mimir                                                       | `mimir token show`                                            |
-| Heimdall access token  | signing in to Heimdall                                                    | printed when Heimdall starts                                  |
-| Heimdall operator code | unlocking actions in Heimdall                                             | printed when Heimdall starts                                  |
+| Secret                 | Used for                                                                                                                       | Where                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| Sindri access token    | signing in to Sindri and its API                                                                                               | `sindri token show`, or _Access token_ in the launcher output |
+| Approval pairing code  | approving specs, plans, local exports, knowledge and steward mode changes; accepting or rejecting research; posting PR reviews | printed when Sindri starts; changes on every start            |
+| Mimir access token     | signing in to Mimir                                                                                                            | `mimir token show`                                            |
+| Heimdall access token  | signing in to Heimdall                                                                                                         | printed when Heimdall starts                                  |
+| Heimdall operator code | unlocking actions in Heimdall                                                                                                  | printed when Heimdall starts                                  |
 
 - **Sindri**: you are signed in with the token. The bottom bar says _Read-only_ until you enter the pairing code, either when you first approve something or from the session item in the bottom bar. It then says _Operator unlocked_ for this browser tab; **Lock approvals** in the same place locks it again. Five wrong codes lock approvals until Sindri restarts.
 - **Heimdall**: after sign-in the session is **Read-only**. Click the session item in the bottom bar (or open {{screen:heimdall.connections}} → _Access_), enter the operator code (**Unlock controls**), then pair Sindri with its pairing code. Without pairing you can still act on Mimir (for example raise a budget), but not approve Sindri specs, plans or exports, or change the steward.
@@ -29,7 +29,7 @@ An approval is a human yes or no on something an agent wants to do that Mimir's 
 - Read the action and the reason. Approve only what you would run yourself.
 - Many approvals for a command you trust? Add it to the Mimir project's allowed commands.
 
-Spec, plan and export approvals are different: they are your sign-off on the work itself, and always need the pairing code.
+Spec, plan and export approvals are different: they are your sign-off on the work itself, and always need the pairing code. So do accepting or rejecting a research document and posting a PR review.
 
 ## Escalations
 
@@ -90,6 +90,15 @@ If the patch does not apply, see [Merge conflict](/docs/troubleshooting#merge-co
 4. The new delivery has a **full patch** and a **follow-up patch**. If you already applied the earlier delivery, apply only the follow-up.
 
 Only one unapproved change request per delivery at a time.
+
+## Research and PR reviews
+
+Not every request is a code change. In the {{screen:sindri.inbox}} (or Heimdall's {{screen:heimdall.new-work}}), _Kind of work_ offers **Research** and **Review a PR** next to **Change**. They run through the same spec, plan and run, but their agents only read, and they end differently:
+
+- **Research** ends with a cited document you **Accept** or **Reject…** with a reason, or follow up with **Ask a follow-up…**. **Copy as Markdown** leaves out private lessons. See [Research questions](/docs/research).
+- **PR review** ends with a review draft you edit on the delivery, preview with its leak check, and post once with **Post review to GitHub**. Heimdall shows it read-only; posting happens in Sindri. See [PR reviews](/docs/pr-reviews).
+
+Give the agents your standards as **skills** (imported `SKILL.md` folders, {{screen:sindri.settings}} → _Skills_) and **notes**: standing ones per project in {{screen:sindri.project-settings}} → _Guidance_, or per request on the form. See [Skills and guidance](/docs/research#skills-and-guidance).
 
 ## Autonomy and the steward
 

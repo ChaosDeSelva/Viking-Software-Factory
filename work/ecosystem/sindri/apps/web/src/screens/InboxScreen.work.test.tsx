@@ -77,6 +77,23 @@ describe("Inbox work kinds", () => {
     expect(await screen.findByText(/Added research question/)).toBeTruthy();
   });
 
+  it("disables the Web source in local-only mode and never sends it", async () => {
+    const api = setup({
+      createIntake: intake({ workKind: "research" }),
+      githubStatus: { enabled: true, configured: true, ghInstalled: true, localOnly: true },
+    });
+    await chooseKind("Research");
+    const form = screen.getByRole("form", { name: "Research question" });
+    const web = within(form).getByLabelText("Web") as HTMLInputElement;
+    await waitFor(() => expect(web.disabled).toBe(true));
+    expect(web.checked).toBe(false);
+    expect(within(form).getByText(/Local-only mode is on/)).toBeTruthy();
+    await userEvent.type(within(form).getByLabelText("Question"), "Q?");
+    await userEvent.click(within(form).getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(api.createIntake).toHaveBeenCalled());
+    expect(api.createIntake.mock.calls[0]![0].research.sources.web).toBe(false);
+  });
+
   it("disables lessons when the project is not linked and needs at least one source", async () => {
     const api = setup({ getProjectFeedbackGraph: unlinked, createIntake: intake() });
     await chooseKind("Research");

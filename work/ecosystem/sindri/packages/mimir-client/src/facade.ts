@@ -60,6 +60,8 @@ export interface MimirClientFacadeOptions {
   agentKindFor?: AgentKindResolver;
   /** Per-role crew concurrency, merged over the planner's `DEFAULT_CONCURRENCY`. */
   concurrency?: Partial<Record<Role, number>>;
+  /** Read per plan: local-only mode refuses a plan that needs the web. */
+  localOnly?: () => boolean;
   /**
    * The Mimir project settings Sindri owns for a repository (agent environment, verification
    * timeout); undefined leaves the Mimir project's settings alone. Default: derived from the
@@ -257,6 +259,7 @@ export class MimirClientFacade {
         ...(this.options.agentKindFor ? { agentKindFor: this.options.agentKindFor } : {}),
         ...(this.options.concurrency ? { concurrency: this.options.concurrency } : {}),
         ...(run !== undefined ? { run } : {}),
+        ...(this.options.localOnly ? { localOnly: this.options.localOnly() } : {}),
       });
     } catch (err) {
       throw new MimirClientError("invalid_plan", (err as Error).message);

@@ -31,6 +31,22 @@ export const SECTIONS: readonly {
     ],
   },
   {
+    id: "work",
+    title: "Research and reviews",
+    pages: [
+      {
+        slug: "research",
+        title: "Research questions",
+        summary: "Ask a question, get a cited document, accept or reject it. Skills and guidance.",
+      },
+      {
+        slug: "pr-reviews",
+        title: "PR reviews",
+        summary: "Import a GitHub pull request, edit the review, post it once.",
+      },
+    ],
+  },
+  {
     id: "screens",
     title: "Screens",
     pages: [
@@ -63,12 +79,14 @@ export const SECTIONS: readonly {
       {
         slug: "operator-guide",
         title: "Operator guide",
-        summary: "Sign-in, approvals, escalations, budgets, export, change requests, autonomy.",
+        summary:
+          "Sign-in, approvals, escalations, budgets, export, change requests, research and reviews, autonomy.",
       },
       {
         slug: "troubleshooting",
         title: "Troubleshooting",
-        summary: "Token rejected, reconnecting, budget blocked, merge conflicts, Feedback Graph.",
+        summary:
+          "Token rejected, reconnecting, budget blocked, merge conflicts, lessons, research and PR reviews.",
       },
     ],
   },

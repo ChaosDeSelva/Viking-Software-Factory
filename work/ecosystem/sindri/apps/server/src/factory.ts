@@ -188,6 +188,7 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
       ...(o.trustedSources ? { trustedSources: o.trustedSources } : {}),
       repo: gitRepoReader((id) => s.knowledge.projects.get(id)?.repoPath),
       prDiff: reviewMirror,
+      localOnly: () => s.settings.get().localOnly,
       now,
     });
   backfillAssessmentClaims(s.db);
