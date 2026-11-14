@@ -1,4 +1,5 @@
 import {
+  detectProjects,
   MAX_FIELD_CHARS,
   MAX_PROPOSAL_REFERENCES,
   MAX_PROPOSAL_TEXT_CHARS,
@@ -204,6 +205,26 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
       },
     );
   };
+
+  /** The registered projects a pasted text mentions, for a plan request to suggest. */
+  app.post("/v1/intakes/detect-projects", (req) => {
+    const body = parseBody(
+      z.strictObject({ text: z.string().min(1).max(MAX_PROPOSAL_TEXT_CHARS) }),
+      req.body,
+    );
+    const projects = s.knowledge.projects.list().map((p) => {
+      const aliases = p.settings["aliases"];
+      return {
+        id: p.id,
+        name: p.name,
+        repoPath: p.repoPath,
+        aliases: Array.isArray(aliases)
+          ? aliases.filter((a): a is string => typeof a === "string")
+          : [],
+      };
+    });
+    return { projects: detectProjects(body.text, projects) };
+  });
 
   app.post("/v1/intakes", sanitized, (req, reply) => {
     const body = parseBody(ManualIntake, req.body);

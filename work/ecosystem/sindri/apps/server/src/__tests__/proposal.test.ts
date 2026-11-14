@@ -81,4 +81,24 @@ describe("plan (proposal) intakes", () => {
       422,
     );
   });
+
+  it("suggests the registered projects a pasted text mentions", async () => {
+    const flow = (f = await startFlow());
+    const docs = await otherProject(flow, "docs-site");
+    const res = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes/detect-projects",
+      payload: { text: "We should update the Docs Site and the docs_site build." },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects).toEqual([
+      expect.objectContaining({ projectId: docs, name: "docs-site", mentions: 2, weak: false }),
+    ]);
+    const empty = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes/detect-projects",
+      payload: { text: "" },
+    });
+    expect(empty.statusCode).toBe(422);
+  });
 });

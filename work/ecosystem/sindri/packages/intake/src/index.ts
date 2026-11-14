@@ -85,3 +85,4 @@ export {
 } from "./github.js";
 export { MAX_DISPLAY_CHARS, sanitizeForDisplay } from "./sanitize.js";
 export { INTAKE_MIGRATIONS, widenIntakeKinds, widenIntakeSources } from "./schema.js";
+export { detectProjects, type DetectableProject, type DetectedProject } from "./detect-projects.js";
