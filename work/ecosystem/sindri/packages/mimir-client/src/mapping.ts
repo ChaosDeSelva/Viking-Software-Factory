@@ -391,6 +391,12 @@ function proposalBrief(plan: Plan, task: PlanTask): string[] {
     return [
       ...pastedText(work.text),
       `Read every project's findings: ${inputs.join("; ")}. They are your only evidence about the code; do not invent facts they do not contain.`,
+      ...(work.context
+        ? [
+            "This is a revision. The text above starts with what to change. Below are the earlier proposal and its appendix (and any fact-check findings): keep what still holds, apply the requested changes, fix what the fact-check found, and rewrite both documents in full.",
+            JSON.stringify(work.context.document),
+          ]
+        : []),
       `Write two documents. First .mimir/artifacts/${ENGINEERING_DOCUMENT}: the engineering appendix, merging the findings with these sections in order: ${ENGINEERING_SECTION_TITLES.map((t) => `## ${t}`).join(", ")}. Under Findings by project use one ### heading per project, keep exact names, routes, tables and file:line detail, and renumber citations into one list under ## Sources (\`[n] ref\`).`,
       `Then .mimir/artifacts/${PROPOSAL_DOCUMENT}: the proposal people read and decide on. Start with \`# <title>\` and a short summary line, then these sections in order, each as \`## <title>\`: ${PROPOSAL_SECTION_TITLES.join(", ")}. Write in plain language, short paragraphs and tables, for the people on the call, not for an engineer reading code. Every claim must be supported by ${ENGINEERING_DOCUMENT}; cite sparingly as [n] using the same numbers as its Sources.`,
       "What goes where: Why (the problem, in the text's own terms); Goal (one paragraph and a short list of what done looks like); Out of scope (what is deferred); What exists today (a table: piece, where it is, what we use it for); What we're borrowing (per project: what to reuse or copy and why); Ground rules (constraints and safety rules for the work); Decisions to settle (a checklist of open decisions, who should decide, and a recommendation each).",

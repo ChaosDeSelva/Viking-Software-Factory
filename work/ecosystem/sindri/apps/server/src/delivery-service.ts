@@ -66,6 +66,15 @@ export function gatesFor(task: PlanTaskView, plan: PlanView): GateSpec[] {
     return task.role === "reviewer" || task.role === "security"
       ? [{ id: "pr-review", kind: "pr-review", required: true }]
       : [];
+  if (plan.work?.kind === "proposal") {
+    // Findings and the writer's documents are checked for their shape; the fact-check's verdict
+    // is read like a research fact-check's.
+    if (task.role === "investigator" || task.role === "docs")
+      return [{ id: "proposal", kind: "proposal", required: true }];
+    if (task.role === "reviewer")
+      return [{ id: "review-verdict", kind: "review-artifact", required: true }];
+    return [];
+  }
   if (plan.work?.kind === "research") {
     if (task.role === "investigator") return [{ id: "research", kind: "research", required: true }];
     if (task.role === "reviewer")

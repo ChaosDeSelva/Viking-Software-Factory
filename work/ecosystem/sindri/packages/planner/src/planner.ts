@@ -510,15 +510,29 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       .get(executionId) as { report_json: string } | undefined;
     let markdown: unknown, factCheck: EarlierFactCheck | undefined;
     try {
-      const research = row
-        ? (
-            JSON.parse(row.report_json) as {
-              research?: { document?: { markdown?: unknown }; factCheck?: EarlierFactCheck };
-            }
-          ).research
+      const report = row
+        ? (JSON.parse(row.report_json) as {
+            research?: { document?: { markdown?: unknown }; factCheck?: EarlierFactCheck };
+            proposal?: {
+              proposal?: { markdown?: unknown } | null;
+              engineering?: { markdown?: unknown } | null;
+              factCheck?: EarlierFactCheck;
+            };
+          })
         : undefined;
-      markdown = research?.document?.markdown;
-      factCheck = research?.factCheck;
+      if (report?.proposal) {
+        // A revision reads both documents: the proposal, then its engineering appendix.
+        const p = report.proposal.proposal?.markdown;
+        const e = report.proposal.engineering?.markdown;
+        markdown =
+          typeof p === "string" && p
+            ? `${p}${typeof e === "string" && e ? `\n\n---\n\n# Engineering appendix\n\n${e}` : ""}`
+            : undefined;
+        factCheck = report.proposal.factCheck ?? undefined;
+      } else {
+        markdown = report?.research?.document?.markdown;
+        factCheck = report?.research?.factCheck;
+      }
     } catch {
       markdown = undefined;
     }
@@ -597,6 +611,8 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         // Filled in by propose from the paths the caller made readable.
         references: [],
       };
+      const context = r.linked_execution_id ? earlierDocument(r.linked_execution_id) : null;
+      if (context) work.proposal.context = context;
       referenceIds = options.referenceProjectIds;
     }
     return {

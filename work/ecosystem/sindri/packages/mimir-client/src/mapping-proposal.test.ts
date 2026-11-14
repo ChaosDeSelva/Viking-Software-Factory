@@ -109,4 +109,13 @@ describe("proposal plans", () => {
     });
     expect(asked).toContainEqual(["docs", "proposal"]);
   });
+
+  it("hands a revision's writer the earlier documents to revise", () => {
+    const plan = proposal();
+    plan.work!.proposal!.context = { executionId: "exe_1", document: "# Earlier plan\n## Why" };
+    const writer = briefOf(plan, "proposal");
+    expect(writer).toMatch(/This is a revision/);
+    expect(writer).toContain("# Earlier plan");
+    expect(briefOf(proposal(), "proposal")).not.toMatch(/This is a revision/);
+  });
 });

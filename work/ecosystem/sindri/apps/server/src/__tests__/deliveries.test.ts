@@ -150,6 +150,12 @@ describe("deliveries", () => {
     const flow = (f = await startMimirFlow({}, { trustedSources: ["fake-mimir"] }));
     const { execution } = await run(flow);
     await until(statusOf(flow, execution.id), (s) => s === "verified_pending_review");
+    // The report is written just after the run settles; read the one the settle wrote.
+    await until(
+      async () =>
+        flow.h.db.prepare("SELECT 1 FROM deliveries WHERE execution_id = ?").get(execution.id),
+      (r: unknown) => r !== undefined,
+    );
     const report = (await flow.h.call({ url: `/v1/deliveries/${execution.id}` })).json().report;
     const url = `/v1/deliveries/${execution.id}/proposals`;
     expect((await flow.h.call({ url })).json().proposals).toEqual([]);

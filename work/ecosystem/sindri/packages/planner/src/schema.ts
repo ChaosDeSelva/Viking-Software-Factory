@@ -180,6 +180,14 @@ export const ProposalPlanSchema = z
     sources: z.object({ code: z.boolean(), web: z.boolean() }).strict(),
     factCheck: z.boolean(),
     references: z.array(ProposalReferenceSchema).max(8),
+    /** A revision's earlier proposal and appendix (secrets redacted, cut with a marker). */
+    context: z
+      .object({
+        executionId: z.string().min(1),
+        document: z.string().max(MAX_FOLLOW_UP_CONTEXT_CHARS + 64),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type ProposalPlan = z.infer<typeof ProposalPlanSchema>;

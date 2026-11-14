@@ -28,9 +28,18 @@ export interface ResearchSourcesView {
 
 /** `@sindri/planner` `PlanWork`; absent on plans from before work kinds (code changes). */
 export interface PlanWorkView {
-  kind: "change" | "research" | "pr_review";
+  kind: "change" | "research" | "pr_review" | "proposal";
   research?: { sources: ResearchSourcesView; factCheck: boolean; question?: string };
+  proposal?: ProposalView;
   prReview?: PrReviewView;
+}
+
+/** `@sindri/planner` `ProposalPlan`: the pasted text and the other projects it reads. */
+export interface ProposalView {
+  text: string;
+  sources: { code: boolean; web: boolean };
+  factCheck: boolean;
+  references: { projectId: string; name: string; slug: string; commit: string | null }[];
 }
 
 /** `@sindri/planner` `PrReviewPlan`: the pull request a PR review reviews. */

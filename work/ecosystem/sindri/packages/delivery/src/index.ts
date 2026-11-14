@@ -178,6 +178,8 @@ export {
   type GuidanceUsed,
   type ReportSource,
   type ResearchReport,
+  type ProposalReport,
+  type RecordedDocument,
   type DeliveryReport,
   type DeliveryReportsOptions,
   type DeliveryStatus,

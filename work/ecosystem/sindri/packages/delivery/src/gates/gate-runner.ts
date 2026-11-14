@@ -46,6 +46,14 @@ import {
   RESEARCH_GATES,
   readResearchArtifacts,
 } from "./research.js";
+import {
+  checkFindings,
+  checkProposal,
+  ENGINEERING_FILE,
+  FINDINGS_FILE,
+  PROPOSAL_FILE,
+  PROPOSAL_GATES,
+} from "./proposal.js";
 
 /**
  * Product gates Sindri checks on top of Brokkr's engineering verdict. Each is satisfied only by
@@ -70,7 +78,12 @@ export type GateSpec =
    */
   | { id: string; kind: "research"; required?: boolean }
   /** A PR review task's recorded review.json and review.md (`review/pr-review.ts`). */
-  | { id: string; kind: "pr-review"; required?: boolean };
+  | { id: string; kind: "pr-review"; required?: boolean }
+  /**
+   * A proposal task's documents (`gates/proposal.ts`): an investigator's findings, or the
+   * writer's proposal.md and engineering.md.
+   */
+  | { id: string; kind: "proposal"; required?: boolean };
 
 /** What the review gate needs to know about the latest review of a task. */
 export interface ReviewVerdictView {
@@ -403,13 +416,18 @@ export class GateRunner {
     // A document delivery changes no code, so there is no Brokkr verification to require.
     const kind = ctx.execution.plan.work?.kind ?? "change";
     const engineering =
-      kind === "research" || kind === "pr_review"
+      kind === "research" || kind === "pr_review" || kind === "proposal"
         ? null
         : await this.#engineering(ctx, events, failures);
 
     for (const gate of this.#o.gatesFor?.(ctx.planTask, ctx.execution.plan) ?? []) {
       if (gate.kind === "research") {
         const found = await this.#research(ctx, events, artifacts);
+        (gate.required === false ? advisories : failures).push(...found);
+        continue;
+      }
+      if (gate.kind === "proposal") {
+        const found = await this.#proposal(ctx, artifacts);
         (gate.required === false ? advisories : failures).push(...found);
         continue;
       }
@@ -585,8 +603,52 @@ export class GateRunner {
     return [...read.unreadable, ...check.failures];
   }
 
+  /** The latest recorded file of this name, verified; null when absent. */
+  async #documentText(
+    artifacts: RecordedArtifact[],
+    name: string,
+    gateId: string,
+    unreadable: GateFailure[],
+  ): Promise<string | null> {
+    const pick = artifacts.filter((a) => a.name === name).at(-1);
+    if (!pick) return null;
+    const r = await readVerifiedArtifact(this.#o.mimir, this.#o.content, pick.artifactId, {
+      taskId: pick.taskId,
+      kind: pick.kind,
+    });
+    if (r.ok) return r.text;
+    unreadable.push({ gateId, reason: r.reason, evidenceRef: pick.artifactId });
+    return null;
+  }
+
+  async #proposal(ctx: Context, artifacts: RecordedArtifact[]): Promise<GateFailure[]> {
+    const unreadable: GateFailure[] = [];
+    if (ctx.planTask.role === "investigator") {
+      const text = await this.#documentText(
+        artifacts,
+        FINDINGS_FILE,
+        PROPOSAL_GATES.findings,
+        unreadable,
+      );
+      return [...unreadable, ...(unreadable.length ? [] : checkFindings(text))];
+    }
+    const proposal = await this.#documentText(
+      artifacts,
+      PROPOSAL_FILE,
+      PROPOSAL_GATES.documents,
+      unreadable,
+    );
+    const engineering = await this.#documentText(
+      artifacts,
+      ENGINEERING_FILE,
+      PROPOSAL_GATES.documents,
+      unreadable,
+    );
+    return [...unreadable, ...(unreadable.length ? [] : checkProposal({ proposal, engineering }))];
+  }
+
   async #product(
-    gate: Exclude<GateSpec, { kind: "research" } | { kind: "pr-review" }>,
+    gate: Exclude<GateSpec, { kind: "research" } | { kind: "pr-review" } | { kind: "proposal" }>,
     ctx: Context,
     events: ExecutionEventView[],
     artifacts: RecordedArtifact[],
