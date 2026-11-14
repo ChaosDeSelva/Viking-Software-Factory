@@ -117,8 +117,30 @@ export function DataTable<T>({
         <tr
           key={key}
           aria-selected={selectedKey !== undefined ? selected : undefined}
+          // The row handles a click on any of its cells. A stretched pseudo-element would need the
+          // <tr> as its containing block, which WebKit does not give it (the layer then covered
+          // the whole table and every click opened the last row). The primary cell's link or
+          // button stays the keyboard and screen-reader target; a cell's own control wins.
+          onClick={
+            hasRowAction
+              ? (e) => {
+                  const target = e.target as HTMLElement;
+                  const control = target.closest(
+                    "a,button,input,select,textarea,summary,label,[role=button]",
+                  );
+                  if (control && e.currentTarget.contains(control)) return;
+                  if (window.getSelection()?.toString()) return;
+                  // An app's router link may drop data attributes, so the primary cell's control is the fallback.
+                  (
+                    e.currentTarget.querySelector(
+                      "[data-row-action], td[data-primary] a, td[data-primary] button",
+                    ) as HTMLElement | null
+                  )?.click();
+                }
+              : undefined
+          }
           className={cn(
-            "relative border-b border-line transition-colors last:border-0",
+            "border-b border-line transition-colors last:border-0",
             hasRowAction && "cursor-pointer hover:bg-hover",
             selected && "bg-accent-soft/60 hover:bg-accent-soft",
           )}
@@ -144,10 +166,8 @@ export function DataTable<T>({
                   <Link
                     href={rowHref(row)}
                     aria-label={rowLabel?.(row)}
-                    className={cn(
-                      "font-medium text-fg after:absolute after:inset-0 hover:underline",
-                      focusRing,
-                    )}
+                    data-row-action
+                    className={cn("font-medium text-fg hover:underline", focusRing)}
                   >
                     {content}
                   </Link>
@@ -156,10 +176,8 @@ export function DataTable<T>({
                     type="button"
                     onClick={() => onRowClick(row)}
                     aria-label={rowLabel?.(row)}
-                    className={cn(
-                      "cursor-pointer text-left font-medium text-fg after:absolute after:inset-0",
-                      focusRing,
-                    )}
+                    data-row-action
+                    className={cn("cursor-pointer text-left font-medium text-fg", focusRing)}
                   >
                     {content}
                   </button>

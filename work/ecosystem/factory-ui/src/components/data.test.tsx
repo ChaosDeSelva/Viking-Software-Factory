@@ -117,6 +117,73 @@ describe("DataTable", () => {
   });
 });
 
+describe("DataTable row clicks", () => {
+  // WebKit (Safari, the macOS app window) does not let a <tr> contain an absolutely positioned
+  // layer, so a stretched link in each row covered the whole table and every click opened the
+  // last row. The row handles the click itself now; no row-wide layer exists.
+  it("opens the clicked row from any of its cells, and only that row", async () => {
+    const onRowClick = vi.fn();
+    const { user, container } = setup(
+      <DataTable
+        caption="Runs"
+        columns={columns}
+        rows={rows}
+        rowKey={(r) => r.id}
+        onRowClick={onRowClick}
+      />,
+    );
+    await user.click(screen.getByText("3"));
+    expect(onRowClick).toHaveBeenLastCalledWith(rows[0]);
+    await user.click(screen.getByText("1"));
+    expect(onRowClick).toHaveBeenLastCalledWith(rows[1]);
+    expect(onRowClick).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[class*="after:absolute"]')).toBeNull();
+  });
+
+  it("leaves a cell's own controls to themselves", async () => {
+    const onRowClick = vi.fn();
+    const own = vi.fn();
+    const withButton: Column<Row>[] = [
+      ...columns,
+      {
+        key: "act",
+        header: "Act",
+        cell: () => (
+          <button type="button" onClick={own}>
+            Retry
+          </button>
+        ),
+      },
+    ];
+    const { user } = setup(
+      <DataTable
+        caption="Runs"
+        columns={withButton}
+        rows={rows.slice(0, 1)}
+        rowKey={(r) => r.id}
+        onRowClick={onRowClick}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(own).toHaveBeenCalledTimes(1);
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("follows a row link from any cell", async () => {
+    const { user } = setup(
+      <DataTable
+        caption="Runs"
+        columns={columns}
+        rows={rows.slice(0, 1)}
+        rowKey={(r) => r.id}
+        rowHref={(r) => `#/runs/${r.id}`}
+      />,
+    );
+    await user.click(screen.getByText("3"));
+    expect(window.location.hash).toBe("#/runs/a");
+  });
+});
+
 describe("Pagination", () => {
   it("marks the current page and disables the ends", async () => {
     const onPage = vi.fn();
