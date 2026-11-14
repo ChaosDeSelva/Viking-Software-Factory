@@ -2,6 +2,7 @@
 // Mimir through Heimdall (`/api/agents/:id/telemetry`). This is the view the operator opens to
 // watch an agent work, so it leads the agent inspector and follows the end of the output.
 import {
+  AgentTranscript,
   Badge,
   Button,
   Card,
@@ -49,9 +50,6 @@ export function LiveSession({
   const [data, setData] = useState<R | null>(null),
     [error, setError] = useState(""),
     [paused, setPaused] = useState(false);
-  const output = useRef<HTMLPreElement>(null);
-  // Follow the end of the output unless the operator scrolled up to read.
-  const following = useRef(true);
   useEffect(() => {
     if (paused) return;
     const poll = poller(
@@ -70,10 +68,6 @@ export function LiveSession({
     };
   }, [agent.id, paused]);
   const text: string = data?.terminal?.text ?? "";
-  useEffect(() => {
-    const el = output.current;
-    if (el && following.current) el.scrollTop = el.scrollHeight;
-  }, [text]);
   const { model: seenModel, tools } = toolCalls(text);
   const model = data?.info?.model ?? seenModel;
   const observed = data?.info?.observedAt;
@@ -158,43 +152,12 @@ export function LiveSession({
           <h4 className="text-sm font-semibold">
             Live output · last 500 lines
           </h4>
-          <pre
-            ref={output}
-            role="log"
-            aria-label="Agent terminal output"
-            tabIndex={0}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              following.current =
-                el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-            }}
-            className="terminal-output max-h-[60vh] min-h-40 overflow-auto rounded-md border border-line bg-sunken p-3 font-mono text-xs"
-          >
-            {text ||
-              "No terminal output available. Historical session.output events remain in the task timeline."}
-          </pre>
+          <AgentTranscript
+            lines={text ? text.split("\n") : []}
+            maxHeight="60vh"
+            empty="No terminal output available. Historical session.output events remain in the task timeline."
+          />
         </section>
-        <Disclosure title={`Tool calls and results (${tools.length})`}>
-          {tools.length ? (
-            <div className="flex flex-col gap-2">
-              {tools.slice(-30).map((tool, i) => (
-                <Disclosure
-                  key={i}
-                  title={`${tool.name ?? tool.type} · ${tool.status ?? "recorded"}`}
-                >
-                  <CodeBlock
-                    code={JSON.stringify(tool, null, 2)}
-                    maxHeight="320px"
-                  />
-                </Disclosure>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted">
-              No structured tool calls in the current terminal window.
-            </p>
-          )}
-        </Disclosure>
       </div>
     </Card>
   );

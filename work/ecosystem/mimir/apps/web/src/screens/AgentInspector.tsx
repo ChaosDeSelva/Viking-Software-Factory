@@ -1,5 +1,6 @@
 import type { AgentId, SessionId } from "@mimir/protocol";
 import {
+  AgentTranscript,
   Button,
   ConfirmDialog,
   Field,
@@ -10,7 +11,7 @@ import {
   Textarea,
   Timestamp,
 } from "@factory/ui";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useLocation, useParams } from "react-router";
 import { describeError, type TerminalReadResponse } from "../api/client.js";
 import { ActionResult } from "../components/ActionResult.js";
@@ -46,7 +47,6 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
   );
   // An ended session has nothing new to show, so following stops with it.
   const following = follow && live;
-  const preRef = useRef<HTMLPreElement>(null);
 
   useEffect(() => {
     if (!cooling) return;
@@ -77,11 +77,6 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
     const t = setInterval(() => void load(), TERMINAL_FOLLOW_MS);
     return () => clearInterval(t);
   }, [following, load]);
-
-  useEffect(() => {
-    const pre = preRef.current;
-    if (pre) pre.scrollTop = pre.scrollHeight;
-  }, [data]);
 
   const caps = useAsync(() => client.capabilities(), "caps");
   if (caps.status === "ready" && !caps.data.runtime?.features.terminalRead) {
@@ -122,15 +117,10 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
             {data.provenance && <ProvenanceBadge provenance={data.provenance} />}
             {data.capturedAt && <Timestamp value={data.capturedAt} prefix="Captured" />}
           </p>
-          <pre
-            ref={preRef}
-            data-testid="terminal"
-            tabIndex={0}
-            aria-label="Terminal output"
-            className="max-h-[28rem] overflow-auto rounded-md bg-zinc-950 p-4 font-mono text-xs leading-relaxed whitespace-pre text-zinc-100"
-          >
-            {data.text}
-          </pre>
+          {/* Agent CLIs print JSON events; the transcript makes them readable, Raw shows them as-is. */}
+          <div data-testid="terminal">
+            <AgentTranscript lines={data.text.split("\n")} maxHeight="28rem" />
+          </div>
         </>
       )}
     </div>

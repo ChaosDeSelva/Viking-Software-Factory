@@ -58,9 +58,8 @@ describe("AgentInspector", () => {
     expect(client.sessions.terminal).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Read terminal" }));
     expect(client.sessions.terminal).toHaveBeenCalledWith(sessionId, { lines: 200 });
-    const pre = await screen.findByTestId("terminal");
-    expect(pre.textContent).toContain("$ echo hi");
-    expect(pre.tagName).toBe("PRE");
+    const terminal = await screen.findByTestId("terminal");
+    expect(terminal.textContent).toContain("$ echo hi");
     const refresh = screen.getByRole("button", { name: "Refresh terminal" });
     expect((refresh as HTMLButtonElement).disabled).toBe(true);
     await waitFor(() => expect((refresh as HTMLButtonElement).disabled).toBe(false), {
@@ -77,12 +76,42 @@ describe("AgentInspector", () => {
       text: '<img src=x onerror="window.__pwned=1">',
     });
     await user.click(await screen.findByRole("button", { name: "Read terminal" }));
-    const pre = await screen.findByTestId("terminal");
-    expect(pre.textContent).toBe('<img src=x onerror="window.__pwned=1">');
-    expect(pre.querySelector("img")).toBeNull();
+    const terminal = await screen.findByTestId("terminal");
+    expect(terminal.textContent).toContain('<img src=x onerror="window.__pwned=1">');
+    expect(terminal.querySelector("img")).toBeNull();
     expect(
       within(screen.getByRole("region", { name: "Terminal" })).queryByText("observed"),
     ).toBeNull();
+  });
+
+  it("shows an agent's JSON events as a readable transcript, with the raw lines one switch away", async () => {
+    const user = userEvent.setup();
+    const { client } = setup();
+    vi.mocked(client.sessions.terminal!).mockResolvedValueOnce({
+      text: [
+        JSON.stringify({
+          type: "item.completed",
+          item: { id: "m", type: "agent_message", text: "Drafting the tickets now." },
+        }),
+        JSON.stringify({
+          type: "item.completed",
+          item: {
+            id: "c",
+            type: "command_execution",
+            command: '/bin/zsh -lc "ls src"',
+            exit_code: 0,
+            status: "completed",
+          },
+        }),
+      ].join("\n"),
+    });
+    await user.click(await screen.findByRole("button", { name: "Read terminal" }));
+    const terminal = await screen.findByTestId("terminal");
+    expect(within(terminal).getByText("Drafting the tickets now.")).toBeTruthy();
+    expect(within(terminal).getByText("ls src")).toBeTruthy();
+    expect(terminal.textContent).not.toContain("item.completed");
+    await user.click(within(terminal).getByRole("radio", { name: "Raw" }));
+    expect(terminal.textContent).toContain("item.completed");
   });
 
   it("puts a working agent's terminal first and can follow it every 5 s", async () => {

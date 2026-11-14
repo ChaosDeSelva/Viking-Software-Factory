@@ -2,6 +2,7 @@
 // the actions that apply to it. Every action proposes a command; the command dialog asks for the
 // audit reason. A disabled action says why in its tooltip and once in a line below the buttons.
 import {
+  AgentTranscript,
   Button,
   Callout,
   Card,
@@ -940,7 +941,23 @@ export function Inspector({
     add(
       "activity",
       <Block title="Activity & agent output">
-        <EventList events={relatedEvents} />
+        {/* The agent's output reads as one transcript, oldest first; other events stay a list. */}
+        {relatedEvents.some((e: R) => e.type === "session.output") && (
+          <AgentTranscript
+            lines={relatedEvents
+              .filter((e: R) => e.type === "session.output")
+              .sort((a: R, b: R) =>
+                String(a.timestamp ?? "").localeCompare(
+                  String(b.timestamp ?? ""),
+                ),
+              )
+              .map((e: R) => String(e.payload?.text ?? ""))}
+            maxHeight="420px"
+          />
+        )}
+        <EventList
+          events={relatedEvents.filter((e: R) => e.type !== "session.output")}
+        />
       </Block>,
     );
     const verifyWhy =
