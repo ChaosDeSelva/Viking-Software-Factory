@@ -2,7 +2,10 @@ export const PACKAGE_NAME = "@sindri/intake";
 
 export {
   openIntake,
+  DEFAULT_PROPOSAL,
   DEFAULT_RESEARCH,
+  MAX_PROPOSAL_REFERENCES,
+  MAX_PROPOSAL_TEXT_CHARS,
   IntakeAlreadyImportedError,
   MAX_REQUEST_SKILLS,
   WORK_KINDS,
@@ -18,6 +21,7 @@ export {
   type IntakeSource,
   type ManualAttachmentInput,
   type OpenIntakeOptions,
+  type ProposalOptions,
   type ResearchOptions,
   type ResearchSources,
   type WorkInput,
@@ -80,4 +84,4 @@ export {
   type PullRequestRef,
 } from "./github.js";
 export { MAX_DISPLAY_CHARS, sanitizeForDisplay } from "./sanitize.js";
-export { INTAKE_MIGRATIONS, widenIntakeSources } from "./schema.js";
+export { INTAKE_MIGRATIONS, widenIntakeKinds, widenIntakeSources } from "./schema.js";

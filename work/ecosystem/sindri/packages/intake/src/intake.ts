@@ -12,13 +12,16 @@ import {
 } from "@sindri/knowledge";
 import type { Connector, IssueComment, IssueSnapshot } from "./connectors.js";
 import { sanitizeForDisplay } from "./sanitize.js";
-import { INTAKE_MIGRATIONS, widenIntakeSources } from "./schema.js";
+import { INTAKE_MIGRATIONS, widenIntakeKinds, widenIntakeSources } from "./schema.js";
 
 export type IntakeSource = "manual" | "jira" | "linear" | "github";
 export type SyncState = "imported" | "stale" | "conflict";
 
-/** What an intake asks the factory for: a code change, a research document, or a PR review. */
-export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+/**
+ * What an intake asks the factory for: a code change, a research document, a PR review, or a
+ * plan (a proposal written from pasted text, read across several projects).
+ */
+export const WORK_KINDS = ["change", "research", "pr_review", "proposal"] as const;
 export type WorkKind = (typeof WORK_KINDS)[number];
 
 /** Where a research task may look for evidence. */
@@ -40,6 +43,26 @@ export const DEFAULT_RESEARCH: ResearchOptions = {
   sources: { code: true, feedbackGraph: true, web: false },
   factCheck: true,
 };
+
+/** What a plan request reads and how it is checked. */
+export interface ProposalOptions {
+  /** Other registered projects the plan reads (read-only), besides the request's own project. */
+  referenceProjectIds: string[];
+  sources: { code: boolean; web: boolean };
+  /** Plan a reviewer that checks the proposal against its findings and sources. */
+  factCheck: boolean;
+}
+
+export const DEFAULT_PROPOSAL: ProposalOptions = {
+  referenceProjectIds: [],
+  sources: { code: true, web: false },
+  factCheck: true,
+};
+
+/** Projects one plan may read besides its own. */
+export const MAX_PROPOSAL_REFERENCES = 8;
+/** A plan's pasted text (a call transcript, notes, a document), at most this long. */
+export const MAX_PROPOSAL_TEXT_CHARS = 200_000;
 
 /** Skill ids one request may add to the project's defaults. */
 export const MAX_REQUEST_SKILLS = 20;
@@ -87,6 +110,8 @@ export interface IntakeRecord {
   skillIds: string[];
   /** Set for research intakes only. */
   research: ResearchOptions | null;
+  /** Set for plan (proposal) intakes only. */
+  proposal: ProposalOptions | null;
   /** The execution whose result this intake follows up on. */
   linkedExecutionId: string | null;
 }
@@ -104,6 +129,14 @@ export interface WorkInput {
       }
     | undefined;
   linkedExecutionId?: string | undefined;
+  /** Plan intakes only; missing fields take `DEFAULT_PROPOSAL`. */
+  proposal?:
+    | {
+        referenceProjectIds?: readonly string[] | undefined;
+        sources?: { code?: boolean | undefined; web?: boolean | undefined } | undefined;
+        factCheck?: boolean | undefined;
+      }
+    | undefined;
 }
 
 export interface IntakeAttachment {
@@ -174,6 +207,7 @@ interface IntakeRow {
   notes: string;
   skill_ids_json: string;
   research_json: string | null;
+  proposal_json?: string | null;
   linked_execution_id: string | null;
 }
 
@@ -217,22 +251,46 @@ function workColumns(input: WorkInput) {
     if (!Object.values(research.sources).some(Boolean))
       throw new SindriError("validation_failed", "a research request needs at least one source");
   }
+  if (input.proposal && workKind !== "proposal")
+    throw new SindriError("validation_failed", "plan options need workKind proposal");
+  let proposal: ProposalOptions | null = null;
+  if (workKind === "proposal") {
+    const given = input.proposal ?? {};
+    const refs = [...new Set(given.referenceProjectIds ?? [])];
+    if (refs.length > MAX_PROPOSAL_REFERENCES)
+      throw new SindriError(
+        "validation_failed",
+        `a plan reads at most ${MAX_PROPOSAL_REFERENCES} other projects`,
+      );
+    proposal = {
+      referenceProjectIds: refs,
+      sources: {
+        code: given.sources?.code ?? DEFAULT_PROPOSAL.sources.code,
+        web: given.sources?.web ?? DEFAULT_PROPOSAL.sources.web,
+      },
+      factCheck: given.factCheck ?? DEFAULT_PROPOSAL.factCheck,
+    };
+    if (!Object.values(proposal.sources).some(Boolean))
+      throw new SindriError("validation_failed", "a plan request needs at least one source");
+  }
   return {
     work_kind: workKind,
     notes,
     skill_ids_json: JSON.stringify(skillIds),
     research_json: research ? JSON.stringify(research) : null,
+    proposal_json: proposal ? JSON.stringify(proposal) : null,
     linked_execution_id: input.linkedExecutionId ?? null,
   };
 }
 
 const INSERT_INTAKE = `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
     raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
-    display_title, display_body, work_kind, notes, skill_ids_json, research_json, linked_execution_id)
+    display_title, display_body, work_kind, notes, skill_ids_json, research_json, proposal_json,
+    linked_execution_id)
   VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
     @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
     @display_title, @display_body, @work_kind, @notes, @skill_ids_json, @research_json,
-    @linked_execution_id)`;
+    @proposal_json, @linked_execution_id)`;
 
 const toRecord = (r: IntakeRow): IntakeRecord => {
   const snapshot = JSON.parse(r.raw_snapshot_json) as StoredSnapshot;
@@ -261,6 +319,7 @@ const toRecord = (r: IntakeRow): IntakeRecord => {
     notes: r.notes ?? "",
     skillIds: JSON.parse(r.skill_ids_json ?? "[]") as string[],
     research: r.research_json ? (JSON.parse(r.research_json) as ResearchOptions) : null,
+    proposal: r.proposal_json ? (JSON.parse(r.proposal_json) as ProposalOptions) : null,
     linkedExecutionId: r.linked_execution_id ?? null,
   };
 };
@@ -325,6 +384,7 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
   applyMigrations(db, "knowledge", KNOWLEDGE_MIGRATIONS);
   applyMigrations(db, "intake", INTAKE_MIGRATIONS);
   widenIntakeSources(db);
+  widenIntakeKinds(db);
   backfillDisplay(db);
   const clock = options.now ?? (() => new Date());
   const iso = () => clock().toISOString();
@@ -497,6 +557,18 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
           "a PR review is imported from its GitHub pull request URL",
         );
       const work = workColumns(input);
+      if (input.workKind === "proposal") {
+        if (!input.body.trim())
+          throw new SindriError("validation_failed", "a plan needs the text to plan from");
+        for (const id of JSON.parse(work.proposal_json!).referenceProjectIds as string[]) {
+          if (id === input.projectId)
+            throw new SindriError(
+              "validation_failed",
+              `project ${id} is already the request's project; list only the other projects to read`,
+            );
+          requireProject(id);
+        }
+      }
       const attachments = input.attachments ?? [];
       if (attachments.length && !options.attachmentsDir) {
         throw new Error("attachmentsDir must be configured to store attachments");
@@ -560,6 +632,11 @@ export function openIntake(pathOrDb: string | SqliteDatabase, options: OpenIntak
       opts: ImportOptions,
     ): Promise<{ intake: IntakeRecord; created: boolean }> {
       requireProject(opts.projectId);
+      if (opts.workKind === "proposal")
+        throw new SindriError(
+          "validation_failed",
+          "a plan is written from pasted text; create it with its text instead of importing a ticket",
+        );
       // A GitHub pull request URL is always a PR review, and only such a URL is one.
       const isPr = connectors.find((c) => c.canHandle(url))?.kind === "github";
       if (isPr && opts.workKind !== undefined && opts.workKind !== "pr_review")

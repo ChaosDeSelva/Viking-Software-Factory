@@ -59,6 +59,8 @@ export const INTAKE_MIGRATIONS: readonly string[] = [
   ALTER TABLE intakes ADD COLUMN research_json TEXT;
   ALTER TABLE intakes ADD COLUMN linked_execution_id TEXT;
   `,
+  // v5: plan (proposal) options. The work_kind CHECK is widened by widenIntakeKinds.
+  `ALTER TABLE intakes ADD COLUMN proposal_json TEXT`,
 ];
 
 const SOURCES_BEFORE_GITHUB = "'manual', 'jira', 'linear')";
@@ -73,11 +75,16 @@ const SOURCES_WITH_GITHUB = "'manual', 'jira', 'linear', 'github')";
  * table that already allows `github` is left alone.
  */
 export function widenIntakeSources(db: SqliteDatabase): void {
+  rebuildIntakes(db, SOURCES_BEFORE_GITHUB, SOURCES_WITH_GITHUB, "widenIntakeSources");
+}
+
+/** Rebuilds `intakes` with `before` replaced by `after` in its stored definition (see above). */
+function rebuildIntakes(db: SqliteDatabase, before: string, after: string, name: string): void {
   const row = db
     .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'intakes'")
     .get() as { sql: string } | undefined;
-  if (!row || !row.sql.includes(SOURCES_BEFORE_GITHUB)) return;
-  if (db.inTransaction) throw new Error("widenIntakeSources must run outside a transaction");
+  if (!row || !row.sql.includes(before)) return;
+  if (db.inTransaction) throw new Error(`${name} must run outside a transaction`);
   const fk = db.pragma("foreign_keys", { simple: true }) as number;
   db.pragma("foreign_keys = OFF");
   try {
@@ -86,10 +93,10 @@ export function widenIntakeSources(db: SqliteDatabase): void {
         .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'intakes'")
         .get() as { sql: string };
       // Another connection may have rebuilt it meanwhile.
-      if (!current.sql.includes(SOURCES_BEFORE_GITHUB)) return;
+      if (!current.sql.includes(before)) return;
       const create = current.sql
         .replace(/^CREATE TABLE\s+"?intakes"?/, "CREATE TABLE intakes_rebuild")
-        .replace(SOURCES_BEFORE_GITHUB, SOURCES_WITH_GITHUB);
+        .replace(before, after);
       db.exec(create);
       db.exec("INSERT INTO intakes_rebuild SELECT * FROM intakes");
       db.exec("DROP TABLE intakes");
@@ -107,4 +114,15 @@ export function widenIntakeSources(db: SqliteDatabase): void {
   } finally {
     if (fk) db.pragma("foreign_keys = ON");
   }
+}
+
+const KINDS_BEFORE_PROPOSAL = "'change', 'research', 'pr_review')";
+const KINDS_WITH_PROPOSAL = "'change', 'research', 'pr_review', 'proposal')";
+
+/**
+ * Widens the `intakes.work_kind` CHECK to allow `proposal` (plans), by the same rebuild as
+ * widenIntakeSources. Idempotent.
+ */
+export function widenIntakeKinds(db: SqliteDatabase): void {
+  rebuildIntakes(db, KINDS_BEFORE_PROPOSAL, KINDS_WITH_PROPOSAL, "widenIntakeKinds");
 }

@@ -1,5 +1,7 @@
 import {
   MAX_FIELD_CHARS,
+  MAX_PROPOSAL_REFERENCES,
+  MAX_PROPOSAL_TEXT_CHARS,
   MAX_REQUEST_SKILLS,
   parsePullRequestUrl,
   pullRequestOfSnapshot,
@@ -60,6 +62,7 @@ export function intakeView(r: IntakeRecord) {
       notes: r.notes,
       skillIds: r.skillIds,
       research: r.research,
+      proposal: r.proposal,
       linkedExecutionId: r.linkedExecutionId,
       pullRequest: pullRequestView(r),
     }),
@@ -103,15 +106,36 @@ const WorkFields = {
       factCheck: z.boolean().optional(),
     })
     .optional(),
+  proposal: z
+    .strictObject({
+      referenceProjectIds: z
+        .array(z.string().min(1).max(200))
+        .max(MAX_PROPOSAL_REFERENCES)
+        .optional(),
+      sources: z
+        .strictObject({ code: z.boolean().optional(), web: z.boolean().optional() })
+        .optional(),
+      factCheck: z.boolean().optional(),
+    })
+    .optional(),
 };
 
-const ManualIntake = z.strictObject({
-  projectId: z.string().min(1),
-  title: z.string().trim().min(1).max(500),
-  // Same cap as connector imports (review m6).
-  body: z.string().max(MAX_FIELD_CHARS),
-  ...WorkFields,
-});
+const ManualIntake = z
+  .strictObject({
+    projectId: z.string().min(1),
+    title: z.string().trim().min(1).max(500),
+    // Same cap as connector imports (review m6); a plan's pasted text may be longer (below).
+    body: z.string().max(MAX_PROPOSAL_TEXT_CHARS),
+    ...WorkFields,
+  })
+  .superRefine((v, ctx) => {
+    if (v.workKind !== "proposal" && v.body.length > MAX_FIELD_CHARS)
+      ctx.addIssue({
+        code: "custom",
+        path: ["body"],
+        message: `at most ${MAX_FIELD_CHARS} characters (a plan's text may be up to ${MAX_PROPOSAL_TEXT_CHARS})`,
+      });
+  });
 
 const ImportIntake = z.strictObject({
   // Optional for a GitHub pull request: the project whose remote is that repository is used.
@@ -126,9 +150,13 @@ export function refuseLocalOnlyWeb(
   work: {
     workKind?: string | undefined;
     research?: { sources?: { web?: boolean | undefined } | undefined } | undefined;
+    proposal?: { sources?: { web?: boolean | undefined } | undefined } | undefined;
   },
 ) {
-  if (work.workKind === "research" && work.research?.sources?.web && s.settings.get().localOnly)
+  const web =
+    (work.workKind === "research" && work.research?.sources?.web) ||
+    (work.workKind === "proposal" && work.proposal?.sources?.web);
+  if (web && s.settings.get().localOnly)
     throw new ApiError(
       422,
       "local_only",
