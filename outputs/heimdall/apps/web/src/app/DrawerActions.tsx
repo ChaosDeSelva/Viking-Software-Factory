@@ -8,6 +8,10 @@ export const DrawerFooter = createContext<HTMLElement | null>(null);
 
 export function DrawerActions({ children }: { children: ReactNode }) {
   const footer = useContext(DrawerFooter);
-  const actions = <div className="flex min-w-0 flex-col gap-2">{children}</div>;
+  // Natural width: a footer's secondary controls (stop, retry) should not look like its main
+  // decision; a section that wants full-width buttons lays them out itself.
+  const actions = (
+    <div className="flex min-w-0 flex-col items-start gap-2">{children}</div>
+  );
   return footer ? createPortal(actions, footer) : actions;
 }

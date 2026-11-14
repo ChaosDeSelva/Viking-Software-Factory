@@ -121,10 +121,10 @@ const closeInspector = async () => {
 const unavailable = async (button) => (await button.getAttribute("aria-disabled")) === "true";
 const reasonOf = (button) =>
   button.evaluate((b) => document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent ?? "");
-const commandDialog = page.getByRole("dialog").filter({ hasText: "This request changes the owning service" });
+const commandDialog = page.getByRole("dialog").filter({ hasText: "Confirm to send this to the factory" });
 const send = async (reason) => {
   await commandDialog.getByLabel("Reason", { exact: true }).fill(reason);
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
 };
 const confirmed = async () => {
   await commandDialog.waitFor({ state: "hidden" });
@@ -250,7 +250,7 @@ try {
   await page.getByRole("alert").filter({ hasText: /may still be running/ }).first().waitFor();
   // Resend once the first attempt has completed at the source.
   await until(() => source.workflow.specs.find((s) => s.id === "spc_v2x").status === "review", "the slow submit");
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await confirmed();
   assert.equal(posts(submitPath), 2, "the resend was forwarded");
   const keys = source.requests.filter((r) => r.path === submitPath).map((r) => r.headers["idempotency-key"]);
@@ -460,8 +460,23 @@ try {
     }),
     { inScrollingBody: false, fullWidth: true },
   );
+  // A draft takes minutes: while it runs the drawer has closed onto In progress, which says it is
+  // working instead of offering the record's next step (that would start the work twice).
+  let releaseDraft;
+  const draftHeld = new Promise((r) => (releaseDraft = r));
+  source.intercept = async (req) => {
+    if (req.url !== "/v1/director/draft") return false;
+    await draftHeld;
+    return false;
+  };
   await draftSpec.click();
   await send("Draft it");
+  await page.getByRole("heading", { level: 1, name: "In progress", exact: true }).waitFor();
+  await inspector.waitFor({ state: "hidden" });
+  await page.getByText(/an agent is reading the repository/).first().waitFor();
+  assert.equal(await page.getByText("Next step", { exact: true }).count(), 0);
+  releaseDraft();
+  source.intercept = null;
   await confirmed();
   assert.deepEqual(lastPost("/v1/director/draft"), {
     projectId: "prj_demo",
@@ -487,7 +502,7 @@ try {
   const beforePlan = source.requests.length;
   await inspector.getByRole("button", { name: "Approve and plan" }).click();
   assert.equal(await commandDialog.getByLabel("Reason", { exact: true }).inputValue(), "Approve and plan");
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await confirmed();
   assert.deepEqual(
     source.requests
@@ -829,7 +844,7 @@ try {
   assert.deepEqual(axeDoc.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "research document");
   // A rejection carries the reason the dialog asks for.
   await inspector.getByRole("button", { name: "Reject document" }).click();
-  assert.equal(await unavailable(commandDialog.getByRole("button", { name: "Send to source" })), true);
+  assert.equal(await unavailable(commandDialog.getByRole("button", { name: "Confirm" })), true);
   await send("Wrong module");
   await confirmed();
   assert.deepEqual(lastPost("/v1/executions/exe_research/reject"), { reason: "Wrong module" });

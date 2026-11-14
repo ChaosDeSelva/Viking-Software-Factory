@@ -11,6 +11,8 @@ export interface Session {
 
 export interface Heimdall {
   api: Api;
+  /** Long commands sent and not answered yet (drafting, planning). */
+  pending: readonly { key: string; label: string; startedAt: number }[];
   /** Heimdall's own session: operator unlock and Sindri pairing. */
   session: Session;
   /** Reads /api/session again (after unlock or pairing). */

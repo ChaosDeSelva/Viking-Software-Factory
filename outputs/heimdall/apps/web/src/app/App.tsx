@@ -338,6 +338,10 @@ export function App() {
       if (long) {
         setCommand(null);
         setBusy(false);
+        // The form that sent it is cleared now (no second click sends it twice), and the drawer
+        // closes on In progress, where the progress and then the result show.
+        hooks.onSent?.();
+        navigate(hrefFor("in-progress", { project: urlId }));
         setPending((p) => [
           ...p,
           {
@@ -494,6 +498,7 @@ export function App() {
     notify,
     savePreferences,
     href,
+    pending,
   };
 
   if (!checked) return null;

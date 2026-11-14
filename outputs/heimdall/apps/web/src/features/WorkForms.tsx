@@ -231,9 +231,13 @@ export function ResearchForm({ projectId }: { projectId: string }) {
       <Field label="Question">
         <Input value={question} onChange={(e) => setQuestion(e.target.value)} />
       </Field>
-      <Field label="Background (optional)">
+      <Field
+        label="Background (optional)"
+        hint={`Paste anything the agent should read: a call transcript, notes, a ticket. ${background.length.toLocaleString("en-US")} characters.`}
+      >
         <Textarea
           value={background}
+          rows={8}
           onChange={(e) => setBackground(e.target.value)}
         />
       </Field>
@@ -310,6 +314,12 @@ export function ResearchForm({ projectId }: { projectId: string }) {
               { ...researchBody(input), thenDraft: true },
               {},
               {
+                onSent: () => {
+                  setQuestion("");
+                  setBackground("");
+                  setNotes("");
+                  setSkillIds([]);
+                },
                 onSuccess: () => {
                   setQuestion("");
                   setBackground("");

@@ -266,3 +266,12 @@ export function nextStep({
     };
   return null;
 }
+
+/** A plan is named after its specification: "Plan v1: <spec title>". */
+export function planTitle(plan: R, specs: R[]): string {
+  const spec = specs.find((s) => s.id === plan.specId);
+  const name = spec?.title ?? spec?.body?.title;
+  return name
+    ? `Plan v${plan.version ?? 1}: ${name}`
+    : `Plan v${plan.version ?? 1}`;
+}

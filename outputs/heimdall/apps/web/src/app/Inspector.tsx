@@ -45,6 +45,7 @@ import { PrReviewView, ResearchView } from "../features/WorkDelivery";
 import { WorkKindBadge } from "../features/WorkForms";
 import { kindOf } from "../features/workKinds";
 import {
+  planTitle,
   actionBlock,
   deliveryTitle,
   intakeRequest,
@@ -494,13 +495,15 @@ export function Inspector({
               },
               specsAll,
             )
-          : kind === "deliveries" && deliveryTitle(row, executions, specsAll)
-            ? deliveryTitle(row, executions, specsAll)
-            : kind === "event"
-              ? eventTitle(row.type)
-              : String(label(versioned)).length > 180
-                ? String(label(versioned)).slice(0, 177) + "…"
-                : String(label(versioned));
+          : kind === "plans"
+            ? planTitle(versioned, specsAll)
+            : kind === "deliveries" && deliveryTitle(row, executions, specsAll)
+              ? deliveryTitle(row, executions, specsAll)
+              : kind === "event"
+                ? eventTitle(row.type)
+                : String(label(versioned)).length > 180
+                  ? String(label(versioned)).slice(0, 177) + "…"
+                  : String(label(versioned));
   const status =
     kind === "specs" || kind === "plans"
       ? statusBadge(kind, versioned)

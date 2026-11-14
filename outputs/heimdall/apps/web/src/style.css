@@ -73,3 +73,9 @@
 [role="dialog"] div:has(> div > [data-drawer-footer]:empty) {
   display: none;
 }
+
+/* An open drawer covers the right side, its footer buttons included: toasts move to the left. */
+body:has([role="dialog"]) [role="region"][aria-label^="Notifications"] > ol {
+  right: auto;
+  left: 1rem;
+}

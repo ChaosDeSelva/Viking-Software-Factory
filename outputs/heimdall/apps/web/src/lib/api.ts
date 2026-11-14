@@ -4,6 +4,8 @@ export type R = Record<string, any>;
 export type Api = (path: string, options?: RequestInit) => Promise<R>;
 /** Called with the source's answer, or its refusal; onError returning true closes the dialog. */
 export interface CommandHooks {
+  /** A long command was sent and its dialog closed (its result comes later). */
+  onSent?: () => void;
   onSuccess?: (result: R) => void;
   onError?: (
     error: Error & { code?: string; details?: unknown },

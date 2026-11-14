@@ -85,6 +85,8 @@ try {
   const command = page.getByRole("dialog", { name: "Change steward mode" });
   await command.waitFor();
   await page.keyboard.up("ArrowRight");
+  // The payload is folded under "Technical details".
+  await command.getByText("Technical details").click();
   await command.getByText("Command payload").click();
   assert.match(await command.innerText(), /"mode": "auto"/);
 

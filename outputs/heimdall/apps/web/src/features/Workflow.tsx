@@ -2,6 +2,7 @@
 // plans. Also the plan and specification editors the inspector shows. Sindri validates everything.
 import { useEffect, useState } from "react";
 import {
+  Badge,
   Button,
   Callout,
   Card,
@@ -34,6 +35,7 @@ import {
   actionBlock,
   latestVersions,
   nextStep,
+  planTitle,
   sameRepo,
   specRevision,
   statusBadge,
@@ -198,6 +200,10 @@ export function NewWorkPage() {
               >
                 Read project context
               </Button>
+              <span className="text-xs text-muted">
+                Optional: indexes the repository so specs and plans can cite it.
+                Run it once per project, and again after large changes.
+              </span>
             </Cluster>
             {projects.length > 0 && (
               <Disclosure title="Add a project">{connectForm}</Disclosure>
@@ -253,10 +259,18 @@ export function NewWorkPage() {
                     variant="primary"
                     disabledReason={draftWhy || undefined}
                     onClick={() =>
-                      propose("spec.draft", "new", {
-                        projectId: project,
-                        request,
-                      })
+                      propose(
+                        "spec.draft",
+                        "new",
+                        { projectId: project, request },
+                        {},
+                        {
+                          onSent: () => {
+                            setTitle("");
+                            setRequest("");
+                          },
+                        },
+                      )
                     }
                   >
                     Draft specification
@@ -276,7 +290,7 @@ export function NewWorkPage() {
  * under All projects). Saving a request or finishing a draft lands here.
  */
 export function InProgressPage() {
-  const { state, scope, open, projectName, href } = useHeimdall();
+  const { state, scope, open, projectName, href, pending } = useHeimdall();
   const sindri: R = state?.sindri ?? {};
   const inScope = (r: R) =>
     scope.filter === "all"
@@ -307,31 +321,41 @@ export function InProgressPage() {
         Unlock operator controls and pair Sindri to review or start work.
       </AccessCallout>
       <Stepper steps={STEPS} current={2} />
-      {next && (
-        <Callout tone="info" title="Next step">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span>{next.text}</span>
-            {next.open ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => open(next.open!.kind, next.open!.row)}
-              >
-                {next.open.label}
-              </Button>
-            ) : next.page ? (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => navigate(href(next.page!))}
-              >
-                {next.page === "pipeline"
-                  ? "Open Pipeline"
-                  : "Open Quality & approvals"}
-              </Button>
-            ) : null}
-          </div>
+      {pending.length > 0 ? (
+        // Work already running is the next step: following the record's own next step now
+        // would start it a second time.
+        <Callout tone="info" title="Working">
+          {pending.map((p) => p.label).join(", ")}: an agent is reading the
+          repository. The result appears here when it is ready; this usually
+          takes a few minutes.
         </Callout>
+      ) : (
+        next && (
+          <Callout tone="info" title="Next step">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span>{next.text}</span>
+              {next.open ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => open(next.open!.kind, next.open!.row)}
+                >
+                  {next.open.label}
+                </Button>
+              ) : next.page ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => navigate(href(next.page!))}
+                >
+                  {next.page === "pipeline"
+                    ? "Open Pipeline"
+                    : "Open Quality & approvals"}
+                </Button>
+              ) : null}
+            </div>
+          </Callout>
+        )
       )}
       <CardGroup min={280}>
         {LISTS.map((list) => {
@@ -350,7 +374,7 @@ export function InProgressPage() {
                   {records.map((r) => (
                     <RecordRow
                       key={r.id}
-                      title={r.title ?? `Plan v${r.version}`}
+                      title={r.title ?? planTitle(r, sindri.specs ?? [])}
                       meta={`${list.kind === "specs" && r.version != null ? `v${r.version} · ` : ""}${r.id}`}
                       status={
                         <span className="flex flex-wrap items-center gap-2">
@@ -359,13 +383,20 @@ export function InProgressPage() {
                               kind={kindOf(r, sindri.plans ?? [])}
                             />
                           )}
-                          {statusBadge(list.kind, r) && (
-                            <Status
-                              value={statusBadge(list.kind, r)}
-                              domain={list.domain}
-                              size="sm"
-                              tooltip={false}
-                            />
+                          {list.kind === "intakes" &&
+                          (sindri.specs ?? []).some(
+                            (s: R) => s.intakeId === r.id,
+                          ) ? (
+                            <Badge tone="info">Spec drafted</Badge>
+                          ) : (
+                            statusBadge(list.kind, r) && (
+                              <Status
+                                value={statusBadge(list.kind, r)}
+                                domain={list.domain}
+                                size="sm"
+                                tooltip={false}
+                              />
+                            )
                           )}
                         </span>
                       }

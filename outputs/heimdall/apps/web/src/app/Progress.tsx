@@ -25,7 +25,7 @@ export function Progress({ pending }: { pending: readonly PendingCommand[] }) {
     <div
       role="status"
       aria-label="Work in progress"
-      className="fixed right-4 bottom-16 z-[var(--z-toast)] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      className="fixed top-20 left-4 z-[var(--z-toast)] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
     >
       {pending.map((p) => (
         <div

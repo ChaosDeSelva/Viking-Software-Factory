@@ -51,12 +51,12 @@ const nav = async (name) => {
     .click();
   await page.getByRole("heading", { level: 1, name, exact: true }).waitFor();
 };
-const commandDialog = page.getByRole("dialog").filter({ hasText: "This request changes the owning service" });
+const commandDialog = page.getByRole("dialog").filter({ hasText: "Confirm to send this to the factory" });
 async function confirm() {
   await page
     .getByLabel("Reason", { exact: true })
     .fill("Local parity acceptance test");
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await commandDialog.waitFor({ state: "hidden" });
 }
 try {

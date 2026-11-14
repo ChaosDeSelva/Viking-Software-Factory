@@ -219,7 +219,7 @@ export function ResearchView({
           />
         )}
         <DrawerActions>
-          <div className="flex gap-2 [&>*]:flex-1">
+          <div className="flex w-full gap-2 [&>*]:flex-1">
             <Button
               variant="primary"
               disabledReason={acceptWhy || undefined}

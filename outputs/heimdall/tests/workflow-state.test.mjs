@@ -289,3 +289,10 @@ test("the next step names the one thing to do now, furthest along first", async 
     null,
   );
 });
+
+test("a plan is named after its specification", async () => {
+  const { planTitle } = await import("../apps/web/src/features/workflowState.ts");
+  const specs = [{ id: "s1", title: "Export totals" }];
+  assert.equal(planTitle({ id: "p1", specId: "s1", version: 2 }, specs), "Plan v2: Export totals");
+  assert.equal(planTitle({ id: "p1", specId: "gone", version: 1 }, specs), "Plan v1");
+});

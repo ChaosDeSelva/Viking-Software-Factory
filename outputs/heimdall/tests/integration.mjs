@@ -223,7 +223,7 @@ try {
     .getByLabel("Reason", { exact: true })
     .fill("Browser priority revision acceptance");
   await page
-    .getByRole("button", { name: "Send to source", exact: true })
+    .getByRole("button", { name: "Confirm", exact: true })
     .click();
   await page
     .getByText("Source confirmed the request.", { exact: false })

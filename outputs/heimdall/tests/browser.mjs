@@ -64,7 +64,7 @@ const closeInspector = async () => {
   await inspector.getByRole("button", { name: "Close", exact: true }).click();
   await inspector.waitFor({ state: "hidden" });
 };
-const commandDialog = page.getByRole("dialog").filter({ hasText: "This request changes the owning service" });
+const commandDialog = page.getByRole("dialog").filter({ hasText: "Confirm to send this to the factory" });
 const confirmed = async () => {
   await commandDialog.waitFor({ state: "hidden" });
   await page.getByText("Source confirmed the request. Current state is shown.").first().waitFor();
@@ -264,9 +264,9 @@ try {
       await route.abort("failed");
     } else await route.continue();
   });
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await commandDialog.getByRole("alert").filter({ hasText: /fetch/i }).first().waitFor();
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await confirmed();
   await page.unroute("**/api/commands");
   assert.equal(source.data.missions[0].status, "paused");
@@ -294,7 +294,7 @@ try {
   await budgetDialog.getByRole("button", { name: "Review budget change" }).click();
   await commandDialog.getByRole("heading", { name: "Raise budget" }).waitFor();
   await commandDialog.getByLabel("Reason", { exact: true }).fill("Finish the summary");
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await confirmed();
   const patch = source.requests.find((r) => r.method === "PATCH" && r.path === "/v1/crews/crw_demo/budget");
   assert.ok(patch, "the PATCH reached Mimir");
@@ -317,7 +317,7 @@ try {
   await inspector.getByRole("button", { name: "Review budget change" }).click();
   await commandDialog.getByRole("heading", { name: "Raise budget" }).waitFor();
   await commandDialog.getByLabel("Reason", { exact: true }).fill("Usage is not reported by this runtime");
-  await commandDialog.getByRole("button", { name: "Send to source" }).click();
+  await commandDialog.getByRole("button", { name: "Confirm" }).click();
   await confirmed();
   const allow = source.requests.findLast((r) => r.method === "PATCH" && r.path === "/v1/crews/crw_two/budget");
   assert.deepEqual(JSON.parse(allow.body), { onUnknown: "allow" });
