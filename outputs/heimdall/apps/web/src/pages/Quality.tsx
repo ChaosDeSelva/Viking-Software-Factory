@@ -1,6 +1,7 @@
 // Quality & approvals: what waits on a human decision in the selected project, then each run's
 // verification gates and delivery. Actions open in the inspector, where the reasons a control is
 // unavailable are shown.
+import { describeReason } from "../features/reasonCodes";
 import {
   Badge,
   Button,
@@ -176,9 +177,12 @@ export function QualityPage() {
         (g.failures ?? []).length ? (
           <span className="line-clamp-3 text-xs text-muted">
             {(g.failures ?? [])
-              .map((f: unknown) =>
-                typeof f === "string" ? f : JSON.stringify(f),
-              )
+              .map((f: unknown) => {
+                // Plain words, as Sindri shows them; the raw code is in the source record.
+                if (typeof f === "string") return describeReason(f).words;
+                const x = f as R;
+                return describeReason(String(x.reason ?? ""), x.gateId).words;
+              })
               .join(" · ")}
           </span>
         ) : (
