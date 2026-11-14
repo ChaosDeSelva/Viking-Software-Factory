@@ -504,8 +504,14 @@ export function Inspector({
                 : String(label(versioned)).length > 180
                   ? String(label(versioned)).slice(0, 177) + "…"
                   : String(label(versioned));
-  const status =
-    kind === "specs" || kind === "plans"
+  // A document run ends with your decision, not a status change: show the decision once made.
+  const documentDecision: string | undefined =
+    kind === "deliveries" || kind === "execution"
+      ? details?.report?.research?.decision?.decision
+      : undefined;
+  const status = documentDecision
+    ? documentDecision
+    : kind === "specs" || kind === "plans"
       ? statusBadge(kind, versioned)
       : statusBadge(kind, row);
   const liveAgent =

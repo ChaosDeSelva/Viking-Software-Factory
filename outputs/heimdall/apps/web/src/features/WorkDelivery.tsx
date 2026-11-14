@@ -193,11 +193,7 @@ export function ResearchView({
             <Badge tone="forest">Contains private lessons</Badge>
           )}
         </Cluster>
-        {research.question && (
-          <p className="text-sm font-medium [overflow-wrap:anywhere]">
-            {research.question}
-          </p>
-        )}
+        {research.question && <Question text={String(research.question)} />}
         {decision && (
           <KeyValue
             items={[
@@ -219,31 +215,51 @@ export function ResearchView({
           />
         )}
         <DrawerActions>
-          <div className="flex w-full gap-2 [&>*]:flex-1">
-            <Button
-              variant="primary"
-              disabledReason={acceptWhy || undefined}
-              onClick={() =>
-                propose("research.accept", executionId, { reason: "" })
-              }
-            >
-              Accept document
-            </Button>
-            <Button
-              variant="danger"
-              disabledReason={rejectWhy || undefined}
-              onClick={() =>
-                propose("research.reject", executionId, { reason: "" })
-              }
-            >
-              Reject document
-            </Button>
-          </div>
-          <p className="text-xs text-muted">
-            The reason you give when you confirm is sent to Sindri with your
-            decision. A rejection needs one.
-          </p>
-          <Reasons reasons={[acceptWhy, rejectWhy]} />
+          {decision ? (
+            <p className="text-sm text-muted">{decided}</p>
+          ) : (
+            <>
+              {checksFailed && (
+                // Without this a failed check is a dead end: Accept stays disabled until the checks
+                // run again (for example after a fix to how they read the files).
+                <Button
+                  variant="secondary"
+                  disabledReason={
+                    actionBlock("execution.assess", undefined, session) ||
+                    undefined
+                  }
+                  onClick={() => propose("execution.assess", executionId, {})}
+                >
+                  Re-run quality checks
+                </Button>
+              )}
+              <div className="flex w-full gap-2 [&>*]:flex-1">
+                <Button
+                  variant="primary"
+                  disabledReason={acceptWhy || undefined}
+                  onClick={() =>
+                    propose("research.accept", executionId, { reason: "" })
+                  }
+                >
+                  Accept document
+                </Button>
+                <Button
+                  variant="danger"
+                  disabledReason={rejectWhy || undefined}
+                  onClick={() =>
+                    propose("research.reject", executionId, { reason: "" })
+                  }
+                >
+                  Reject document
+                </Button>
+              </div>
+              <p className="text-xs text-muted">
+                The reason you give when you confirm is sent to Sindri with your
+                decision. A rejection needs one.
+              </p>
+              <Reasons reasons={[acceptWhy, rejectWhy]} />
+            </>
+          )}
         </DrawerActions>
         <Disclosure title="Ask a follow-up question">
           <Stack gap={3}>
@@ -552,5 +568,25 @@ export function PrReviewView({
       </Block>
       <GuidanceUsed guidance={report.guidance} />
     </Stack>
+  );
+}
+
+/** The request a document answers: a pasted transcript is long, so it opens folded. */
+function Question({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 400;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <p className="text-sm font-medium whitespace-pre-wrap [overflow-wrap:anywhere]">
+        {long && !open ? `${text.slice(0, 400).trimEnd()}…` : text}
+      </p>
+      {long && (
+        <Button variant="link" size="sm" onClick={() => setOpen((o) => !o)}>
+          {open
+            ? "Show less"
+            : `Show the whole request (${text.length.toLocaleString("en-US")} characters)`}
+        </Button>
+      )}
+    </div>
   );
 }

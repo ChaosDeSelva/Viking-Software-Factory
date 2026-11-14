@@ -852,9 +852,10 @@ try {
     source.requests.findLast((r) => r.path === "/v1/executions/exe_research/reject").headers["x-sindri-approval"],
     "sindri-human-secret",
   );
-  await inspector.getByText("Rejected", { exact: true }).waitFor();
-  assert.equal(await unavailable(acceptDoc), true);
-  assert.match(await reasonOf(acceptDoc), /already rejected/);
+  await inspector.getByRole("region", { name: "Document", exact: true }).getByText("Rejected", { exact: true }).waitFor();
+  // A decided document shows its decision in the footer instead of buttons that cannot be used.
+  assert.equal(await acceptDoc.count(), 0);
+  await inspector.getByText("This document was already rejected.").first().waitFor();
   await inspector.getByLabel("Follow-up question").fill("What about refunds?");
   await followUp.click();
   await send("Need refunds too");
@@ -869,7 +870,7 @@ try {
   await send("Reads right");
   await confirmed();
   assert.deepEqual(lastPost("/v1/executions/exe_taxes/accept"), { reason: "Reads right" });
-  await inspector.getByText("Accepted", { exact: true }).waitFor();
+  await inspector.getByRole("region", { name: "Document", exact: true }).getByText("Accepted", { exact: true }).waitFor();
   await closeInspector();
   await documents.getByRole("row", { name: /How are taxes rounded\?/ }).waitFor({ state: "detached" });
 

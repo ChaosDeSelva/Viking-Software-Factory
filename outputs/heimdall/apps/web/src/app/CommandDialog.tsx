@@ -113,7 +113,11 @@ export function CommandDialog({
           </Disclosure>
           <Field
             label="Reason"
-            hint="Prefilled where it is only a note; edit it if you like."
+            hint={
+              "reason" in (command.body ?? {})
+                ? "Sent to the factory with your decision."
+                : "Prefilled as a note for the audit history; edit it if you like."
+            }
           >
             <Textarea
               ref={reasonField}
