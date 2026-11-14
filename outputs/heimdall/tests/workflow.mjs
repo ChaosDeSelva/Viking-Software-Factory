@@ -414,12 +414,16 @@ try {
   console.log("Intake to a cancelled run");
   source.workflow.authoring = true;
   await nav("New work");
-  // With projects connected, the connect form is tucked under "Add a project" and the step bar
-  // shows "Describe the work" as current, even though this project already has earlier work.
+  // With projects connected, the connect form is tucked under "Add a project". A project with
+  // work in progress is on "Review, plan, execute" until a new request is typed.
   assert.equal(await page.getByRole("heading", { name: "Connect a project" }).count(), 0);
   await page.getByText("Add a project", { exact: true }).waitFor();
   const current = page.locator('ol li[aria-current="step"]');
+  assert.match(await current.innerText(), /Review, plan, execute/);
+  await page.getByLabel("Intake title", { exact: true }).fill("x");
   assert.match(await current.innerText(), /Describe the work/);
+  await page.getByLabel("Intake title", { exact: true }).fill("");
+  assert.match(await current.innerText(), /Review, plan, execute/);
   assert.deepEqual(
     await page.locator("ol [data-step-align]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step-align"))),
     ["start", "center", "end"],

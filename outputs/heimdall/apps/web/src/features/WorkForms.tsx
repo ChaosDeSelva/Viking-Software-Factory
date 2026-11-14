@@ -188,7 +188,13 @@ function SkillPicker({
   );
 }
 
-export function ResearchForm({ projectId }: { projectId: string }) {
+/** Tells the page whether the form holds an unsaved request (it returns to "Describe the work"). */
+type DraftingProps = { onDraftingChange?: (drafting: boolean) => void };
+
+export function ResearchForm({
+  projectId,
+  onDraftingChange,
+}: { projectId: string } & DraftingProps) {
   const { session, propose } = useHeimdall();
   const skills = useSkills();
   const fg = useDetail<R | null>(
@@ -208,6 +214,9 @@ export function ResearchForm({ projectId }: { projectId: string }) {
     [notes, setNotes] = useState(""),
     [skillIds, setSkillIds] = useState<string[]>([]);
   const lessonsTouched = useRef(false);
+  const drafting = Boolean(question.trim() || background.trim());
+  useEffect(() => onDraftingChange?.(drafting), [drafting]);
+  useEffect(() => () => onDraftingChange?.(false), []);
   useEffect(() => {
     if (!lessonsTouched.current) setLessons(linked);
   }, [linked]);
@@ -328,7 +337,10 @@ export function ResearchForm({ projectId }: { projectId: string }) {
 }
 
 /** A GitHub pull request to review locally; Sindri picks the project, or asks when it cannot. */
-export function PrReviewForm({ projectId }: { projectId: string }) {
+export function PrReviewForm({
+  projectId,
+  onDraftingChange,
+}: { projectId: string } & DraftingProps) {
   const { session, propose, scope, notify } = useHeimdall();
   const skills = useSkills();
   const [url, setUrl] = useState(""),
@@ -338,6 +350,9 @@ export function PrReviewForm({ projectId }: { projectId: string }) {
       { id: string; name: string }[] | null
     >(null),
     [pick, setPick] = useState("");
+  const drafting = Boolean(url.trim());
+  useEffect(() => onDraftingChange?.(drafting), [drafting]);
+  useEffect(() => () => onDraftingChange?.(false), []);
   // Defaults come from the project the import will land in: the one chosen after Sindri asked.
   const guidanceProject = pick || projectId;
   const guidance = useDetail<R | null>(

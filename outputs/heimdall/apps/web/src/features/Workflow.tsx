@@ -122,9 +122,13 @@ export function NewWorkPage() {
       ? (sindri[kind] ?? [])
       : latestVersions(sindri[kind] ?? [])
     ).filter((r: R) => !project || r.projectId === project);
-  // This page is where new work is described, so with a project connected the current step is
-  // "Describe the work", even when the project already has earlier intakes, specs or plans.
-  const step = projects.length ? 1 : 0;
+  // "Review, plan, execute" once the project has work, unless a new request is being typed.
+  const started = LISTS.some((l) => recordsOf(l.kind).length > 0);
+  const [formDrafting, setFormDrafting] = useState(false);
+  const drafting =
+    formDrafting ||
+    (workKind === "change" && Boolean(title.trim() || request.trim()));
+  const step = !projects.length ? 0 : started && !drafting ? 2 : 1;
   const connectForm = (
     <Stack gap={4}>
       <Field label="Project name">
@@ -217,10 +221,18 @@ export function NewWorkPage() {
               ]}
             />
             {workKind === "research" && (
-              <ResearchForm key={project} projectId={project} />
+              <ResearchForm
+                key={project}
+                projectId={project}
+                onDraftingChange={setFormDrafting}
+              />
             )}
             {workKind === "pr_review" && (
-              <PrReviewForm key={project} projectId={project} />
+              <PrReviewForm
+                key={project}
+                projectId={project}
+                onDraftingChange={setFormDrafting}
+              />
             )}
             {workKind === "change" && (
               <>

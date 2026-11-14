@@ -998,15 +998,16 @@ export function RecordRow({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="line-clamp-2 text-sm font-medium text-fg">{title}</span>
         {meta && <span className="truncate text-xs text-muted">{meta}</span>}
-        {/* Phones: status drops under the text so the title keeps its width. */}
-        {status && <span className="mt-1 sm:hidden">{status}</span>}
+        {/* In a narrow row (a phone, or a card in a grid) status drops under the text so the
+            title keeps its width; the row's own width decides, not the screen's. */}
+        {status && <span className="mt-1 @lg:hidden">{status}</span>}
       </span>
-      {status && <span className="shrink-0 max-sm:hidden">{status}</span>}
+      {status && <span className="shrink-0 @max-lg:hidden">{status}</span>}
       <Icon name="chevronRight" size={16} className="shrink-0 text-subtle" />
     </>
   );
   const cls = cn(
-    "flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover",
+    "@container flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover",
     selected && "bg-accent-soft/60 shadow-[inset_3px_0_0_var(--accent)]",
     focusRing,
     "focus-visible:-outline-offset-2",
