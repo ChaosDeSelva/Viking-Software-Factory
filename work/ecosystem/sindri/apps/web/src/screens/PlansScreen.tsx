@@ -245,6 +245,10 @@ function PlanDetail({
   const [acknowledged, setAcknowledged] = useState(false);
   const detail = useLoad(() => api.getPlan(planId), [planId, tick]);
   const dry = useLoad(() => api.dryRunPlan(planId), [planId], { live: false });
+  const runs = useLoad(
+    () => api.getPlan(planId).then(({ plan }) => api.listExecutions(plan.projectId)),
+    [planId, tick],
+  );
   const notify = (text: string) => dispatch({ type: "notice", notice: { kind: "info", text } });
   const act = (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -269,6 +273,14 @@ function PlanDetail({
           specState !== undefined && specState !== "approved"
             ? `Its spec v${plan.specVersion} is now ${specState}; propose a plan from the approved spec.`
             : null;
+        // A plan that already ran is offered again only as "Run again", with its runs linked:
+        // "Execute plan" read as if nothing had happened yet.
+        const ran =
+          runs.state.status === "ready"
+            ? runs.state.data
+                .filter((r) => r.planId === plan.id)
+                .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+            : [];
         return (
           <section aria-labelledby="plan-title" className="flex min-w-0 flex-col gap-6">
             <Stack gap={3}>
@@ -339,7 +351,7 @@ function PlanDetail({
                           });
                       }}
                     >
-                      {executing ? "Starting run…" : "Execute plan"}
+                      {executing ? "Starting run…" : ran.length ? "Run again" : "Execute plan"}
                     </Button>
                   ) : null}
                 </Cluster>
@@ -349,6 +361,21 @@ function PlanDetail({
                 {specTitle(plan.specId) ? ` · ${specTitle(plan.specId)}` : ""} · proposed{" "}
                 <Timestamp value={plan.createdAt} />
               </p>
+              {ran.length > 0 && (
+                <Callout tone="info" title="This plan has already run">
+                  <span className="flex flex-wrap items-center gap-2">
+                    {ran.length === 1 ? "Its run" : `Its latest of ${ran.length} runs`} is{" "}
+                    <Status value={ran[0]!.status} domain="run" tooltip={false} />.
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => dispatch({ type: "execution/open", executionId: ran[0]!.id })}
+                    >
+                      Open the run
+                    </Button>
+                  </span>
+                </Callout>
+              )}
               <nav aria-label="Plan versions">
                 <ul className="flex flex-wrap gap-1">
                   {versions.map((v) => (

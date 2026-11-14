@@ -138,6 +138,34 @@ describe("PlansScreen", () => {
     expect(api.approvePlan).toHaveBeenCalledWith("pl1", { acknowledgeUntrusted: true });
   });
 
+  it("says a plan already ran, links its run and offers Run again instead of Execute plan", async () => {
+    const approved = plan({ status: "approved", approvedBy: "user" });
+    const api = mockApi({
+      listPlans: [approved],
+      listSpecs: [],
+      getPlan: detail(approved),
+      dryRunPlan: dry,
+      listExecutions: [
+        {
+          id: "e1",
+          planId: approved.id,
+          planVersion: 1,
+          projectId: approved.projectId,
+          status: "verified_pending_review",
+          mimirMissionId: "m1",
+          createdAt: "2026-01-01T00:00:00Z",
+          finishedAt: null,
+        },
+      ],
+    });
+    renderWithStore(ui, api, { planId: "pl1" });
+    const note = await screen.findByText("This plan has already run");
+    expect(note).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Execute plan" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open the run" })).toBeTruthy();
+  });
+
   it("explains when Mimir is not configured", async () => {
     const approved = plan({ status: "approved" });
     const api = mockApi({
