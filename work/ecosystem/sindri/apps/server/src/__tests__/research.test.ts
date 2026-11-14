@@ -307,11 +307,16 @@ describe("research delivery routes", () => {
     const planned = (await flow.h.call({ url: `/v1/plans/${plan.id}` })).json().plan;
     expect(planned.work.research.question).toContain("END-OF-CALL");
     // The earlier run's fact-check, as its delivery report keeps it.
-    const row = flow.h.db
-      .prepare(
-        "SELECT rowid, report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
-      )
-      .get(execution.id) as { rowid: number; report_json: string };
+    // The delivery report is written just after the run settles; wait for it.
+    const row = (await until(
+      async () =>
+        flow.h.db
+          .prepare(
+            "SELECT rowid, report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
+          )
+          .get(execution.id) as { rowid: number; report_json: string } | undefined,
+      (r: unknown) => r !== undefined,
+    )) as { rowid: number; report_json: string };
     const report = JSON.parse(row.report_json);
     report.research.factCheck = {
       planTaskId: "fact-check",

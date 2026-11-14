@@ -538,3 +538,25 @@ describe("PR review delivery", () => {
     expect(report.review!.findings).toHaveLength(3);
   });
 });
+
+describe("review files: a long finding is shortened, not a failure", () => {
+  it("cuts a finding over 2000 characters with a marker and keeps the rest of the review", () => {
+    // A live fact-check approved with eight findings; one ran to 2,300 characters and the whole
+    // review failed to parse, which failed the run's gate and blocked accepting the document.
+    const long = `${"Evidence. ".repeat(230)}END`;
+    const parsed = ReviewFileSchema.parse({
+      verdict: "approve",
+      findings: [
+        { severity: "minor", message: long },
+        { severity: "info", message: "short" },
+      ],
+      acceptance: [],
+      decisions: [],
+    });
+    expect(parsed.verdict).toBe("approve");
+    expect(parsed.findings).toHaveLength(2);
+    expect(parsed.findings[0]!.message).toHaveLength(2000);
+    expect(parsed.findings[0]!.message.endsWith("…")).toBe(true);
+    expect(parsed.findings[1]!.message).toBe("short");
+  });
+});

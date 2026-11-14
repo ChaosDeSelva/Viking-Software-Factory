@@ -22,9 +22,18 @@ import type {
 export const REVIEW_ARTIFACT_KIND = "review";
 export const REVIEW_FILE = "review.json";
 
+/** A review finding's message is kept to this many characters. */
+export const MAX_FINDING_CHARS = 2000;
+
 export const ReviewFindingSchema = z.object({
   severity: z.enum(["info", "minor", "major", "critical", "blocking"]).default("info"),
-  message: z.string().trim().min(1).max(2000),
+  // An agent's overlong finding is shortened, not a failure: rejecting the file would fail the
+  // run's gate over one long note while the review itself is sound.
+  message: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((m) => (m.length > MAX_FINDING_CHARS ? `${m.slice(0, MAX_FINDING_CHARS - 1)}…` : m)),
   file: z.string().max(500).optional(),
   line: z.number().int().positive().optional(),
 });
