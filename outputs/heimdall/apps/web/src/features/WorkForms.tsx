@@ -188,13 +188,7 @@ function SkillPicker({
   );
 }
 
-/** Called once the request is saved, so the page can move on to reviewing it. */
-type SavedProps = { onSaved?: () => void };
-
-export function ResearchForm({
-  projectId,
-  onSaved,
-}: { projectId: string } & SavedProps) {
+export function ResearchForm({ projectId }: { projectId: string }) {
   const { session, propose } = useHeimdall();
   const skills = useSkills();
   const fg = useDetail<R | null>(
@@ -316,7 +310,6 @@ export function ResearchForm({
               {},
               {
                 onSuccess: () => {
-                  onSaved?.();
                   setQuestion("");
                   setBackground("");
                   setNotes("");
@@ -335,10 +328,7 @@ export function ResearchForm({
 }
 
 /** A GitHub pull request to review locally; Sindri picks the project, or asks when it cannot. */
-export function PrReviewForm({
-  projectId,
-  onSaved,
-}: { projectId: string } & SavedProps) {
+export function PrReviewForm({ projectId }: { projectId: string }) {
   const { session, propose, scope, notify } = useHeimdall();
   const skills = useSkills();
   const [url, setUrl] = useState(""),
@@ -428,7 +418,6 @@ export function PrReviewForm({
               {},
               {
                 onSuccess: () => {
-                  onSaved?.();
                   setUrl("");
                   setNotes("");
                   setCandidates(null);

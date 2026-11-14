@@ -90,6 +90,7 @@ export const NAV: Readonly<Record<AppId, readonly NavScreen[]>> = {
     top("crews-agents", "Crews & agents", "Watch"),
     top("execution-graph", "Execution graph", "Watch"),
     top("activity", "Activity", "Watch"),
+    top("in-progress", "In progress", "Decide"),
     top("quality-approvals", "Quality & approvals", "Decide"),
     top("autonomy", "Autonomy", "Decide"),
     action("new-work", "New work"),

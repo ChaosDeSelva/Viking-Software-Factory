@@ -155,7 +155,8 @@ const APP_SCREEN_KEYS: Readonly<Record<(typeof APP_IDS)[number], readonly string
   ],
   heimdall: [
     ...["overview", "new-work", "pipeline", "crews-agents", "execution-graph", "activity"],
-    ...["quality-approvals", "autonomy", "notifications", "projects", "connections", "fleet"],
+    ...["in-progress", "quality-approvals", "autonomy", "notifications", "projects"],
+    ...["connections", "fleet"],
     "autonomy-all",
   ],
   skidbladnir: ["fleet", "launch", "history"],
@@ -179,8 +180,8 @@ const SHELLS: Readonly<Record<(typeof APP_IDS)[number], { top: string[]; bottom:
   heimdall: {
     top: [
       ...["Watch › Overview", "Watch › Pipeline", "Watch › Crews & agents"],
-      ...["Watch › Execution graph", "Watch › Activity", "Decide › Quality & approvals"],
-      "Decide › Autonomy",
+      ...["Watch › Execution graph", "Watch › Activity", "Decide › In progress"],
+      ...["Decide › Quality & approvals", "Decide › Autonomy"],
     ],
     bottom: [
       ...["Notifications", "Projects", "Connections", "Fleet", "Autonomy (all)", "Docs", "Ask"],

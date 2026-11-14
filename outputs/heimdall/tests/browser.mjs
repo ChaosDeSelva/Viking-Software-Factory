@@ -46,7 +46,7 @@ const page = await context.newPage();
 page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-const TABS = ["Overview", "Pipeline", "Crews & agents", "Execution graph", "Activity", "Quality & approvals", "Autonomy"];
+const TABS = ["Overview", "Pipeline", "Crews & agents", "Execution graph", "Activity", "In progress", "Quality & approvals", "Autonomy"];
 const GLOBALS = ["Notifications", "Projects", "Connections", "Fleet", "Autonomy (all)"];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const h1 = (name) => page.getByRole("heading", { level: 1, name, exact: true });
@@ -365,7 +365,7 @@ try {
 
   for (const width of [390, 768, 1024, 1600]) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const path of ["/", "/projects", "/pipeline", "/crews", "/graph", "/activity", "/quality", "/autonomy", "/new-work", "/notifications", "/connections", "/fleet", "/autonomy/all", "/docs"]) {
+    for (const path of ["/", "/projects", "/pipeline", "/crews", "/graph", "/activity", "/quality", "/autonomy", "/new-work", "/in-progress", "/notifications", "/connections", "/fleet", "/autonomy/all", "/docs"]) {
       await page.goto(app.url + path + "?project=prj_demo");
       await page.getByRole("heading", { level: 1 }).first().waitFor();
       assert.equal(await noOverflow(), true, `${path}: page overflow at ${width}px`);

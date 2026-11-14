@@ -91,7 +91,7 @@ const page = await context.newPage();
 page.setDefaultTimeout(10000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-const TABS = ["Overview", "Pipeline", "Crews & agents", "Execution graph", "Activity", "Quality & approvals", "Autonomy"];
+const TABS = ["Overview", "Pipeline", "Crews & agents", "Execution graph", "Activity", "In progress", "Quality & approvals", "Autonomy"];
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 // Project pages are top-bar links, global pages bottom-bar links; a count may follow the label.
 const nav = async (name) => {
@@ -106,6 +106,13 @@ const nav = async (name) => {
 const stage = (name) => page.getByRole("region", { name: `${name} stage, scroll for more items` });
 const status = (scope, label) => scope.getByRole("img", { name: `Status: ${label}`, exact: true });
 const inspector = page.getByRole("dialog").filter({ hasText: "inspector" });
+// Saving a request or finishing a draft closes the drawer and lands on In progress.
+const landedInProgress = async () => {
+  await page.getByRole("heading", { level: 1, name: "In progress", exact: true }).waitFor();
+  await inspector.waitFor({ state: "hidden" });
+};
+const openListed = (list, name) =>
+  page.getByRole("list", { name: list, exact: true }).getByRole("button", { name }).click();
 const closeInspector = async () => {
   await inspector.getByRole("button", { name: "Close", exact: true }).click();
   await inspector.waitFor({ state: "hidden" });
@@ -287,7 +294,7 @@ try {
   await closeInspector();
 
   console.log("Start lands on the run");
-  await nav("New work");
+  await nav("In progress");
   await page.getByRole("button", { name: /Plan v1/ }).click();
   await inspector.getByRole("button", { name: "Start approved plan" }).click();
   await send("Go");
@@ -414,14 +421,12 @@ try {
   console.log("Intake to a cancelled run");
   source.workflow.authoring = true;
   await nav("New work");
-  // A project with work opens on "Review, plan, execute": the request form is hidden until
-  // "Describe new work", which moves the step bar back to "Describe the work".
+  // New work is always a blank request, even for a project with work under way; that work is on
+  // In progress. With projects connected, the connect form is tucked under "Add a project".
   assert.equal(await page.getByRole("heading", { name: "Connect a project" }).count(), 0);
   const current = page.locator('ol li[aria-current="step"]');
-  assert.match(await current.innerText(), /Review, plan, execute/);
-  assert.equal(await page.getByLabel("Intake title", { exact: true }).count(), 0);
-  await page.getByRole("button", { name: "Describe new work" }).click();
   assert.match(await current.innerText(), /Describe the work/);
+  assert.equal(await page.getByRole("heading", { name: "Plans" }).count(), 0);
   await page.getByText("Add a project", { exact: true }).waitFor();
   assert.deepEqual(
     await page.locator("ol [data-step-align]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step-align"))),
@@ -437,6 +442,9 @@ try {
     title: "Footer totals",
     body: "Show the invoice total in the footer",
   });
+  await landedInProgress();
+  assert.match(await current.innerText(), /Review, plan, execute/);
+  await openListed("Intakes", /Footer totals/);
   await inspector.getByRole("heading", { name: "Footer totals" }).waitFor();
   // The next step sits in the drawer's pinned footer, outside the scrolling body, at full width.
   const draftSpec = inspector.getByRole("button", { name: "Draft specification from intake" });
@@ -458,6 +466,8 @@ try {
     intakeId: "int_new01",
     request: "Show the invoice total in the footer",
   });
+  await landedInProgress();
+  await openListed("Specifications", /spc_new02/);
   await inspector.getByText("v1 · spc_new02").waitFor();
   assert.equal(await questions.count(), 1);
   await questions.first().getByRole("button", { name: "Use recommendation" }).click();
@@ -483,6 +493,8 @@ try {
   await send("Plan it");
   await confirmed();
   assert.deepEqual(lastPost("/v1/plans/propose"), { specId: "spc_new02x" });
+  await landedInProgress();
+  await openListed("Plans", /pln_new03/);
   await inspector.getByText("v1 · pln_new03").waitFor();
   const approvePlan = inspector.getByRole("button", { name: /^Approve plan\b/ });
   assert.equal(await unavailable(approvePlan), true);
@@ -522,10 +534,13 @@ try {
     intakeId: "int_blank",
     request: "Ticket without description",
   });
+  await landedInProgress();
+  await openListed("Specifications", /spc_new05/);
   await inspector.getByText("v1 · spc_new05").waitFor();
   await closeInspector();
 
   console.log("Request changes to a delivery");
+  await nav("Pipeline");
   await stage("Delivery").getByRole("button", { name: /Exact invoice totals/ }).click();
   await inspector.getByText("Request changes to this delivery").click();
   const reviewChanges = inspector.getByRole("button", { name: "Review change request" });
@@ -865,7 +880,6 @@ try {
 
   console.log("Work kinds: research form");
   await nav("New work");
-  await page.getByRole("button", { name: "Describe new work" }).click();
   const kinds = page.getByRole("radiogroup", { name: "Kind of work" });
   await kinds.getByRole("radio", { name: "Research" }).click();
   const ask = page.getByRole("button", { name: "Review research question" });
@@ -904,10 +918,10 @@ try {
     notes: "Keep it short",
     skillIds: ["sk_style"],
   });
-  await closeInspector();
-  // Sending returns the page to "Review, plan, execute"; the form reopens empty.
-  assert.match(await page.locator('ol li[aria-current="step"]').innerText(), /Review, plan, execute/);
-  await page.getByRole("button", { name: "Describe new work" }).click();
+  await landedInProgress();
+  // New work starts blank again.
+  await nav("New work");
+  await kinds.getByRole("radio", { name: "Research" }).click();
   assert.equal(await page.getByLabel("Question", { exact: true }).inputValue(), "", "the form clears once sent");
   // A project without a lessons link offers no lessons source, and says why.
   await page.getByRole("combobox", { name: "Project", exact: true }).click();
@@ -953,7 +967,7 @@ try {
     notes: "Watch the cache",
     skillIds: ["sk_style"],
   });
-  await closeInspector();
+  await landedInProgress();
   await nav("Pipeline");
 
   console.log("Project filter survives the ID change");

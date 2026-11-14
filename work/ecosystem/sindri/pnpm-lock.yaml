@@ -301,8 +301,8 @@ importers:
   apps/web:
     dependencies:
       '@factory/docs':
-        specifier: file:../../vendor/factory/factory-docs-0.1.7.tgz
-        version: file:vendor/factory/factory-docs-0.1.7.tgz
+        specifier: file:../../vendor/factory/factory-docs-0.1.8.tgz
+        version: file:vendor/factory/factory-docs-0.1.8.tgz
       '@factory/ui':
         specifier: file:../../vendor/factory/factory-ui-0.1.11.tgz
         version: file:vendor/factory/factory-ui-0.1.11.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -985,6 +985,11 @@ packages:
   '@factory/docs@file:vendor/factory/factory-docs-0.1.7.tgz':
     resolution: {integrity: sha512-Y0f02dbhYiCqNJ5PYKil9xBm7f/pjeLLRmCwTKicx3rbxLYRhQzfK0s5v+8QLds6Y+1GZrAESb4P72gJoeSYGw==, tarball: file:vendor/factory/factory-docs-0.1.7.tgz}
     version: 0.1.7
+    engines: {node: '>=24'}
+
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.8.tgz':
+    resolution: {integrity: sha512-ti+QhWxzj3TnDfPNBgikuaZ/81WpiLYZCPm2C9n3/t4aS7XEtt76rL5l3Vw3VPG5YZLEhqmzmyLi+AhfcczyKQ==, tarball: file:vendor/factory/factory-docs-0.1.8.tgz}
+    version: 0.1.8
     engines: {node: '>=24'}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.11.tgz':
@@ -3222,6 +3227,8 @@ snapshots:
   '@exodus/bytes@1.16.0': {}
 
   '@factory/docs@file:vendor/factory/factory-docs-0.1.7.tgz': {}
+
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.8.tgz': {}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.11.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:

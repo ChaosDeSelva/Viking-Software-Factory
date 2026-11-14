@@ -6,6 +6,7 @@ import { useSyncExternalStore, type MouseEvent } from "react";
 export type PageId =
   | "overview"
   | "new-work"
+  | "in-progress"
   | "pipeline"
   | "crews-agents"
   | "execution-graph"
@@ -22,6 +23,7 @@ export type PageId =
 export const PATHS: Record<PageId, string> = {
   overview: "/",
   "new-work": "/new-work",
+  "in-progress": "/in-progress",
   pipeline: "/pipeline",
   "crews-agents": "/crews",
   "execution-graph": "/graph",

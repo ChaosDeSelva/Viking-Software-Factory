@@ -33,6 +33,7 @@ const PAGES = [
   ["/quality", "Quality & approvals"],
   ["/autonomy", "Autonomy"],
   ["/new-work", "New work"],
+  ["/in-progress", "In progress"],
   ["/notifications", "Notifications"],
   ["/projects", "Projects"],
   ["/connections/services", "Connections"],
@@ -46,7 +47,6 @@ const PAGES = [
 ];
 const kindForm = (kind, ready) => async () => {
   await page.goto(app.url + "/new-work?project=prj_demo");
-  await page.getByRole("button", { name: "Describe new work" }).click();
   await page.getByRole("radiogroup", { name: "Kind of work" }).getByRole("radio", { name: kind }).click();
   await page.getByRole("button", { name: ready }).waitFor();
   await page.getByText("Loading skills…").waitFor({ state: "detached" });

@@ -74,8 +74,16 @@ import {
   UnlockForm,
   useDesktopAlerts,
 } from "../features/Operator";
-import { NewWorkPage } from "../features/Workflow";
+import { InProgressPage, NewWorkPage } from "../features/Workflow";
 import { switcherApps } from "../lib/apps";
+
+/** Commands whose result is shown on In progress rather than in the drawer. */
+const LANDS_IN_PROGRESS = [
+  "intake.create",
+  "intake.import",
+  "spec.draft",
+  "plan.propose",
+];
 
 const TABS: { id: PageId; label: string; group: string }[] = [
   { id: "overview", label: "Overview", group: "Watch" },
@@ -83,6 +91,7 @@ const TABS: { id: PageId; label: string; group: string }[] = [
   { id: "crews-agents", label: "Crews & agents", group: "Watch" },
   { id: "execution-graph", label: "Execution graph", group: "Watch" },
   { id: "activity", label: "Activity", group: "Watch" },
+  { id: "in-progress", label: "In progress", group: "Decide" },
   { id: "quality-approvals", label: "Quality & approvals", group: "Decide" },
   { id: "autonomy", label: "Autonomy", group: "Decide" },
 ];
@@ -337,6 +346,10 @@ export function App() {
         setProfileSaved({ id: command.id, harness: r?.harness ?? null });
       // A started run also returns its plan, so test for the run first.
       if (r?.execution) navigate(hrefFor("pipeline", { project: urlId }));
+      // A new request, or a spec or plan that took minutes to draft: close the drawer and show
+      // where it landed, with the project's other work under way.
+      else if (LANDS_IN_PROGRESS.includes(command.action))
+        navigate(hrefFor("in-progress", { project: urlId }));
       else if (r?.spec) open("specs", r.spec);
       else if (r?.plan) open("plans", r.plan);
       else if (r?.project) open("projects", r.project);
@@ -467,6 +480,7 @@ export function App() {
   const pageBody: Record<PageId, () => ReactNode> = {
     overview: () => <OverviewPage onAsk={() => setAskOpen(true)} />,
     "new-work": () => <NewWorkPage />,
+    "in-progress": () => <InProgressPage />,
     pipeline: () => <PipelinePage />,
     "crews-agents": () => <CrewsPage />,
     "execution-graph": () => <GraphPage />,
