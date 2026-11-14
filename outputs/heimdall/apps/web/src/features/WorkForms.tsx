@@ -188,13 +188,13 @@ function SkillPicker({
   );
 }
 
-/** Tells the page whether the form holds an unsaved request (it returns to "Describe the work"). */
-type DraftingProps = { onDraftingChange?: (drafting: boolean) => void };
+/** Called once the request is saved, so the page can move on to reviewing it. */
+type SavedProps = { onSaved?: () => void };
 
 export function ResearchForm({
   projectId,
-  onDraftingChange,
-}: { projectId: string } & DraftingProps) {
+  onSaved,
+}: { projectId: string } & SavedProps) {
   const { session, propose } = useHeimdall();
   const skills = useSkills();
   const fg = useDetail<R | null>(
@@ -214,9 +214,6 @@ export function ResearchForm({
     [notes, setNotes] = useState(""),
     [skillIds, setSkillIds] = useState<string[]>([]);
   const lessonsTouched = useRef(false);
-  const drafting = Boolean(question.trim() || background.trim());
-  useEffect(() => onDraftingChange?.(drafting), [drafting]);
-  useEffect(() => () => onDraftingChange?.(false), []);
   useEffect(() => {
     if (!lessonsTouched.current) setLessons(linked);
   }, [linked]);
@@ -319,6 +316,7 @@ export function ResearchForm({
               {},
               {
                 onSuccess: () => {
+                  onSaved?.();
                   setQuestion("");
                   setBackground("");
                   setNotes("");
@@ -339,8 +337,8 @@ export function ResearchForm({
 /** A GitHub pull request to review locally; Sindri picks the project, or asks when it cannot. */
 export function PrReviewForm({
   projectId,
-  onDraftingChange,
-}: { projectId: string } & DraftingProps) {
+  onSaved,
+}: { projectId: string } & SavedProps) {
   const { session, propose, scope, notify } = useHeimdall();
   const skills = useSkills();
   const [url, setUrl] = useState(""),
@@ -350,9 +348,6 @@ export function PrReviewForm({
       { id: string; name: string }[] | null
     >(null),
     [pick, setPick] = useState("");
-  const drafting = Boolean(url.trim());
-  useEffect(() => onDraftingChange?.(drafting), [drafting]);
-  useEffect(() => () => onDraftingChange?.(false), []);
   // Defaults come from the project the import will land in: the one chosen after Sindri asked.
   const guidanceProject = pick || projectId;
   const guidance = useDetail<R | null>(
@@ -433,6 +428,7 @@ export function PrReviewForm({
               {},
               {
                 onSuccess: () => {
+                  onSaved?.();
                   setUrl("");
                   setNotes("");
                   setCandidates(null);

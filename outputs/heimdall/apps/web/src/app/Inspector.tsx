@@ -1065,89 +1065,93 @@ export function Inspector({
     const submitWhy = sindriWhy(resource + ".submit", record.status);
     const approveWhy =
       sindriWhy(resource + ".approve", record.status) || acknowledgeWhy;
-    add(
-      "review",
-      <Block title="Review">
-        <Cluster gap={2}>
-          <Button
-            variant="secondary"
-            disabledReason={submitWhy || undefined}
-            onClick={() => propose(resource + ".submit", record.id)}
-          >
-            Submit for review
-          </Button>
+    const noun = kind === "specs" ? "specification" : "plan";
+    // Every review action lives in the pinned footer; the one the status calls for comes first,
+    // full width and primary, the others below it with why they're unavailable.
+    const actions = [
+      {
+        id: "submit",
+        label: "Submit for review",
+        when: "draft",
+        why: submitWhy,
+        run: () => propose(resource + ".submit", record.id),
+      },
+      {
+        id: "approve",
+        label: `Approve ${noun}`,
+        when: "review",
+        why: approveWhy,
+        run: () =>
+          propose(
+            resource + ".approve",
+            record.id,
+            kind === "specs" && acknowledge
+              ? { acknowledgeUntrusted: true }
+              : {},
+          ),
+      },
+      kind === "specs"
+        ? {
+            id: "propose",
+            label: "Propose implementation plan",
+            when: "approved",
+            why: sindriWhy("plan.propose", record.status),
+            run: () => propose("plan.propose", "new", { specId: record.id }),
+          }
+        : {
+            id: "start",
+            label: "Start approved plan",
+            when: "approved",
+            why: sindriWhy("execution.create", record.status),
+            run: () =>
+              propose("execution.create", "new", { planId: record.id }),
+          },
+    ];
+    const next = actions.find((a) => a.when === record.status);
+    const rest = actions.filter((a) => a !== next);
+    footer = (
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        {next && (
           <Button
             variant="primary"
-            disabledReason={approveWhy || undefined}
-            onClick={() =>
-              propose(
-                resource + ".approve",
-                record.id,
-                kind === "specs" && acknowledge
-                  ? { acknowledgeUntrusted: true }
-                  : {},
-              )
-            }
+            className="w-full"
+            disabledReason={next.why || undefined}
+            onClick={next.run}
           >
-            Approve {kind === "specs" ? "specification" : "plan"}
+            {next.label}
           </Button>
-        </Cluster>
-        <Reasons reasons={[submitWhy, approveWhy]} />
-        {kind === "specs" && details?.meta?.untrustedInstructionDetected && (
-          <Callout tone="warning" title="Flagged source instructions">
-            <Checkbox
-              checked={acknowledge}
-              onChange={(e) => setAcknowledge(e.target.checked)}
-              label="I have reviewed the flagged source instructions and explicitly acknowledge them for this specification."
-            />
-          </Callout>
         )}
-      </Block>,
+        <Cluster gap={2}>
+          {rest.map((a) => (
+            <Button
+              key={a.id}
+              variant="secondary"
+              size="sm"
+              disabledReason={a.why || undefined}
+              onClick={a.run}
+            >
+              {a.label}
+            </Button>
+          ))}
+        </Cluster>
+        <Reasons reasons={[next?.why]} />
+      </div>
     );
+    if (kind === "specs" && details?.meta?.untrustedInstructionDetected)
+      add(
+        "review",
+        <Callout tone="warning" title="Flagged source instructions">
+          <Checkbox
+            checked={acknowledge}
+            onChange={(e) => setAcknowledge(e.target.checked)}
+            label="I have reviewed the flagged source instructions and explicitly acknowledge them for this specification."
+          />
+        </Callout>,
+      );
     if (kind === "specs" && record.body)
       add("edit", <SpecEditor key={record.id} spec={record} />);
-    if (kind === "specs") {
-      const why = sindriWhy("plan.propose", record.status);
-      add(
-        "propose",
-        <div className="flex flex-col gap-2">
-          <div>
-            <Button
-              variant="secondary"
-              disabledReason={why || undefined}
-              onClick={() =>
-                propose("plan.propose", "new", { specId: record.id })
-              }
-            >
-              Propose implementation plan
-            </Button>
-          </div>
-          <Reasons reasons={[why]} />
-        </div>,
-      );
-    }
     if (kind === "plans" && record.tasks)
       add("edit", <PlanEditor key={record.id} plan={record} />);
-    if (kind === "plans") {
-      const why = sindriWhy("execution.create", record.status);
-      add(
-        "start",
-        <div className="flex flex-col gap-2">
-          <div>
-            <Button
-              variant="primary"
-              disabledReason={why || undefined}
-              onClick={() =>
-                propose("execution.create", "new", { planId: record.id })
-              }
-            >
-              Start approved plan
-            </Button>
-          </div>
-          <Reasons reasons={[why]} />
-        </div>,
-      );
-    }
     const questions = orderedQuestions(openSpec);
     if (questions.length)
       add(

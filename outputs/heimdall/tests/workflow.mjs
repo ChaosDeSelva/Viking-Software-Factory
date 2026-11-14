@@ -414,16 +414,15 @@ try {
   console.log("Intake to a cancelled run");
   source.workflow.authoring = true;
   await nav("New work");
-  // With projects connected, the connect form is tucked under "Add a project". A project with
-  // work in progress is on "Review, plan, execute" until a new request is typed.
+  // A project with work opens on "Review, plan, execute": the request form is hidden until
+  // "Describe new work", which moves the step bar back to "Describe the work".
   assert.equal(await page.getByRole("heading", { name: "Connect a project" }).count(), 0);
-  await page.getByText("Add a project", { exact: true }).waitFor();
   const current = page.locator('ol li[aria-current="step"]');
   assert.match(await current.innerText(), /Review, plan, execute/);
-  await page.getByLabel("Intake title", { exact: true }).fill("x");
+  assert.equal(await page.getByLabel("Intake title", { exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Describe new work" }).click();
   assert.match(await current.innerText(), /Describe the work/);
-  await page.getByLabel("Intake title", { exact: true }).fill("");
-  assert.match(await current.innerText(), /Review, plan, execute/);
+  await page.getByText("Add a project", { exact: true }).waitFor();
   assert.deepEqual(
     await page.locator("ol [data-step-align]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step-align"))),
     ["start", "center", "end"],
@@ -866,6 +865,7 @@ try {
 
   console.log("Work kinds: research form");
   await nav("New work");
+  await page.getByRole("button", { name: "Describe new work" }).click();
   const kinds = page.getByRole("radiogroup", { name: "Kind of work" });
   await kinds.getByRole("radio", { name: "Research" }).click();
   const ask = page.getByRole("button", { name: "Review research question" });
@@ -905,6 +905,9 @@ try {
     skillIds: ["sk_style"],
   });
   await closeInspector();
+  // Sending returns the page to "Review, plan, execute"; the form reopens empty.
+  assert.match(await page.locator('ol li[aria-current="step"]').innerText(), /Review, plan, execute/);
+  await page.getByRole("button", { name: "Describe new work" }).click();
   assert.equal(await page.getByLabel("Question", { exact: true }).inputValue(), "", "the form clears once sent");
   // A project without a lessons link offers no lessons source, and says why.
   await page.getByRole("combobox", { name: "Project", exact: true }).click();

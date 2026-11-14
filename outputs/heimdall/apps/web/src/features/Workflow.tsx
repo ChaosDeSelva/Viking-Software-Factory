@@ -122,13 +122,13 @@ export function NewWorkPage() {
       ? (sindri[kind] ?? [])
       : latestVersions(sindri[kind] ?? [])
     ).filter((r: R) => !project || r.projectId === project);
-  // "Review, plan, execute" once the project has work, unless a new request is being typed.
+  // The step decides what the page shows. A project with work opens on "Review, plan, execute"
+  // with the request form behind "Describe new work"; saving a request returns there.
   const started = LISTS.some((l) => recordsOf(l.kind).length > 0);
-  const [formDrafting, setFormDrafting] = useState(false);
-  const drafting =
-    formDrafting ||
-    (workKind === "change" && Boolean(title.trim() || request.trim()));
-  const step = !projects.length ? 0 : started && !drafting ? 2 : 1;
+  const [describing, setDescribing] = useState(false);
+  const reviewing = projects.length > 0 && started && !describing;
+  const step = !projects.length ? 0 : reviewing ? 2 : 1;
+  const saved = { onSuccess: () => setDescribing(false) };
   const connectForm = (
     <Stack gap={4}>
       <Field label="Project name">
@@ -184,6 +184,7 @@ export function NewWorkPage() {
             {connectForm}
           </Card>
         )}
+        {!reviewing && (
         <Card title="Describe the work" term="Intake">
           <Stack gap={4}>
             <Field label="Project" term="Project">
@@ -224,14 +225,14 @@ export function NewWorkPage() {
               <ResearchForm
                 key={project}
                 projectId={project}
-                onDraftingChange={setFormDrafting}
+                onSaved={saved.onSuccess}
               />
             )}
             {workKind === "pr_review" && (
               <PrReviewForm
                 key={project}
                 projectId={project}
-                onDraftingChange={setFormDrafting}
+                onSaved={saved.onSuccess}
               />
             )}
             {workKind === "change" && (
@@ -256,11 +257,13 @@ export function NewWorkPage() {
                   <Button
                     disabledReason={intakeWhy || undefined}
                     onClick={() =>
-                      propose("intake.create", "new", {
-                        projectId: project,
-                        title,
-                        body: request,
-                      })
+                      propose(
+                        "intake.create",
+                        "new",
+                        { projectId: project, title, body: request },
+                        {},
+                        saved,
+                      )
                     }
                   >
                     Save intake
@@ -269,10 +272,13 @@ export function NewWorkPage() {
                     variant="primary"
                     disabledReason={draftWhy || undefined}
                     onClick={() =>
-                      propose("spec.draft", "new", {
-                        projectId: project,
-                        request,
-                      })
+                      propose(
+                        "spec.draft",
+                        "new",
+                        { projectId: project, request },
+                        {},
+                        saved,
+                      )
                     }
                   >
                     Draft specification
@@ -282,10 +288,18 @@ export function NewWorkPage() {
             )}
           </Stack>
         </Card>
+        )}
       </CardGroup>
       <Card
         title="Review, plan, execute"
         description="Open a specification to answer questions or revise it, submit it for review and approve it. Propose a plan, adjust priorities and budgets, approve the revision, then start the run."
+        actions={
+          reviewing ? (
+            <Button variant="primary" onClick={() => setDescribing(true)}>
+              Describe new work
+            </Button>
+          ) : undefined
+        }
       >
         <CardGroup min={280}>
           {LISTS.map((list) => {
