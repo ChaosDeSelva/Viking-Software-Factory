@@ -200,7 +200,7 @@ overrides:
   '@brokkr/resolver': file:vendor/brokkr/brokkr-resolver-0.1.0.tgz
   '@brokkr/runner': file:vendor/brokkr/brokkr-runner-0.1.0.tgz
   '@brokkr/sdk': file:vendor/brokkr/brokkr-sdk-0.1.0.tgz
-  '@factory/docs': file:vendor/factory/factory-docs-0.1.10.tgz
+  '@factory/docs': file:vendor/factory/factory-docs-0.1.11.tgz
   '@factory/ui': file:vendor/factory/factory-ui-0.1.17.tgz
 
 importers:
@@ -309,8 +309,8 @@ importers:
   apps/web:
     dependencies:
       '@factory/docs':
-        specifier: file:../../vendor/factory/factory-docs-0.1.10.tgz
-        version: file:vendor/factory/factory-docs-0.1.10.tgz
+        specifier: file:../../vendor/factory/factory-docs-0.1.11.tgz
+        version: file:vendor/factory/factory-docs-0.1.11.tgz
       '@factory/ui':
         specifier: file:../../vendor/factory/factory-ui-0.1.17.tgz
         version: file:vendor/factory/factory-ui-0.1.17.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -909,9 +909,9 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.10.tgz':
-    resolution: {integrity: sha512-FMw8E1wBJwzqJJ/psI2BzNBb/jO30nXrAXX/IWwSJ+Uu5/pf1rmXWrrzBNlfAwU0T5Jnr6EpJzfFU84tu9UNdg==, tarball: file:vendor/factory/factory-docs-0.1.10.tgz}
-    version: 0.1.10
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.11.tgz':
+    resolution: {integrity: sha512-ySHE2qY/l85R+dE3uTsom+SvIMWiIU4wkup5AwOleIPfwaC2isO0gmkyaobcoF2CTivbzdtCdZuUBWaB3WeAUw==, tarball: file:vendor/factory/factory-docs-0.1.11.tgz}
+    version: 0.1.11
     engines: {node: '>=24'}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.17.tgz':
@@ -3157,7 +3157,7 @@ snapshots:
 
   '@exodus/bytes@1.16.0': {}
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.10.tgz': {}
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.11.tgz': {}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.17.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:

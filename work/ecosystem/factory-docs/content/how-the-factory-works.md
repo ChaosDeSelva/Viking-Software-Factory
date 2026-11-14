@@ -60,17 +60,18 @@ A request lands in Sindri's inbox. The **Director** drafts a **spec** from it, c
 
 The full walkthrough with screen names is in [From ticket to delivery](/docs/ticket-to-delivery).
 
-## Three kinds of work
+## Kinds of work
 
-You choose the kind when you add a request. All three go through the same spec, plan and run; they differ in what the agents may do and what you get back.
+You choose the kind when you add a request. All of them go through the same spec, plan and run; they differ in what the agents may do and what you get back.
 
 | Kind      | The agents                                                     | You get                                                      | It ends when                      |
 | --------- | -------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------- |
 | Change    | write code in their worktrees                                  | a verified patch                                             | you export and apply it           |
 | Research  | only read: the project's code, lessons, and the web if allowed | a Markdown document whose claims cite numbered sources       | you accept or reject it           |
 | PR review | only read a copy of the pull request Sindri keeps for itself   | a review draft you edit, preview and post to GitHub yourself | you post it, or leave it unposted |
+| Plan      | only read: each project the pasted text names, in parallel     | a proposal and an engineering appendix, with diagrams        | you accept, reject or revise it   |
 
-See [Research questions](/docs/research) and [PR reviews](/docs/pr-reviews). Research and reviews can use **skills** and **notes** you give them; see [Skills and guidance](/docs/research#skills-and-guidance).
+See [Research questions](/docs/research), [PR reviews](/docs/pr-reviews) and [Plans from text](/docs/plans-from-text). Research and reviews can use **skills** and **notes** you give them; see [Skills and guidance](/docs/research#skills-and-guidance).
 
 ## Names for the same thing
 

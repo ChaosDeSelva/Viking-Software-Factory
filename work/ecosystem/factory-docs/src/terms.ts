@@ -190,8 +190,8 @@ export const TERMS: readonly TermSource[] = [
   t(
     "Work kind",
     "planning",
-    "What a request asks for: a change (a patch), research (a cited document) or a PR review. You choose it when you add the request.",
-    "The kind decides the plan's tasks, what the agents may do and how the work ends. The Director never changes it; when a change request reads like a question, it only suggests research. A badge shows the kind on inbox items, runs and deliveries. See [Three kinds of work](/docs/how-the-factory-works#three-kinds-of-work).",
+    "What a request asks for: a change, research, a PR review or a plan from text. You choose it when you add the request.",
+    "The kind decides the plan's tasks, what the agents may do and how the work ends. The Director never changes it; when a change request reads like a question, it only suggests research. A badge shows the kind on inbox items, runs and deliveries. See [Kinds of work](/docs/how-the-factory-works#kinds-of-work).",
     ["research", "pr-review", "intake"],
     ["Kind of work"],
   ),

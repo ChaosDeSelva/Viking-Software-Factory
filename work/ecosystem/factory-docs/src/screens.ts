@@ -44,6 +44,11 @@ export const SECTIONS: readonly {
         title: "PR reviews",
         summary: "Import a GitHub pull request, edit the review, post it once.",
       },
+      {
+        slug: "plans-from-text",
+        title: "Plans from text",
+        summary: "Paste a transcript, get a researched proposal and engineering appendix.",
+      },
     ],
   },
   {

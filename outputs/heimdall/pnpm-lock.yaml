@@ -192,8 +192,8 @@ importers:
   .:
     dependencies:
       '@factory/docs':
-        specifier: file:vendor/factory/factory-docs-0.1.10.tgz
-        version: file:vendor/factory/factory-docs-0.1.10.tgz
+        specifier: file:vendor/factory/factory-docs-0.1.11.tgz
+        version: file:vendor/factory/factory-docs-0.1.11.tgz
       '@factory/ui':
         specifier: file:vendor/factory/factory-ui-0.1.17.tgz
         version: file:vendor/factory/factory-ui-0.1.17.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -272,9 +272,9 @@ packages:
   '@chevrotain/utils@11.0.3':
     resolution: {integrity: sha512-YslZMgtJUyuMbZ+aKvfF3x1f5liK4mWNxghFRv7jqRR9C3R3fAOGTTKvxXDa2Y1s9zSbcpuO0cAxDYsc9SrXoQ==}
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.10.tgz':
-    resolution: {integrity: sha512-FMw8E1wBJwzqJJ/psI2BzNBb/jO30nXrAXX/IWwSJ+Uu5/pf1rmXWrrzBNlfAwU0T5Jnr6EpJzfFU84tu9UNdg==, tarball: file:vendor/factory/factory-docs-0.1.10.tgz}
-    version: 0.1.10
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.11.tgz':
+    resolution: {integrity: sha512-ySHE2qY/l85R+dE3uTsom+SvIMWiIU4wkup5AwOleIPfwaC2isO0gmkyaobcoF2CTivbzdtCdZuUBWaB3WeAUw==, tarball: file:vendor/factory/factory-docs-0.1.11.tgz}
+    version: 0.1.11
     engines: {node: '>=24'}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.17.tgz':
@@ -1746,7 +1746,7 @@ snapshots:
 
   '@chevrotain/utils@11.0.3': {}
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.10.tgz': {}
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.11.tgz': {}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.17.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
