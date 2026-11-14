@@ -44,6 +44,7 @@ import {
   ListMissionsResponseSchema,
   ListProjectsResponseSchema,
   ListTasksQuerySchema,
+  GetTaskResponseSchema,
   ListTasksResponseSchema,
   MimirError,
   MissionIdParamsSchema,
@@ -87,7 +88,13 @@ export type TaskStep =
       /** Content per artifact kind; defaults are generated (`changed-files` carries `headSha`). */
       contents?: Record<string, string | ((taskId: string) => string)>;
     }
-  | { kind: "fail"; reason?: string; retryable?: boolean }
+  | {
+      kind: "fail";
+      reason?: string;
+      retryable?: boolean;
+      /** Retry it at once, as Mimir's scheduler does while attempts remain. */
+      mimirRetries?: boolean;
+    }
   | { kind: "approval"; action: string; reason?: string };
 
 export interface FakeMimirOptions {
@@ -192,6 +199,7 @@ const ROUTES = [
   "GET /v1/crews",
   "POST /v1/crews",
   "GET /v1/tasks",
+  "GET /v1/tasks/{id}",
   "POST /v1/tasks",
   "POST /v1/tasks/{id}/retry",
   "GET /v1/approvals",
@@ -383,6 +391,22 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
     });
   }
 
+  function retryTask(st: TaskState, reason?: string): void {
+    st.task.status = "ready";
+    touch(st.task);
+    emit(
+      "task.retried",
+      {
+        from: "failed",
+        to: "ready",
+        attempt: st.task.attempt + 1,
+        ...(reason ? { reason } : {}),
+      },
+      { missionId: st.task.missionId, taskId: st.task.id, crewId: st.task.crewId },
+    );
+    later(() => runAttempt(st));
+  }
+
   function runStep(st: TaskState): void {
     const step: TaskStep = st.steps.shift() ?? { kind: "complete" };
     const refs = {
@@ -397,6 +421,7 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
         attempt: st.task.attempt,
         retryable: step.retryable ?? st.task.attempt < st.task.maxAttempts,
       });
+      if (step.mimirRetries && st.task.attempt < st.task.maxAttempts) retryTask(st);
       return;
     }
     if (step.kind === "approval") {
@@ -736,20 +761,25 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
           `task is ${st.task.status} (attempt ${st.task.attempt} of ${st.task.maxAttempts})`,
         );
       }
-      st.task.status = "ready";
-      touch(st.task);
-      emit(
-        "task.retried",
-        {
-          from: "failed",
-          to: "ready",
-          attempt: st.task.attempt + 1,
-          ...(req.reason ? { reason: req.reason } : {}),
-        },
-        { missionId: st.task.missionId, taskId: st.task.id, crewId: st.task.crewId },
-      );
-      later(() => runAttempt(st));
+      retryTask(st, req.reason);
       return { status: 202, body: accepted() };
+    },
+    "GET /v1/tasks/{id}": ({ params }) => {
+      const { id } = parseWith(TaskIdParamsSchema, params, "path");
+      const st = need(tasks, id, "task");
+      return {
+        status: 200,
+        body: GetTaskResponseSchema.parse({
+          task: st.task,
+          spec: {},
+          mission: missions.get(st.task.missionId) ?? null,
+          dependencies: [],
+          sessions: [],
+          worktrees: [],
+          artifacts: [],
+          approvals: [],
+        }),
+      };
     },
     "GET /v1/approvals": ({ query }) => {
       const q = parseWith(ListApprovalsQuerySchema, query, "query");

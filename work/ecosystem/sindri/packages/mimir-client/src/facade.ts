@@ -4,6 +4,7 @@ import { basename } from "node:path";
 import {
   createMimirClient,
   errorFromResponse,
+  isMimirError,
   randomKey,
   type GapInfo,
   type MimirClient,
@@ -116,6 +117,9 @@ export interface FollowStream extends AsyncIterable<MimirEvent> {
  * keys derived from the plan (`sindri:<planId>:<version>:<taskId>`), a local record of every
  * completed submission, and cursor persistence for event following.
  */
+/** Task statuses that mean a failed attempt was already sent back to work. */
+const RETRIED_STATUSES = new Set(["ready", "leased", "running", "verifying"]);
+
 export class MimirClientFacade {
   private client: MimirClient | undefined;
   private target: (ConnectConfig & { fetch: typeof fetch }) | undefined;
@@ -516,13 +520,21 @@ export class MimirClientFacade {
     taskId: TaskId | string,
     options: { attempt?: number; reason?: string } = {},
   ): Promise<void> {
-    await this.sdk.tasks.retry(
-      taskId as TaskId,
-      options.reason ? { reason: options.reason } : {},
-      options.attempt !== undefined
-        ? { idempotencyKey: `sindri:retry:${taskId}:${options.attempt}` }
-        : {},
-    );
+    try {
+      await this.sdk.tasks.retry(
+        taskId as TaskId,
+        options.reason ? { reason: options.reason } : {},
+        options.attempt !== undefined
+          ? { idempotencyKey: `sindri:retry:${taskId}:${options.attempt}` }
+          : {},
+      );
+    } catch (err) {
+      // Mimir's scheduler retries a failed task itself while attempts remain, so this request can
+      // find the task already back in progress: that is the retry having happened, not a refusal.
+      if (!isMimirError(err) || err.code !== "invalid_transition") throw err;
+      const current = await this.sdk.tasks.get(taskId as TaskId).catch(() => null);
+      if (!current || !RETRIED_STATUSES.has(current.task.status)) throw err;
+    }
   }
 
   /** Artifact metadata. */

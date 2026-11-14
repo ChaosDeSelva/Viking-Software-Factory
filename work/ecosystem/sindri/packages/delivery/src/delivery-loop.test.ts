@@ -934,6 +934,26 @@ describe("DeliveryLoop: bug sweep and edge cases", () => {
     expect(loop.tasks(exec.id)[0]).toMatchObject({ status: "completed", escalation: null });
   });
 
+  it("counts Mimir's own retry of a failed task as the retry instead of escalating", async () => {
+    // Mimir's scheduler retries a failed task itself while attempts remain, so Sindri's retry
+    // can arrive when the task is already ready again (seen live: "cannot go from ready to ready").
+    const h = await boot({
+      impl: [{ kind: "fail", reason: "document_missing", mimirRetries: true }],
+    });
+    const exec = await execute(
+      h,
+      approvedPlan([planTask("impl", { maxRetries: 2, escalation: "ask" })]),
+    );
+    const ran = await h.loop.run(exec.id);
+    expect(ran.status).toBe("verified_pending_review");
+    expect(h.loop.tasks(exec.id)[0]).toMatchObject({
+      status: "completed",
+      attempts: 1,
+      escalation: null,
+    });
+    expect(h.loop.inbox(exec.id).filter((i) => i.status === "open")).toEqual([]);
+  });
+
   it("escalates with Mimir's refusal when Mimir refuses the automatic retry", async () => {
     const h = await boot({ impl: [{ kind: "fail" }] });
     const exec = await execute(
