@@ -337,9 +337,12 @@ export class ExecutionHub {
         return (JSON.parse(row.body_json) as { acceptanceCriteria: { id: string; text: string }[] })
           .acceptanceCriteria;
       },
-      agentKindFor: (_harness: string, role: string) => {
+      agentKindFor: (_harness: string, role: string, workKind?: string) => {
         const st = this.#o.settings.get();
-        return ["reviewer", "qa", "security"].includes(role)
+        // A proposal's writer plans rather than implements: it runs on the agent that plans and
+        // reviews (Claude by default), not on the implementing one.
+        const plans = workKind === "proposal" && role === "docs";
+        return plans || ["reviewer", "qa", "security"].includes(role)
           ? (st.reviewerAgent ?? "claude")
           : (st.workerAgent ?? "claude");
       },
