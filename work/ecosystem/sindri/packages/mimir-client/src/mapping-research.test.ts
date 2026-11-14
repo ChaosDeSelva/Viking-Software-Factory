@@ -100,6 +100,16 @@ describe("research briefs", () => {
     expect(mapped.tasks.map((t) => t.title)).toEqual(["research", "fact-check: do fact-check"]);
   });
 
+  it("tells read-only research agents to use the tools they have, not install more", () => {
+    // A fact-check spent its whole time limit trying `npm i mermaid` to render diagrams, which a
+    // read-only task can never do; the brief rules that out and says to report it instead.
+    const [investigator, factCheck] = mapPlan(
+      research({ code: true, feedbackGraph: false, web: false }),
+    ).tasks;
+    expect(investigator!.brief).toMatch(/Do not install packages or download tools/);
+    expect(factCheck!.brief).toMatch(/Do not install packages or download tools/);
+  });
+
   it("tells the fact-checker to verify claims and write review.json", () => {
     const brief = mapPlan(research({ code: true, feedbackGraph: false, web: false })).tasks[1]!
       .brief;

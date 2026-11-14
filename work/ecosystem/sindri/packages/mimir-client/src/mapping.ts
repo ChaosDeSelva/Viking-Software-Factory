@@ -89,6 +89,10 @@ export const RESEARCH_SOURCES = "sources.json";
 export const RESEARCH_SECTION_TITLES = ["Answer", "Findings", "Open questions", "Sources"] as const;
 /** The same sections as Markdown headings. */
 export const RESEARCH_SECTIONS = RESEARCH_SECTION_TITLES.map((t) => `## ${t}`);
+/** Read-only research agents work with the tools they are given (see researchBrief). */
+const NO_INSTALL =
+  "Do not install packages or download tools: this task is read-only and cannot. When something cannot be checked with the tools you have (for example rendering a diagram), say so in the document or the review instead of trying.";
+
 /** Where a fact-check reviewer reads the document of the research task it depends on. */
 export const RESEARCH_INPUT_DIR = ".mimir/inputs/research";
 
@@ -238,6 +242,7 @@ function researchBrief(plan: Plan, task: PlanTask): string[] {
     );
   lines.push(
     ...researchSourceRules(research),
+    NO_INSTALL,
     "Answer the question from those sources only. Every factual claim must end with a numbered citation written as [1] or [1, 2] (no ranges such as [1-3]); each number is a source id. Say plainly where the sources do not settle something, and list it under Open questions.",
     `Write .mimir/artifacts/${RESEARCH_DOCUMENT} in Markdown with exactly these sections, in this order: ${RESEARCH_SECTIONS.join(", ")}. Under ## Sources list every source as \`[n] ref\`.`,
     `The task fails without .mimir/artifacts/${RESEARCH_DOCUMENT}: always write it, also when the sources leave the question open (then say so under ## Answer).`,
@@ -270,6 +275,7 @@ function factCheckBrief(plan: Plan, task: PlanTask): string[] {
     "Check a sample of at least five claims (all of them when there are fewer) against the sources they cite: open each cited file range, page or lesson and confirm it says what the claim says. Report each claim that its source does not support as a finding (major when the answer depends on it), with the citation in the message. Check that the Answer follows from the Findings.",
     REVIEW_JSON_CONTRACT,
     "Use request_changes when a claim the answer depends on is unsupported. Do not modify, create or delete any file outside .mimir/artifacts/.",
+    NO_INSTALL,
   ];
 }
 

@@ -207,7 +207,11 @@ describe("intake work kind", () => {
 });
 
 /** A research intake (web on, so local-only is turned off) through spec and an approved plan. */
-async function approvedResearchPlan(flow: MimirFlow, notes = "") {
+async function approvedResearchPlan(
+  flow: MimirFlow,
+  notes = "",
+  body = "Explain the CSV export path.",
+) {
   await setLocalOnly(flow, false);
   const intake = (
     await flow.h.call({
@@ -216,7 +220,7 @@ async function approvedResearchPlan(flow: MimirFlow, notes = "") {
       payload: {
         projectId: flow.projectId,
         title: "How does the reports export work?",
-        body: "Explain the CSV export path.",
+        body,
         workKind: "research",
         ...(notes ? { notes } : {}),
         research: { sources: { web: true, feedbackGraph: false }, factCheck: false },
@@ -261,8 +265,8 @@ async function approvedResearchPlan(flow: MimirFlow, notes = "") {
 }
 
 /** A research intake through spec, plan and a finished execution. */
-async function researchExecution(flow: MimirFlow, notes = "") {
-  const { plan, intake } = await approvedResearchPlan(flow, notes);
+async function researchExecution(flow: MimirFlow, notes = "", body?: string) {
+  const { plan, intake } = await approvedResearchPlan(flow, notes, body);
   const ex = await flow.h.call({
     method: "POST",
     url: "/v1/executions",
@@ -275,7 +279,7 @@ async function researchExecution(flow: MimirFlow, notes = "") {
     (v: { execution: { status: string }; gates: unknown[] }) =>
       v.execution.status === "verified_pending_review" && v.gates.length === 1,
   );
-  return { execution, intake };
+  return { execution, intake, plan };
 }
 
 const TRUST_FAKE = { trustedSources: ["fake-mimir"] };
@@ -291,6 +295,68 @@ const researchScript = (doc = DOC) => ({
 });
 
 describe("research delivery routes", () => {
+  it("gives the agent the whole request, and a follow-up the whole earlier document and its fact-check", async () => {
+    // A pasted call transcript is tens of thousands of characters; the agent must see all of it.
+    const transcript = `Call transcript. ${"word ".repeat(6000)}END-OF-CALL`;
+    const long = DOC.replace(
+      "## Open questions",
+      `${"A long finding [1]. ".repeat(1500)}END-OF-DOCUMENT\n## Open questions`,
+    );
+    const flow = (f = await startMimirFlow(researchScript(long), TRUST_FAKE));
+    const { execution, plan } = await researchExecution(flow, "", transcript);
+    const planned = (await flow.h.call({ url: `/v1/plans/${plan.id}` })).json().plan;
+    expect(planned.work.research.question).toContain("END-OF-CALL");
+    // The earlier run's fact-check, as its delivery report keeps it.
+    const row = flow.h.db
+      .prepare(
+        "SELECT rowid, report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
+      )
+      .get(execution.id) as { rowid: number; report_json: string };
+    const report = JSON.parse(row.report_json);
+    report.research.factCheck = {
+      planTaskId: "fact-check",
+      verdict: "approve",
+      findings: [{ severity: "minor", message: "Week 1 is overloaded for the Friday demo." }],
+      gatePassed: true,
+    };
+    flow.h.db
+      .prepare("UPDATE deliveries SET report_json = ? WHERE rowid = ?")
+      .run(JSON.stringify(report), row.rowid);
+    const follow = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/follow-up`,
+      payload: { question: "Trim week 1." },
+    });
+    const d = await flow.h.call({
+      method: "POST",
+      url: "/v1/director/draft",
+      payload: {
+        projectId: flow.projectId,
+        intakeId: follow.json().intake.id,
+        request: "Trim week 1.",
+      },
+    });
+    const a = await flow.h.call({
+      method: "POST",
+      url: `/v1/specs/${d.json().spec.id}/answer`,
+      payload: { questionId: "Q1", answer: "Yes" },
+    });
+    const specId = a.json().spec.id as string;
+    await flow.h.call({ method: "POST", url: `/v1/specs/${specId}/submit`, payload: {} });
+    await flow.h.call({
+      method: "POST",
+      url: `/v1/specs/${specId}/approve`,
+      payload: {},
+      headers: await flow.h.approvalHeaders(),
+    });
+    const p = await flow.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId } });
+    const context = p.json().plan.work.research.context.document as string;
+    expect(context).toContain("END-OF-DOCUMENT");
+    expect(context).not.toContain("[earlier document truncated]");
+    expect(context).toContain("Week 1 is overloaded for the Friday demo.");
+    expect(context).toMatch(/verdict: approve/);
+  });
+
   it("sends the task mode, gates the document and ends with an approved decision", async () => {
     // The fake Mimir stamps its events `fake-mimir`; production trusts only `mimir.server`.
     const flow = (f = await startMimirFlow(researchScript(), TRUST_FAKE));

@@ -94,9 +94,13 @@ export type Estimates = z.infer<typeof EstimatesSchema>;
 export const WORK_KINDS = ["change", "research", "pr_review"] as const;
 export type PlanWorkKind = (typeof WORK_KINDS)[number];
 
-export const MAX_RESEARCH_QUESTION_CHARS = 8000;
-/** The earlier document a follow-up question carries as context, at most this long. */
-export const MAX_FOLLOW_UP_CONTEXT_CHARS = 24_000;
+/**
+ * The request a research agent is given, at most this long: a whole intake (a pasted call
+ * transcript runs to tens of thousands of characters), well under the OS argument limit.
+ */
+export const MAX_RESEARCH_QUESTION_CHARS = 120_000;
+/** The earlier document (and its fact-check) a follow-up question carries, at most this long. */
+export const MAX_FOLLOW_UP_CONTEXT_CHARS = 120_000;
 export const CONTEXT_TRUNCATED_MARKER = "\n[earlier document truncated]";
 
 export const ResearchPlanSchema = z

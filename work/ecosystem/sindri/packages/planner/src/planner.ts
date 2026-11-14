@@ -95,6 +95,30 @@ export const PR_REVIEW_ROLES: readonly Role[] = ["reviewer", "security"];
  * the PR facts the connector stored); null when the snapshot holds no pull request. Secrets are
  * redacted again and long text is cut. `nonce` keys the brief's data delimiters.
  */
+/** An earlier run's fact-check as its delivery report keeps it. */
+interface EarlierFactCheck {
+  verdict?: unknown;
+  findings?: unknown;
+}
+
+/** The fact-check of an earlier document as Markdown, or "" when there was none. */
+function factCheckSection(factCheck: EarlierFactCheck | undefined): string {
+  if (!factCheck || typeof factCheck.verdict !== "string") return "";
+  const findings = Array.isArray(factCheck.findings) ? factCheck.findings : [];
+  const lines = findings.map((f) => {
+    const x = (f ?? {}) as {
+      severity?: unknown;
+      text?: unknown;
+      title?: unknown;
+      message?: unknown;
+    };
+    const text = [x.text, x.title, x.message].find((t) => typeof t === "string") as
+      string | undefined;
+    return `- ${typeof x.severity === "string" ? `[${x.severity}] ` : ""}${text ?? JSON.stringify(f)}`;
+  });
+  return `\n\n## Fact-check of this document (verdict: ${factCheck.verdict})\n${lines.join("\n")}`;
+}
+
 export function prReviewWork(
   snapshot: { title: string; body: string; raw: unknown },
   nonce: string = createDataNonce(),
@@ -421,7 +445,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
   };
 
   /** The work kind and operator input of the intake the spec was drafted from. */
-  /** The research document of an earlier execution, from its stored delivery report. */
+  /** The research document of an earlier execution and its fact-check, from its delivery report. */
   const earlierDocument = (executionId: string) => {
     const has = db
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'deliveries'")
@@ -432,17 +456,23 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         "SELECT report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
       )
       .get(executionId) as { report_json: string } | undefined;
-    let markdown: unknown;
+    let markdown: unknown, factCheck: EarlierFactCheck | undefined;
     try {
-      markdown = row
-        ? (JSON.parse(row.report_json) as { research?: { document?: { markdown?: unknown } } })
-            .research?.document?.markdown
+      const research = row
+        ? (
+            JSON.parse(row.report_json) as {
+              research?: { document?: { markdown?: unknown }; factCheck?: EarlierFactCheck };
+            }
+          ).research
         : undefined;
+      markdown = research?.document?.markdown;
+      factCheck = research?.factCheck;
     } catch {
       markdown = undefined;
     }
     if (typeof markdown !== "string" || !markdown) return null;
-    const text = redactSecrets(markdown).text;
+    // The fact-check's findings travel with the document, so a follow-up can act on them.
+    const text = redactSecrets(markdown + factCheckSection(factCheck)).text;
     return {
       executionId,
       document:
