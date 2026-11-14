@@ -79,11 +79,16 @@ export function planRoutes(
       const other = s.knowledge.projects.get(id);
       if (!other) continue;
       const readable = await s.planningWorkspace(other, {});
+      const commit = /\/([0-9a-f]{40})$/.exec(readable.path)?.[1] ?? null;
       references.push({
         projectId: id,
         path: readable.path,
-        commit: /\/([0-9a-f]{40})$/.exec(readable.path)?.[1] ?? null,
-        label: readable.label,
+        commit,
+        // Not the planner's label: that one calls the snapshot "the working directory", which for
+        // a research task is the request's own project.
+        label: commit
+          ? `A read-only snapshot of its default branch at commit ${commit.slice(0, 12)}, as last fetched; it has no git history.`
+          : "Its local checkout, read-only: it could not be snapshotted.",
       });
     }
     const plan = await f.planner.propose(

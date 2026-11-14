@@ -118,4 +118,10 @@ describe("proposal plans", () => {
     expect(writer).toContain("# Earlier plan");
     expect(briefOf(proposal(), "proposal")).not.toMatch(/This is a revision/);
   });
+
+  it("lets the research crew run every project's research at once", () => {
+    const crew = mapPlan(proposal()).crews.find((c) => c.role === "investigator")!;
+    expect(crew.taskIds).toEqual(["research", "research-docs-site"]);
+    expect(crew.request.limits.maxConcurrentTasks).toBe(2);
+  });
 });

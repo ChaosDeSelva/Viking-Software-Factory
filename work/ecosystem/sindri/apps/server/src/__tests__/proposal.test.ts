@@ -146,6 +146,8 @@ describe("plan (proposal) intakes", () => {
     expect(ref).toMatchObject({ projectId: docs, name: "docs-site", slug: "docs-site" });
     // The other project is readable at a path of its own (a snapshot, else its checkout).
     expect(typeof ref.path).toBe("string");
+    // The research task's working directory is the request's own project, not this one.
+    expect(ref.label).not.toMatch(/working directory/i);
     expect(ref.path.length).toBeGreaterThan(0);
     expect(plan.tasks.map((t: { id: string }) => t.id)).toEqual([
       "research",

@@ -506,6 +506,14 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
     throw new Error(`plan ${plan.id} needs web research, which local-only mode does not allow`);
   const agentKindFor = options.agentKindFor ?? (() => DEFAULT_AGENT_KIND);
   const concurrency = { ...DEFAULT_CONCURRENCY, ...options.concurrency };
+  // A plan from text researches each project in its own task, meant to run side by side: one
+  // crew holds them all, so it takes as many at once as there are projects (the fleet's capacity
+  // still bounds what actually runs).
+  if (plan.work?.kind === "proposal" && options.concurrency?.investigator === undefined)
+    concurrency.investigator = Math.max(
+      concurrency.investigator,
+      plan.tasks.filter((t) => t.role === "investigator").length,
+    );
   const run = options.run ?? 1;
   const humanRetries = options.humanRetries ?? DEFAULT_HUMAN_RETRIES;
 
