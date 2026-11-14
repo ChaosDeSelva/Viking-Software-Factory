@@ -20,6 +20,7 @@ import {
 } from "@factory/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useHeimdall } from "./context";
+import { DrawerActions, DrawerFooter } from "./DrawerActions";
 import { Raw, Reasons, Status, label } from "../components/app";
 import { download, type R } from "../lib/api";
 import { RaiseBudgetForm } from "../features/Budget";
@@ -333,6 +334,8 @@ export function Inspector({
   cached: R | undefined;
   onClose: () => void;
 }) {
+  // The drawer's footer, where sections put their decisions (see DrawerActions).
+  const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null);
   const { state, session, propose, open, api, reloadKey, notify } =
     useHeimdall();
   const [kind = "", ...rest] = inspect.split(":");
@@ -579,35 +582,39 @@ export function Inspector({
           sessions continue; use graceful stop in an agent's inspector to stop
           one.
         </p>
-        <Cluster gap={2}>
-          <Button
-            variant="secondary"
-            disabledReason={
-              operatorWhy ||
-              (row.schedulingPaused
-                ? "Scheduling is already paused."
-                : undefined)
-            }
-            onClick={() =>
-              propose("crew.pause", row.id, { expectedVersion: row.version })
-            }
-          >
-            Pause crew scheduling
-          </Button>
-          <Button
-            variant="secondary"
-            disabledReason={
-              operatorWhy ||
-              (!row.schedulingPaused ? "Scheduling is not paused." : undefined)
-            }
-            onClick={() =>
-              propose("crew.resume", row.id, { expectedVersion: row.version })
-            }
-          >
-            Resume crew scheduling
-          </Button>
-        </Cluster>
-        <Reasons reasons={[operatorWhy]} />
+        <DrawerActions>
+          <Cluster gap={2}>
+            <Button
+              variant="secondary"
+              disabledReason={
+                operatorWhy ||
+                (row.schedulingPaused
+                  ? "Scheduling is already paused."
+                  : undefined)
+              }
+              onClick={() =>
+                propose("crew.pause", row.id, { expectedVersion: row.version })
+              }
+            >
+              Pause crew scheduling
+            </Button>
+            <Button
+              variant="secondary"
+              disabledReason={
+                operatorWhy ||
+                (!row.schedulingPaused
+                  ? "Scheduling is not paused."
+                  : undefined)
+              }
+              onClick={() =>
+                propose("crew.resume", row.id, { expectedVersion: row.version })
+              }
+            >
+              Resume crew scheduling
+            </Button>
+          </Cluster>
+          <Reasons reasons={[operatorWhy]} />
+        </DrawerActions>
       </Block>,
     );
     add(
@@ -649,28 +656,31 @@ export function Inspector({
           Mission controls affect every crew in this mission. A pause controls
           scheduling; inspect agent state to confirm what is still running.
         </p>
-        <Cluster gap={2}>
-          {["pause", "resume", "cancel"].map((action) => (
-            <Button
-              key={action}
-              variant={action === "cancel" ? "danger" : "secondary"}
-              disabledReason={why(action) || undefined}
-              onClick={() =>
-                propose("mission." + action, row.id, {
-                  expectedVersion: row.version,
-                  ...(action === "cancel"
-                    ? {
-                        reason: "Operator requested cancellation from Heimdall",
-                      }
-                    : {}),
-                })
-              }
-            >
-              {action.charAt(0).toUpperCase() + action.slice(1)} mission
-            </Button>
-          ))}
-        </Cluster>
-        <Reasons reasons={[operatorWhy]} />
+        <DrawerActions>
+          <Cluster gap={2}>
+            {["pause", "resume", "cancel"].map((action) => (
+              <Button
+                key={action}
+                variant={action === "cancel" ? "danger" : "secondary"}
+                disabledReason={why(action) || undefined}
+                onClick={() =>
+                  propose("mission." + action, row.id, {
+                    expectedVersion: row.version,
+                    ...(action === "cancel"
+                      ? {
+                          reason:
+                            "Operator requested cancellation from Heimdall",
+                        }
+                      : {}),
+                  })
+                }
+              >
+                {action.charAt(0).toUpperCase() + action.slice(1)} mission
+              </Button>
+            ))}
+          </Cluster>
+          <Reasons reasons={[operatorWhy]} />
+        </DrawerActions>
       </Block>,
     );
     add(
@@ -738,7 +748,7 @@ export function Inspector({
           heartbeat means freshness is unknown.
         </p>
         {row.runtimeSessionId && (
-          <div>
+          <DrawerActions>
             <Button
               variant="secondary"
               disabledReason={operatorWhy || undefined}
@@ -750,7 +760,7 @@ export function Inspector({
             >
               Request graceful stop
             </Button>
-          </div>
+          </DrawerActions>
         )}
       </Block>,
     );
@@ -973,31 +983,33 @@ export function Inspector({
     add(
       "actions",
       <Block title="Task actions">
-        <Cluster gap={2}>
-          <Button
-            variant="secondary"
-            disabledReason={verifyWhy || undefined}
-            onClick={() =>
-              propose("task.verify", currentTask.id, {
-                expectedVersion: currentTask.version,
-              })
-            }
-          >
-            Re-run verification only
-          </Button>
-          <Button
-            variant="secondary"
-            disabledReason={retryWhy || undefined}
-            onClick={() =>
-              propose("task.retry", currentTask.id, {
-                expectedVersion: currentTask.version,
-              })
-            }
-          >
-            Retry task
-          </Button>
-        </Cluster>
-        <Reasons reasons={[operatorWhy]} />
+        <DrawerActions>
+          <Cluster gap={2}>
+            <Button
+              variant="secondary"
+              disabledReason={verifyWhy || undefined}
+              onClick={() =>
+                propose("task.verify", currentTask.id, {
+                  expectedVersion: currentTask.version,
+                })
+              }
+            >
+              Re-run verification only
+            </Button>
+            <Button
+              variant="secondary"
+              disabledReason={retryWhy || undefined}
+              onClick={() =>
+                propose("task.retry", currentTask.id, {
+                  expectedVersion: currentTask.version,
+                })
+              }
+            >
+              Retry task
+            </Button>
+          </Cluster>
+          <Reasons reasons={[operatorWhy]} />
+        </DrawerActions>
       </Block>,
     );
     if (taskPlan)
@@ -1023,24 +1035,26 @@ export function Inspector({
         <p className="text-sm font-medium">{row.action}</p>
         <p className="text-sm text-muted">{row.reason}</p>
         <Raw data={row} title="Review full approval request" />
-        <Cluster gap={2}>
-          {["approved", "rejected"].map((decision) => (
-            <Button
-              key={decision}
-              variant={decision === "approved" ? "primary" : "danger"}
-              disabledReason={approvalWhy || undefined}
-              onClick={() =>
-                propose("approval.decide", row.id, {
-                  decision,
-                  reason: "Operator decision from Heimdall",
-                })
-              }
-            >
-              {decision === "approved" ? "Approve" : "Reject"}
-            </Button>
-          ))}
-        </Cluster>
-        <Reasons reasons={[approvalWhy]} />
+        <DrawerActions>
+          <Cluster gap={2}>
+            {["approved", "rejected"].map((decision) => (
+              <Button
+                key={decision}
+                variant={decision === "approved" ? "primary" : "danger"}
+                disabledReason={approvalWhy || undefined}
+                onClick={() =>
+                  propose("approval.decide", row.id, {
+                    decision,
+                    reason: "Operator decision from Heimdall",
+                  })
+                }
+              >
+                {decision === "approved" ? "Approve" : "Reject"}
+              </Button>
+            ))}
+          </Cluster>
+          <Reasons reasons={[approvalWhy]} />
+        </DrawerActions>
       </Block>,
     );
   }
@@ -1079,53 +1093,77 @@ export function Inspector({
   if (kind === "specs" || kind === "plans") {
     const resource = kind === "specs" ? "spec" : "plan";
     const record = details?.spec ?? details?.plan ?? row;
-    const submitWhy = sindriWhy(resource + ".submit", record.status);
     const approveWhy =
       sindriWhy(resource + ".approve", record.status) || acknowledgeWhy;
     const noun = kind === "specs" ? "specification" : "plan";
     // Every review action lives in the pinned footer; the one the status calls for comes first,
     // full width and primary, the others below it with why they're unavailable.
+    const draft = record.status === "draft";
+    const approval = (more: Record<string, boolean>) => () =>
+      propose(resource + ".approve", record.id, {
+        ...(kind === "specs" && acknowledge
+          ? { acknowledgeUntrusted: true }
+          : {}),
+        // A draft is submitted and approved in one step: one dialog, one reason.
+        ...(draft ? { submitFirst: true } : {}),
+        ...more,
+      });
     const actions = [
-      {
-        id: "submit",
-        label: "Submit for review",
-        when: "draft",
-        why: submitWhy,
-        run: () => propose(resource + ".submit", record.id),
-      },
+      kind === "specs"
+        ? {
+            id: "approve-plan",
+            label: "Approve and plan",
+            when: ["draft", "review"],
+            why: approveWhy,
+            run: approval({ thenPropose: true }),
+          }
+        : {
+            id: "approve-start",
+            label: "Approve and start",
+            when: ["draft", "review"],
+            why: approveWhy,
+            run: approval({ thenStart: true }),
+          },
       {
         id: "approve",
-        label: `Approve ${noun}`,
-        when: "review",
+        label: "Approve only",
+        when: [] as string[],
         why: approveWhy,
-        run: () =>
-          propose(
-            resource + ".approve",
-            record.id,
-            kind === "specs" && acknowledge
-              ? { acknowledgeUntrusted: true }
-              : {},
-          ),
+        run: approval({}),
+      },
+      {
+        // Optional: hand a draft to someone else to review before anyone approves it.
+        id: "submit",
+        label: "Submit for review",
+        when: [] as string[],
+        why: sindriWhy(resource + ".submit", record.status),
+        run: () => propose(resource + ".submit", record.id),
       },
       kind === "specs"
         ? {
             id: "propose",
             label: "Propose implementation plan",
-            when: "approved",
+            when: ["approved"],
             why: sindriWhy("plan.propose", record.status),
             run: () => propose("plan.propose", "new", { specId: record.id }),
           }
         : {
             id: "start",
             label: "Start approved plan",
-            when: "approved",
+            when: ["approved"],
             why: sindriWhy("execution.create", record.status),
             run: () =>
               propose("execution.create", "new", { planId: record.id }),
           },
     ];
-    const next = actions.find((a) => a.when === record.status);
-    const rest = actions.filter((a) => a !== next);
+    const next = actions.find((a) => a.when.includes(record.status));
+    // Below the next step: only what still applies (approving without going on).
+    const rest = actions.filter(
+      (a) =>
+        a !== next &&
+        ["approve", "submit"].includes(a.id) &&
+        ["draft", "review"].includes(record.status),
+    );
     footer = (
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         {next && (
@@ -1255,26 +1293,28 @@ export function Inspector({
           data={row.escalation}
           title="Why operator intervention is required"
         />
-        <Cluster gap={2}>
-          {["retry", "skip", "replan", "abort"].map((decision) => (
-            <Button
-              key={decision}
-              variant={decision === "abort" ? "danger" : "secondary"}
-              disabledReason={resolveWhy || undefined}
-              onClick={() =>
-                propose(
-                  "execution.resolve",
-                  row.executionId,
-                  { decision, reason: "Operator recovery decision" },
-                  { taskId: row.planTaskId },
-                )
-              }
-            >
-              {decision.charAt(0).toUpperCase() + decision.slice(1)}
-            </Button>
-          ))}
-        </Cluster>
-        <Reasons reasons={[resolveWhy]} />
+        <DrawerActions>
+          <Cluster gap={2}>
+            {["retry", "skip", "replan", "abort"].map((decision) => (
+              <Button
+                key={decision}
+                variant={decision === "abort" ? "danger" : "secondary"}
+                disabledReason={resolveWhy || undefined}
+                onClick={() =>
+                  propose(
+                    "execution.resolve",
+                    row.executionId,
+                    { decision, reason: "Operator recovery decision" },
+                    { taskId: row.planTaskId },
+                  )
+                }
+              >
+                {decision.charAt(0).toUpperCase() + decision.slice(1)}
+              </Button>
+            ))}
+          </Cluster>
+          <Reasons reasons={[resolveWhy]} />
+        </DrawerActions>
       </Block>,
     );
   }
@@ -1334,7 +1374,7 @@ export function Inspector({
           {cancelWhy ||
             "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
         </p>
-        <div>
+        <DrawerActions>
           <Button
             variant="danger"
             disabledReason={cancelWhy || undefined}
@@ -1342,7 +1382,7 @@ export function Inspector({
           >
             Cancel run
           </Button>
-        </div>
+        </DrawerActions>
       </Block>,
     );
     if (runTasks.length)
@@ -1592,48 +1632,58 @@ export function Inspector({
       title={title}
       description={`${KIND_LABEL[kind] ?? "Record"} inspector`}
       className="max-w-[720px]"
-      footer={footer ?? undefined}
-    >
-      <Stack gap={6}>
-        <div className="flex flex-wrap items-center gap-2">
-          {status != null && (
-            <Status value={status} domain={STATUS_DOMAIN[kind]} />
-          )}
-          {["deliveries", "intakes", "execution"].includes(kind) && (
-            <WorkKindBadge
-              kind={
-                kind === "deliveries"
-                  ? workKind
-                  : kind === "execution"
-                    ? kindOf(
-                        executions.find((e) => e.execution.id === id) ?? row,
-                        s.plans ?? [],
-                      )
-                    : (details?.intake?.workKind ?? row.workKind)
-              }
-            />
-          )}
-          {["specs", "plans"].includes(kind) && versioned.version != null ? (
-            <span className="font-mono text-xs text-muted">{`v${versioned.version} · ${versioned.id}`}</span>
-          ) : (
-            <Id value={id} />
-          )}
+      footer={
+        <div
+          ref={setFooterEl}
+          data-drawer-footer
+          className="flex min-w-0 flex-1 flex-col gap-3"
+        >
+          {footer}
         </div>
-        {missing && (
-          <Callout tone="warning">
-            This record is absent from the latest source snapshot. These
-            retained details are historical.
-          </Callout>
-        )}
-        {sourceOffline && (
-          <Callout tone="warning">
-            A source is disconnected. Details may be stale; check Connections
-            before acting.
-          </Callout>
-        )}
-        {detailError && <Callout tone="danger">{detailError}</Callout>}
-        {sections}
-      </Stack>
+      }
+    >
+      <DrawerFooter.Provider value={footerEl}>
+        <Stack gap={6}>
+          <div className="flex flex-wrap items-center gap-2">
+            {status != null && (
+              <Status value={status} domain={STATUS_DOMAIN[kind]} />
+            )}
+            {["deliveries", "intakes", "execution"].includes(kind) && (
+              <WorkKindBadge
+                kind={
+                  kind === "deliveries"
+                    ? workKind
+                    : kind === "execution"
+                      ? kindOf(
+                          executions.find((e) => e.execution.id === id) ?? row,
+                          s.plans ?? [],
+                        )
+                      : (details?.intake?.workKind ?? row.workKind)
+                }
+              />
+            )}
+            {["specs", "plans"].includes(kind) && versioned.version != null ? (
+              <span className="font-mono text-xs text-muted">{`v${versioned.version} · ${versioned.id}`}</span>
+            ) : (
+              <Id value={id} />
+            )}
+          </div>
+          {missing && (
+            <Callout tone="warning">
+              This record is absent from the latest source snapshot. These
+              retained details are historical.
+            </Callout>
+          )}
+          {sourceOffline && (
+            <Callout tone="warning">
+              A source is disconnected. Details may be stale; check Connections
+              before acting.
+            </Callout>
+          )}
+          {detailError && <Callout tone="danger">{detailError}</Callout>}
+          {sections}
+        </Stack>
+      </DrawerFooter.Provider>
     </Drawer>
   );
 }

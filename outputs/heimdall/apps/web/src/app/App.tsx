@@ -54,7 +54,8 @@ import {
 import { sindriProjectOf } from "../features/profileForm";
 import { HeimdallContext, type Heimdall, type Session } from "./context";
 import { commandErrorText } from "../features/workKinds";
-import { CommandDialog } from "./CommandDialog";
+import { CommandDialog, commandTitle } from "./CommandDialog";
+import { Progress, type PendingCommand } from "./Progress";
 import { Inspector } from "./Inspector";
 import { Login } from "./Login";
 import { OverviewPage, guideSuggestions } from "../pages/Overview";
@@ -76,6 +77,12 @@ import {
 } from "../features/Operator";
 import { InProgressPage, NewWorkPage } from "../features/Workflow";
 import { switcherApps } from "../lib/apps";
+
+/** Commands that run for minutes (a model reads the repository): they show progress, not a dialog. */
+const isLong = (c: R) =>
+  ["spec.draft", "plan.propose", "delivery.rework"].includes(c.action) ||
+  !!c.body?.thenPropose ||
+  !!c.body?.thenDraft;
 
 /** Commands whose result is shown on In progress rather than in the drawer. */
 const LANDS_IN_PROGRESS = [
@@ -151,6 +158,7 @@ export function App() {
     [command, setCommand] = useState<R | null>(null),
     [reason, setReason] = useState(""),
     [busy, setBusy] = useState(false),
+    [pending, setPending] = useState<PendingCommand[]>([]),
     [commandError, setCommandError] = useState(""),
     [reloadKey, setReloadKey] = useState(0),
     [profileSaved, setProfileSaved] = useState<{
@@ -295,13 +303,19 @@ export function App() {
       commandAttempt.current = null;
       commandHooks.current = hooks;
       setCommand({ action, id, body, ...extra });
-      setReason("");
+      // Prefilled only where the reason is just the audit note. A reason the command forwards
+      // (a rejection's why, a cancellation's reason) must be the operator's own words.
+      setReason("reason" in body ? "" : commandTitle(action, body));
       setCommandError("");
     },
     [],
   );
   async function execute() {
     if (!command || busy) return;
+    // This run's own command and hooks: a long one closes its dialog, and another may open.
+    const sent = command;
+    const hooks = commandHooks.current;
+    const long = isLong(sent);
     setBusy(true);
     setCommandError("");
     try {
@@ -319,19 +333,45 @@ export function App() {
       // A resend of the same request keeps its key, so the source answers it only once.
       if (commandAttempt.current?.payload !== payload)
         commandAttempt.current = { payload, key: crypto.randomUUID() };
-      const result = await api("commands", {
-        method: "POST",
-        headers: { "idempotency-key": commandAttempt.current.key },
-        body: payload,
-      });
+      const attempt = commandAttempt.current;
+      // Drafting and planning take minutes: close the dialog and show progress instead.
+      if (long) {
+        setCommand(null);
+        setBusy(false);
+        setPending((p) => [
+          ...p,
+          {
+            key: attempt.key,
+            label: commandTitle(sent.action, sent.body),
+            startedAt: Date.now(),
+          },
+        ]);
+      }
+      let result: R;
+      try {
+        result = await api("commands", {
+          method: "POST",
+          headers: { "idempotency-key": attempt.key },
+          body: payload,
+        });
+      } finally {
+        if (long) setPending((p) => p.filter((x) => x.key !== attempt.key));
+      }
       const r = result.result;
       // Confirmed: from here on nothing counts as a command failure.
-      setCommand(null);
-      commandHooks.current.onSuccess?.(r);
+      if (!long) setCommand(null);
+      hooks.onSuccess?.(r);
       notify(
-        "Source confirmed the request. Current state is shown.",
+        long
+          ? `${commandTitle(sent.action, sent.body)}: done. Current state is shown.`
+          : "Source confirmed the request. Current state is shown.",
         "success",
       );
+      if (result.followUp)
+        notify(
+          `${commandTitle(sent.action, sent.body)}: the first step went through, but ${commandTitle(result.followUp.action).toLowerCase()} did not (${result.followUp.message}). Use the button on the record to try it again.`,
+          "warning",
+        );
       try {
         setState(await api("snapshot"));
       } catch (e) {
@@ -342,13 +382,17 @@ export function App() {
       }
       // The open record may have changed even when the command returns no record of its own.
       setReloadKey((n) => n + 1);
-      if (command.action === "project.profile")
-        setProfileSaved({ id: command.id, harness: r?.harness ?? null });
+      if (sent.action === "project.profile")
+        setProfileSaved({ id: sent.id, harness: r?.harness ?? null });
       // A started run also returns its plan, so test for the run first.
       if (r?.execution) navigate(hrefFor("pipeline", { project: urlId }));
       // A new request, or a spec or plan that took minutes to draft: close the drawer and show
       // where it landed, with the project's other work under way.
-      else if (LANDS_IN_PROGRESS.includes(command.action))
+      else if (
+        LANDS_IN_PROGRESS.includes(sent.action) ||
+        sent.body?.thenPropose ||
+        sent.body?.thenDraft
+      )
         navigate(hrefFor("in-progress", { project: urlId }));
       else if (r?.spec) open("specs", r.spec);
       else if (r?.plan) open("plans", r.plan);
@@ -361,9 +405,15 @@ export function App() {
           ...r,
         });
     } catch (e) {
-      if (commandHooks.current.onError?.(e as Error)) {
+      if (hooks.onError?.(e as Error)) {
         setCommand(null);
         return;
+      }
+      // A long command's dialog was closed: reopen it with the error, so sending again
+      // continues the same request.
+      if (long) {
+        commandHooks.current = hooks;
+        setCommand(sent);
       }
       setCommandError(commandErrorText(e as Error & R));
       // Decided elsewhere meanwhile: show the current decision behind the dialog.
@@ -654,6 +704,7 @@ export function App() {
           onClose={closeInspector}
         />
       )}
+      <Progress pending={pending} />
       <CommandDialog
         command={command}
         reason={reason}

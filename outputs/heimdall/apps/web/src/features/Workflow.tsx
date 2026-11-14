@@ -24,6 +24,7 @@ import {
   Textarea,
 } from "@factory/ui";
 import { useHeimdall } from "../app/context";
+import { navigate } from "../lib/router";
 import { LearnMore, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { AccessCallout } from "./AccessCallout";
@@ -32,6 +33,7 @@ import { kindOf } from "./workKinds";
 import {
   actionBlock,
   latestVersions,
+  nextStep,
   sameRepo,
   specRevision,
   statusBadge,
@@ -211,18 +213,10 @@ export function NewWorkPage() {
               ]}
             />
             {workKind === "research" && (
-              <ResearchForm
-                key={project}
-                projectId={project}
-                
-              />
+              <ResearchForm key={project} projectId={project} />
             )}
             {workKind === "pr_review" && (
-              <PrReviewForm
-                key={project}
-                projectId={project}
-                
-              />
+              <PrReviewForm key={project} projectId={project} />
             )}
             {workKind === "change" && (
               <>
@@ -282,7 +276,7 @@ export function NewWorkPage() {
  * under All projects). Saving a request or finishing a draft lands here.
  */
 export function InProgressPage() {
-  const { state, scope, open, projectName } = useHeimdall();
+  const { state, scope, open, projectName, href } = useHeimdall();
   const sindri: R = state?.sindri ?? {};
   const inScope = (r: R) =>
     scope.filter === "all"
@@ -293,6 +287,14 @@ export function InProgressPage() {
       ? (sindri[kind] ?? [])
       : latestVersions(sindri[kind] ?? [])
     ).filter(inScope);
+  const next = nextStep({
+    intakes: recordsOf("intakes"),
+    specs: recordsOf("specs"),
+    plans: recordsOf("plans"),
+    executions: (sindri.executions ?? []).filter((e: R) =>
+      inScope({ projectId: e.execution?.projectId ?? e.plan?.projectId }),
+    ),
+  });
   return (
     <Page>
       <PageHeader
@@ -305,6 +307,32 @@ export function InProgressPage() {
         Unlock operator controls and pair Sindri to review or start work.
       </AccessCallout>
       <Stepper steps={STEPS} current={2} />
+      {next && (
+        <Callout tone="info" title="Next step">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span>{next.text}</span>
+            {next.open ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => open(next.open!.kind, next.open!.row)}
+              >
+                {next.open.label}
+              </Button>
+            ) : next.page ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => navigate(href(next.page!))}
+              >
+                {next.page === "pipeline"
+                  ? "Open Pipeline"
+                  : "Open Quality & approvals"}
+              </Button>
+            ) : null}
+          </div>
+        </Callout>
+      )}
       <CardGroup min={280}>
         {LISTS.map((list) => {
           const records = recordsOf(list.kind);

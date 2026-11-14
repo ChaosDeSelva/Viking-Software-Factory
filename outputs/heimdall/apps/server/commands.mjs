@@ -11,7 +11,38 @@ const TIMEOUTS = {
   // Importing a pull request mirrors the repository and reads the diff with gh.
   "intake.import": 120000,
 };
-export const commandTimeout = (action) => TIMEOUTS[action] ?? 30000;
+/** A chained control waits for its slowest step too. */
+export const commandTimeout = (action, body = {}) =>
+  Math.max(
+    TIMEOUTS[action] ?? 30000,
+    body.thenPropose || body.thenDraft
+      ? TIMEOUTS["plan.propose"]
+      : body.thenStart
+        ? TIMEOUTS["execution.create"]
+        : 0,
+  );
+
+/** The request a chained `then` step sends, built from the control and its result. */
+export function thenRequest(then, c, result) {
+  if (then === "plan.propose")
+    return { path: "/v1/plans/propose", body: { specId: c.id } };
+  if (then === "execution.create")
+    return { path: "/v1/executions", body: { planId: c.id } };
+  if (then === "spec.draft") {
+    const intake = result?.intake;
+    if (!intake?.id) throw Error("Sindri returned no intake to draft from");
+    // Same request text as "Draft specification from intake": the body, else the title.
+    const request =
+      typeof intake.body === "string" && intake.body.trim()
+        ? intake.body
+        : intake.title;
+    return {
+      path: "/v1/director/draft",
+      body: { projectId: intake.projectId, intakeId: intake.id, request },
+    };
+  }
+  throw Error("Unknown chained step");
+}
 // Accepting a recommendation of these types performs the approval, so it needs the human factor.
 export const APPROVAL_DECISION_TYPES = ["spec.approve", "plan.approve"];
 // Types known to need no approval factor; any other (newer) type is treated as an approval.
@@ -129,7 +160,10 @@ export function commandRoute(c) {
   const body = { ...(c.body ?? {}) };
   let source,
     path,
-    method = "POST";
+    method = "POST",
+    // A chained control: `before` paths run first, then the control, then the `then` action.
+    before = [],
+    then;
   if (
     ["mission.pause", "mission.resume", "mission.cancel"].includes(c.action)
   ) {
@@ -181,6 +215,17 @@ export function commandRoute(c) {
     source = "sindri";
     const [resource, verb] = c.action.split(".");
     path = `/v1/${resource}s/${id}/${verb}`;
+    // One click from a draft: submit, approve, then plan the spec or start the plan.
+    if (verb === "approve") {
+      if (body.submitFirst === true) before = [`/v1/${resource}s/${id}/submit`];
+      if (resource === "spec" && body.thenPropose === true)
+        then = "plan.propose";
+      if (resource === "plan" && body.thenStart === true)
+        then = "execution.create";
+      delete body.submitFirst;
+      delete body.thenPropose;
+      delete body.thenStart;
+    }
   } else if (["execution.assess", "execution.export"].includes(c.action)) {
     source = "sindri";
     path = `/v1/executions/${id}/${c.action.endsWith("export") ? "pr" : "assess"}`;
@@ -238,6 +283,10 @@ export function commandRoute(c) {
       "plan.propose": "/v1/plans/propose",
       "execution.create": "/v1/executions",
     }[c.action];
+    if (c.action === "intake.create") {
+      if (body.thenDraft === true) then = "spec.draft";
+      delete body.thenDraft;
+    }
   } else if (c.action === "budget.raise") {
     // Mimir's way out of a budget block: new limits for budget_exceeded, `onUnknown` for
     // budget_uncertain (and for a new hard budget when the runtime reports no usage). Only these
@@ -295,5 +344,13 @@ export function commandRoute(c) {
   if (JSON.stringify(body).length > 500000)
     throw Error("Command body too large");
   // Every non-steward Sindri control carries the approval secret.
-  return { source, path, body, method, approval: source === "sindri" };
+  return {
+    source,
+    path,
+    body,
+    method,
+    approval: source === "sindri",
+    ...(before.length ? { before } : {}),
+    ...(then ? { then } : {}),
+  };
 }

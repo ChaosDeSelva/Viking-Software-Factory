@@ -56,7 +56,7 @@ const delivery = (id, region) => async () => {
   await page.getByRole("dialog").getByRole("region", { name: region }).waitFor();
 };
 const WORK_STATES = [
-  ["New work: research", kindForm("Research", "Review research question")],
+  ["New work: research", kindForm("Research", "Save and draft spec")],
   ["New work: PR review", kindForm("Review a PR", "Review pull request import")],
   ["Inspector: research document", delivery("exe_research", "Research document")],
   ["Inspector: PR review", async () => {

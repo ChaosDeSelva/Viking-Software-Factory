@@ -5,7 +5,12 @@ import { Raw } from "../components/app";
 import type { R } from "../lib/api";
 
 /** "mission.pause" → "Pause mission"; unknown actions fall back to their words. */
-export function commandTitle(action: string): string {
+export function commandTitle(action: string, body: R = {}): string {
+  // Chained controls (one click from a draft) are named for everything they do.
+  if (action === "spec.approve" && body.thenPropose) return "Approve and plan";
+  if (action === "plan.approve" && body.thenStart) return "Approve and start";
+  if (action === "intake.create" && body.thenDraft)
+    return "Save and draft spec";
   const known: Record<string, string> = {
     "budget.raise": "Raise budget",
     "execution.create": "Start approved plan",
@@ -56,7 +61,8 @@ export function CommandDialog({
   // operator types next, so move focus there once the dialog has settled.
   useEffect(() => {
     if (!command) return;
-    const frame = requestAnimationFrame(() => reasonField.current?.focus());
+    // The reason starts prefilled; selecting it lets typing replace it.
+    const frame = requestAnimationFrame(() => reasonField.current?.select());
     return () => cancelAnimationFrame(frame);
   }, [command]);
   return (
@@ -64,7 +70,7 @@ export function CommandDialog({
       open={!!command}
       onOpenChange={(open) => !open && onCancel()}
       busy={busy}
-      title={command ? commandTitle(command.action) : ""}
+      title={command ? commandTitle(command.action, command.body) : ""}
       description="This request changes the owning service. Review the details and record why you are taking this action."
       size="md"
       footer={

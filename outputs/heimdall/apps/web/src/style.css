@@ -53,3 +53,23 @@
     overflow-wrap: anywhere;
   }
 }
+
+/* The indeterminate bar of a long command (see Progress.tsx); still under reduced motion. */
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[progress-slide_1\.6s_ease-in-out_infinite\] {
+    animation: none;
+  }
+}
+
+/* A drawer with nothing to decide shows no footer bar (see DrawerActions). */
+[role="dialog"] div:has(> div > [data-drawer-footer]:empty) {
+  display: none;
+}

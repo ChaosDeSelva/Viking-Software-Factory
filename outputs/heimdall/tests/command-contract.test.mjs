@@ -31,3 +31,21 @@ test('dangerous or unknown control variants fail closed', () => {
   assert.throws(() => commandRoute({ action: 'project.delete', id: 'item' }));
   assert.throws(() => commandRoute({ action: 'mission.cancel', id: 'item', body: { reason: 'x'.repeat(500001) } }));
 });
+
+test('chained controls: submit before approve, then propose, start or draft', () => {
+  const approve = commandRoute({ action: 'spec.approve', id: 'item', body: { submitFirst: true, thenPropose: true, acknowledgeUntrusted: true } });
+  assert.deepEqual(approve.before, ['/v1/specs/item/submit']);
+  assert.equal(approve.then, 'plan.propose');
+  // The chain flags never reach Sindri; the approval's own fields do.
+  assert.deepEqual(approve.body, { acknowledgeUntrusted: true });
+  const plan = commandRoute({ action: 'plan.approve', id: 'item', body: { submitFirst: true, thenStart: true } });
+  assert.deepEqual([plan.before, plan.then, plan.body], [['/v1/plans/item/submit'], 'execution.create', {}]);
+  const intake = commandRoute({ action: 'intake.create', id: 'new', body: { projectId: 'p', title: 't', body: 'b', thenDraft: true } });
+  assert.deepEqual([intake.then, intake.body], ['spec.draft', { projectId: 'p', title: 't', body: 'b' }]);
+  // Without the flags nothing is chained.
+  const plain = commandRoute({ action: 'spec.approve', id: 'item', body: {} });
+  assert.equal(plain.before, undefined);
+  assert.equal(plain.then, undefined);
+  // A chain only follows the step it belongs to.
+  assert.equal(commandRoute({ action: 'spec.submit', id: 'item', body: { thenPropose: true } }).then, undefined);
+});

@@ -1,6 +1,7 @@
 // Inspector views for research and PR review deliveries. A research document is decided here
 // (accept, reject, follow-up) through the command dialog; a PR review is read here and edited and
 // posted in Sindri, which holds the posting approval.
+import { DrawerActions } from "../app/DrawerActions";
 import {
   Badge,
   Button,
@@ -217,31 +218,33 @@ export function ResearchView({
             ]}
           />
         )}
-        <Cluster gap={2}>
-          <Button
-            variant="primary"
-            disabledReason={acceptWhy || undefined}
-            onClick={() =>
-              propose("research.accept", executionId, { reason: "" })
-            }
-          >
-            Accept document
-          </Button>
-          <Button
-            variant="danger"
-            disabledReason={rejectWhy || undefined}
-            onClick={() =>
-              propose("research.reject", executionId, { reason: "" })
-            }
-          >
-            Reject document
-          </Button>
-        </Cluster>
-        <p className="text-xs text-muted">
-          The reason you give when you confirm is sent to Sindri with your
-          decision. A rejection needs one.
-        </p>
-        <Reasons reasons={[acceptWhy, rejectWhy]} />
+        <DrawerActions>
+          <div className="flex gap-2 [&>*]:flex-1">
+            <Button
+              variant="primary"
+              disabledReason={acceptWhy || undefined}
+              onClick={() =>
+                propose("research.accept", executionId, { reason: "" })
+              }
+            >
+              Accept document
+            </Button>
+            <Button
+              variant="danger"
+              disabledReason={rejectWhy || undefined}
+              onClick={() =>
+                propose("research.reject", executionId, { reason: "" })
+              }
+            >
+              Reject document
+            </Button>
+          </div>
+          <p className="text-xs text-muted">
+            The reason you give when you confirm is sent to Sindri with your
+            decision. A rejection needs one.
+          </p>
+          <Reasons reasons={[acceptWhy, rejectWhy]} />
+        </DrawerActions>
         <Disclosure title="Ask a follow-up question">
           <Stack gap={3}>
             <Field

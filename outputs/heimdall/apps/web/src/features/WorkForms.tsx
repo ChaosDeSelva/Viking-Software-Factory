@@ -306,7 +306,8 @@ export function ResearchForm({ projectId }: { projectId: string }) {
             propose(
               "intake.create",
               "new",
-              researchBody(input),
+              // Saved and drafted in one step; the spec is then approved and planned in one.
+              { ...researchBody(input), thenDraft: true },
               {},
               {
                 onSuccess: () => {
@@ -319,7 +320,7 @@ export function ResearchForm({ projectId }: { projectId: string }) {
             )
           }
         >
-          Review research question
+          Save and draft spec
         </Button>
       </div>
       <Reasons reasons={[why]} />

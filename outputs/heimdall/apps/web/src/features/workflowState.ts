@@ -33,8 +33,14 @@ export function statusBadge(kind: string, row: R): string | undefined {
 const needs: Record<string, [string[], string]> = {
   "spec.submit": [["draft"], "Only a draft can be submitted for review"],
   "plan.submit": [["draft"], "Only a draft can be submitted for review"],
-  "spec.approve": [["review"], "Submit it for review before approving"],
-  "plan.approve": [["review"], "Submit it for review before approving"],
+  "spec.approve": [
+    ["draft", "review"],
+    "Only a draft or a spec in review can be approved",
+  ],
+  "plan.approve": [
+    ["draft", "review"],
+    "Only a draft or a plan in review can be approved",
+  ],
   "plan.propose": [
     ["approved"],
     "Approve the specification before proposing a plan",
@@ -174,3 +180,89 @@ export const missionSpecTitle = (
       executions.find((e) => e.execution.mimirMissionId === mission.id)?.plan
         ?.specId,
   )?.title;
+
+/** What In progress tells the operator to do now, and the record or page that does it. */
+export interface NextStep {
+  text: string;
+  open?: { kind: "intakes" | "specs" | "plans"; row: R; label: string };
+  page?: "pipeline" | "quality-approvals";
+}
+
+/**
+ * The one next step for a project's work, furthest along first: a run that needs a person, a
+ * plan to approve or start, a spec to approve or plan, a request to draft, a run to watch.
+ * `specs` and `plans` are latest versions; `executions` are Sindri's execution rows.
+ */
+export function nextStep({
+  intakes,
+  specs,
+  plans,
+  executions,
+}: {
+  intakes: R[];
+  specs: R[];
+  plans: R[];
+  executions: R[];
+}): NextStep | null {
+  const runOf = (plan: R) =>
+    executions.find((e) => e.execution?.planId === plan.id);
+  const status = (e: R) => String(e.execution?.status ?? "");
+  if (
+    executions.some((e) =>
+      [
+        "awaiting_human",
+        "verified_pending_review",
+        "blocked",
+        "replan_requested",
+      ].includes(status(e)),
+    )
+  )
+    return {
+      text: "A run needs you. Review it in Quality & approvals.",
+      page: "quality-approvals",
+    };
+  const plan = plans.find((p) => ["draft", "review"].includes(p.status));
+  if (plan)
+    return {
+      text: `Plan v${plan.version ?? 1} is ready. Open it and choose Approve and start.`,
+      open: { kind: "plans", row: plan, label: "Open plan" },
+    };
+  const unstarted = plans.find((p) => p.status === "approved" && !runOf(p));
+  if (unstarted)
+    return {
+      text: "The plan is approved. Open it and choose Start approved plan.",
+      open: { kind: "plans", row: unstarted, label: "Open plan" },
+    };
+  const spec = specs.find((s) => ["draft", "review"].includes(s.status));
+  if (spec)
+    return {
+      text: "The spec is ready. Answer any open questions, then choose Approve and plan.",
+      open: { kind: "specs", row: spec, label: "Open spec" },
+    };
+  const unplanned = specs.find(
+    (s) => s.status === "approved" && !plans.some((p) => p.specId === s.id),
+  );
+  if (unplanned)
+    return {
+      text: "The spec is approved. Open it and choose Propose implementation plan.",
+      open: { kind: "specs", row: unplanned, label: "Open spec" },
+    };
+  const undrafted = intakes.find(
+    (i) => !specs.some((s) => s.intakeId === i.id),
+  );
+  if (undrafted)
+    return {
+      text: "The request is saved. Open it and choose Draft specification from intake.",
+      open: { kind: "intakes", row: undrafted, label: "Open request" },
+    };
+  if (
+    executions.some((e) =>
+      ["running", "queued", "starting"].includes(status(e)),
+    )
+  )
+    return {
+      text: "A run is in progress. Watch it in Pipeline.",
+      page: "pipeline",
+    };
+  return null;
+}

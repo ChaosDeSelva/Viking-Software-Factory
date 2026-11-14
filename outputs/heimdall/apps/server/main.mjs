@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { Store } from "./storage.mjs";
 import { Hub, localUrl, request } from "./connectors.mjs";
-import { commandRoute, commandTimeout } from "./commands.mjs";
+import { commandRoute, commandTimeout, thenRequest } from "./commands.mjs";
 const hash = (v) => createHash("sha256").update(v).digest("hex");
 // Anything but text can never match; an empty secret is replaced at start-up.
 const equals = (a, b) =>
@@ -63,11 +63,17 @@ export function stewardDetail(path, params) {
   };
   if (path === "/api/details/steward/status") return "/v1/steward/status";
   if (path === "/api/details/steward/decisions")
-    return "/v1/steward/decisions" + query(["projectId", "type", "status", "limit", "before"]);
+    return (
+      "/v1/steward/decisions" +
+      query(["projectId", "type", "status", "limit", "before"])
+    );
   if (path === "/api/details/steward/notes")
     return "/v1/steward/notes" + query(["projectId"]);
-  if (path === "/api/details/feedback-graph") return "/v1/feedback-graph/status";
-  const decision = /^\/api\/details\/steward\/decisions\/([\w-]{1,200})$/.exec(path);
+  if (path === "/api/details/feedback-graph")
+    return "/v1/feedback-graph/status";
+  const decision = /^\/api\/details\/steward\/decisions\/([\w-]{1,200})$/.exec(
+    path,
+  );
   if (decision) return `/v1/steward/decisions/${decision[1]}`;
   const project = /^\/api\/details\/feedback-graph\/([\w-]{1,200})$/.exec(path);
   if (project) return `/v1/projects/${project[1]}/feedback-graph`;
@@ -190,7 +196,10 @@ export async function startHeimdall(options = {}) {
   const heartbeatMs = options.heartbeatMs ?? 15000;
   let boundPort = port;
   // Separate counts: a token holder must not be able to reset the operator-code lockout.
-  const attempts = { login: { failures: 0, lockedUntil: 0 }, unlock: { failures: 0, lockedUntil: 0 } };
+  const attempts = {
+    login: { failures: 0, lockedUntil: 0 },
+    unlock: { failures: 0, lockedUntil: 0 },
+  };
   const failedAttempt = (kind) => {
     if (++attempts[kind].failures >= 5)
       attempts[kind] = { failures: 0, lockedUntil: Date.now() + 60000 };
@@ -227,7 +236,8 @@ export async function startHeimdall(options = {}) {
           throw Object.assign(Error("Not found"), { status: 404 });
         // The app routes by path (/pipeline, /docs/glossary): a path without a file extension
         // that is not a file is one of its pages, so it gets the app. Missing assets stay 404.
-        if (!existsSync(file) && !extname(asset)) file = resolve(web, "index.html");
+        if (!existsSync(file) && !extname(asset))
+          file = resolve(web, "index.html");
         if (!existsSync(file) || !statSync(file).isFile())
           throw Object.assign(Error("Not found"), { status: 404 });
         res.setHeader(
@@ -291,8 +301,7 @@ export async function startHeimdall(options = {}) {
       if (path === "/api/logout" && req.method === "POST") {
         sessions.delete(sid);
         saveSessions();
-        for (const [stream, owner] of clients)
-          if (owner === sid) stream.end();
+        for (const [stream, owner] of clients) if (owner === sid) stream.end();
         res.setHeader(
           "set-cookie",
           `${cookieName}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`,
@@ -439,7 +448,11 @@ export async function startHeimdall(options = {}) {
               b.source === "mimir" ? "/v1/snapshot" : "/v1/projects",
             );
             // Any 200 is not enough: a different local service, or the other source, would pass.
-            if (!Array.isArray(answer[b.source === "mimir" ? "missions" : "projects"]))
+            if (
+              !Array.isArray(
+                answer[b.source === "mimir" ? "missions" : "projects"],
+              )
+            )
               throw Error("Not this source");
           } catch (e) {
             throw Object.assign(
@@ -512,9 +525,17 @@ export async function startHeimdall(options = {}) {
       // Mimir's attention list (budgets at their warning fraction or used up, with spend and
       // limits), read-only: the Raise budget form shows the current numbers from it.
       if (path === "/api/attention" && req.method === "GET")
-        return json(res, 200, hub.clean(await request(connections.mimir, "/v1/attention")));
+        return json(
+          res,
+          200,
+          hub.clean(await request(connections.mimir, "/v1/attention")),
+        );
       if (path === "/api/harnesses" && req.method === "GET")
-        return json(res, 200, hub.clean(await request(connections.mimir, "/v1/harnesses")));
+        return json(
+          res,
+          200,
+          hub.clean(await request(connections.mimir, "/v1/harnesses")),
+        );
       if (path === "/api/fleet" && req.method === "GET")
         return json(
           res,
@@ -599,9 +620,14 @@ export async function startHeimdall(options = {}) {
         return json(res, 200, hub.clean(answer));
       }
       if (path.startsWith("/api/details/") && req.method === "GET") {
-        const upstream = stewardDetail(path, url.searchParams) ?? workDetail(path);
+        const upstream =
+          stewardDetail(path, url.searchParams) ?? workDetail(path);
         if (upstream)
-          return json(res, 200, hub.clean(await request(connections.sindri, upstream)));
+          return json(
+            res,
+            200,
+            hub.clean(await request(connections.sindri, upstream)),
+          );
       }
       const detail =
         /^\/api\/details\/(specs|plans|intakes|deliveries|questions|local|profile)\/([\w-]+)$/.exec(
@@ -625,7 +651,9 @@ export async function startHeimdall(options = {}) {
         if (kind === "local") {
           // A patch has to apply byte for byte, so the display rewrite skips it. It is the
           // operator's own repository diff; only this app's source tokens are still withheld.
-          const tokens = Object.values(connections).map((c) => c?.token).filter(Boolean);
+          const tokens = Object.values(connections)
+            .map((c) => c?.token)
+            .filter(Boolean);
           const exact = (shown, patch) => {
             if (typeof patch !== "string" || !shown) return;
             shown.patchExact = !tokens.some((t) => patch.includes(t));
@@ -714,7 +742,9 @@ export async function startHeimdall(options = {}) {
           );
           if (decision?.type !== c.decisionType)
             throw Object.assign(
-              Error("This decision is not the type shown. Refresh the Autonomy page and review it again."),
+              Error(
+                "This decision is not the type shown. Refresh the Autonomy page and review it again.",
+              ),
               { status: 409 },
             );
         }
@@ -726,7 +756,9 @@ export async function startHeimdall(options = {}) {
             { status: 409 },
           );
         inFlight.add(key);
-        const timeoutMs = options.commandTimeout?.(c.action) ?? commandTimeout(c.action);
+        const timeoutMs =
+          options.commandTimeout?.(c.action) ??
+          commandTimeout(c.action, c.body);
         // Everything after the key is taken sits inside the try, so the key is always released.
         try {
           store.audit({
@@ -737,22 +769,58 @@ export async function startHeimdall(options = {}) {
             key,
             outcome: "requested",
           });
-          const result = await request(connections[route.source], route.path, {
+          const headers = (step = "") => ({
+            "idempotency-key": key + step,
+            "x-heimdall-audit": key,
+            ...(route.source === "sindri" && route.approval
+              ? { "x-sindri-approval": session.approvalSecret }
+              : {}),
+          });
+          // A chained control's first steps (submit before approve). A step already done (a
+          // resend, or submitted elsewhere) is not a failure: the control itself decides.
+          for (const [i, path] of (route.before ?? []).entries()) {
+            try {
+              await request(connections[route.source], path, {
+                method: "POST",
+                headers: headers(`:before${i}`),
+                body: "{}",
+                timeoutMs,
+              });
+            } catch (e) {
+              if (!(e.status === 409 && e.code === "invalid_state")) throw e;
+            }
+          }
+          let result = await request(connections[route.source], route.path, {
             method: route.method,
-            headers: {
-              "idempotency-key": key,
-              "x-heimdall-audit": key,
-              ...(route.source === "sindri" && route.approval
-                ? { "x-sindri-approval": session.approvalSecret }
-                : {}),
-            },
+            headers: headers(),
             body: JSON.stringify(route.body),
             timeoutMs,
           });
+          // Then the follow-on step (propose, start, draft). The control is confirmed either
+          // way; a failed follow-on is reported with it so the page can say what is left to do.
+          let followUp;
+          if (route.then) {
+            try {
+              const next = thenRequest(route.then, c, result);
+              const more = await request(connections[route.source], next.path, {
+                method: "POST",
+                headers: headers(":then"),
+                body: JSON.stringify(next.body),
+                timeoutMs,
+              });
+              result = { ...result, ...more };
+            } catch (e) {
+              followUp = {
+                action: route.then,
+                message: hub.clean(e.message ?? String(e)),
+              };
+            }
+          }
           const response = hub.clean({
             confirmed: true,
             source: route.source,
             result,
+            ...(followUp ? { followUp } : {}),
           });
           store.receiptPut(key, fingerprint, 200, response);
           store.audit({

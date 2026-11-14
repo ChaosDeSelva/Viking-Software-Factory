@@ -128,7 +128,8 @@ const send = async (reason) => {
 };
 const confirmed = async () => {
   await commandDialog.waitFor({ state: "hidden" });
-  await page.getByText("Source confirmed the request. Current state is shown.").first().waitFor();
+  // Long commands (drafting, planning) say which one finished.
+  await page.getByText(/(Source confirmed the request|: done)\. Current state is shown\./).first().waitFor();
 };
 const access = async () => {
   await nav("Connections");
@@ -181,7 +182,7 @@ try {
   await specCard.click();
   await inspector.getByText("v2 · spc_v2").waitFor();
   const submit = inspector.getByRole("button", { name: "Submit for review" });
-  const approve = inspector.getByRole("button", { name: "Approve specification" });
+  const approve = inspector.getByRole("button", { name: "Approve only" });
   assert.equal(await unavailable(submit), true);
   assert.match(await reasonOf(submit), /Unlock operator controls/);
   // The reason is the button's description (a hidden node read via aria-describedby), not text.
@@ -221,7 +222,8 @@ try {
   await inspector.getByText("I have reviewed the flagged source instructions").waitFor();
   assert.equal(await unavailable(submit), false);
   assert.equal(await unavailable(approve), true);
-  assert.match(await reasonOf(approve), /Submit it for review/);
+  // A draft can be approved directly now; this one first needs its flagged instructions acknowledged.
+  assert.match(await reasonOf(approve), /Acknowledge the flagged/);
 
   console.log("Answer keeps the remaining questions");
   await questions.nth(0).getByRole("button", { name: "Use recommendation" }).click();
@@ -481,33 +483,37 @@ try {
   });
   await inspector.getByText("v2 · spc_new02x").waitFor();
   assert.equal(await questions.count(), 0);
-  await submit.click();
-  await send("Ready");
+  // One click from a draft: submit, approve and propose the plan, with the reason prefilled.
+  const beforePlan = source.requests.length;
+  await inspector.getByRole("button", { name: "Approve and plan" }).click();
+  assert.equal(await commandDialog.getByLabel("Reason", { exact: true }).inputValue(), "Approve and plan");
+  await commandDialog.getByRole("button", { name: "Send to source" }).click();
   await confirmed();
-  await status(inspector, "In review").waitFor();
-  await approve.click();
-  await send("Looks right");
-  await confirmed();
-  await status(inspector, "Approved").waitFor();
-  await inspector.getByRole("button", { name: "Propose implementation plan" }).click();
-  await send("Plan it");
-  await confirmed();
+  assert.deepEqual(
+    source.requests
+      .slice(beforePlan)
+      .filter((r) => r.method === "POST" && /spc_new02x|plans\/propose/.test(r.path))
+      .map((r) => r.path),
+    ["/v1/specs/spc_new02x/submit", "/v1/specs/spc_new02x/approve", "/v1/plans/propose"],
+  );
   assert.deepEqual(lastPost("/v1/plans/propose"), { specId: "spc_new02x" });
   await landedInProgress();
-  await openListed("Plans", /pln_new03/);
+  // In progress says what to do next and opens it.
+  await page.getByText(/Plan v1 is ready/).waitFor();
+  await page.getByRole("button", { name: "Open plan" }).click();
   await inspector.getByText("v1 · pln_new03").waitFor();
-  const approvePlan = inspector.getByRole("button", { name: /^Approve plan\b/ });
-  assert.equal(await unavailable(approvePlan), true);
-  await submit.click();
-  await send("Ready");
-  await confirmed();
-  await approvePlan.click();
+  // The plan's next step is approving and starting it, also from its draft.
+  const beforeStart = source.requests.length;
+  await inspector.getByRole("button", { name: "Approve and start" }).click();
   await send("Good plan");
   await confirmed();
-  await status(inspector, "Approved").waitFor();
-  await inspector.getByRole("button", { name: "Start approved plan" }).click();
-  await send("Go");
-  await confirmed();
+  assert.deepEqual(
+    source.requests
+      .slice(beforeStart)
+      .filter((r) => r.method === "POST" && /pln_new03|\/v1\/executions$/.test(r.path))
+      .map((r) => r.path),
+    ["/v1/plans/pln_new03/submit", "/v1/plans/pln_new03/approve", "/v1/executions"],
+  );
   assert.deepEqual(lastPost("/v1/executions"), { planId: "pln_new03" });
   await page.getByRole("heading", { level: 1, name: "Pipeline", exact: true }).waitFor();
   await inspector.waitFor({ state: "hidden" });
@@ -882,7 +888,7 @@ try {
   await nav("New work");
   const kinds = page.getByRole("radiogroup", { name: "Kind of work" });
   await kinds.getByRole("radio", { name: "Research" }).click();
-  const ask = page.getByRole("button", { name: "Review research question" });
+  const ask = page.getByRole("button", { name: "Save and draft spec" });
   assert.match(await reasonOf(ask), /Ask a question first/);
   const lessons = page.getByRole("checkbox", { name: "Lessons from your feedback history" });
   await page.waitForFunction(() => document.querySelector("#research-src-lessons")?.checked === true);
