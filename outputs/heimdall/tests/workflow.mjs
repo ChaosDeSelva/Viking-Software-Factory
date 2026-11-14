@@ -435,7 +435,19 @@ try {
     body: "Show the invoice total in the footer",
   });
   await inspector.getByRole("heading", { name: "Footer totals" }).waitFor();
-  await inspector.getByRole("button", { name: "Draft specification from intake" }).click();
+  // The next step sits in the drawer's pinned footer, outside the scrolling body, at full width.
+  const draftSpec = inspector.getByRole("button", { name: "Draft specification from intake" });
+  assert.deepEqual(
+    await draftSpec.evaluate((b) => {
+      const footer = b.closest(".border-t");
+      return {
+        inScrollingBody: Boolean(b.closest(".overflow-y-auto")),
+        fullWidth: Boolean(footer) && b.getBoundingClientRect().width >= footer.clientWidth - 64,
+      };
+    }),
+    { inScrollingBody: false, fullWidth: true },
+  );
+  await draftSpec.click();
   await send("Draft it");
   await confirmed();
   assert.deepEqual(lastPost("/v1/director/draft"), {

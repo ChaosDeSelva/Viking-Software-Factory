@@ -509,6 +509,8 @@ export function Inspector({
   const sections: ReactNode[] = [];
   const add = (key: string, node: ReactNode) =>
     sections.push(<div key={key}>{node}</div>);
+  // The record's next step, pinned under the scrolling body so it never needs a scroll to reach.
+  let footer: ReactNode = null;
 
   if (kind === "projects") {
     const sindri = sindriProjectOf(row, all.sindriProjects);
@@ -1034,23 +1036,26 @@ export function Inspector({
         <p className="text-sm whitespace-pre-wrap">
           {details?.intake?.body ?? row.body}
         </p>
-        <div>
-          <Button
-            variant="primary"
-            disabledReason={why || undefined}
-            onClick={() =>
-              propose("spec.draft", "new", {
-                projectId: row.projectId,
-                intakeId: row.id,
-                request: intakeRequest(row),
-              })
-            }
-          >
-            Draft specification from intake
-          </Button>
-        </div>
-        <Reasons reasons={[why]} />
       </Block>,
+    );
+    footer = (
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <Button
+          variant="primary"
+          className="w-full"
+          disabledReason={why || undefined}
+          onClick={() =>
+            propose("spec.draft", "new", {
+              projectId: row.projectId,
+              intakeId: row.id,
+              request: intakeRequest(row),
+            })
+          }
+        >
+          Draft specification from intake
+        </Button>
+        <Reasons reasons={[why]} />
+      </div>
     );
   }
 
@@ -1566,6 +1571,7 @@ export function Inspector({
       title={title}
       description={`${KIND_LABEL[kind] ?? "Record"} inspector`}
       className="max-w-[720px]"
+      footer={footer ?? undefined}
     >
       <Stack gap={6}>
         <div className="flex flex-wrap items-center gap-2">
