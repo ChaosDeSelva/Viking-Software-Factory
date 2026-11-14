@@ -73,8 +73,9 @@ const termHeader = (text: string, term: string) => (
   </span>
 );
 const SindriErrors = ({ errors }: { errors: string[] }) =>
-  errors.map((error, i) => (
-    <Callout key={i} tone="danger" title="Sindri did not answer">
+  // One callout per distinct failure, naming what could not be read, not one per request.
+  [...new Set(errors)].map((error) => (
+    <Callout key={error} tone="danger" title="Sindri did not answer">
       {error}
     </Callout>
   ));
@@ -87,6 +88,7 @@ export function AutonomyPage() {
   const sindriProjects = scope.sindriProjects;
   const [status, setStatus] = useState<R | null>(null),
     [decisions, setDecisions] = useState<R[] | null>(null),
+    [decisionsError, setDecisionsError] = useState(""),
     [notes, setNotes] = useState<R[]>([]),
     [current, setCurrent] = useState<R | null>(null),
     [errors, setErrors] = useState<string[]>([]),
@@ -131,7 +133,25 @@ export function AutonomyPage() {
         setCurrent(
           one.status === "fulfilled" ? (one.value?.decision ?? null) : null,
         );
-        setErrors(results.map(errorOf).filter(Boolean));
+        const what = [
+          "The steward's status",
+          "Decisions",
+          "Notes",
+          "The open decision",
+        ];
+        const failed = results.map(errorOf);
+        // A failed first read must not leave the log saying "Loading" forever.
+        if (d.status === "rejected") setDecisionsError(failed[1]!);
+        else setDecisionsError("");
+        const byMessage = new Map<string, string[]>();
+        failed.forEach((m, i) => {
+          if (m) byMessage.set(m, [...(byMessage.get(m) ?? []), what[i]!]);
+        });
+        setErrors(
+          [...byMessage].map(
+            ([m, names]) => `${names.join(", ")} could not be read: ${m}`,
+          ),
+        );
         setUpdated(new Date());
       } finally {
         busy = false;
@@ -191,7 +211,13 @@ export function AutonomyPage() {
     <Card
       title="Decision log"
       term="Recommendation"
-      description={decisions === null ? "Loading…" : `${shown.length} shown`}
+      description={
+        decisions === null
+          ? decisionsError
+            ? "Not available"
+            : "Loading…"
+          : `${shown.length} shown`
+      }
       flush
     >
       <div className="border-b border-line p-4">
@@ -262,12 +288,16 @@ export function AutonomyPage() {
           className="m-4"
           title={
             decisions === null
-              ? "Loading decisions…"
+              ? decisionsError
+                ? "Decisions could not be loaded"
+                : "Loading decisions…"
               : "No decisions match these filters."
           }
           body={
             decisions === null
-              ? undefined
+              ? decisionsError
+                ? `${decisionsError} This page tries again every 5 seconds.`
+                : undefined
               : "The steward records a decision when new work needs one."
           }
           action={

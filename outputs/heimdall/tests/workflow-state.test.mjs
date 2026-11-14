@@ -288,6 +288,9 @@ test("the next step names the one thing to do now, furthest along first", async 
     nextStep({ ...none, plans: [started], executions: [run("completed")] }),
     null,
   );
+  // A plan that already ran (its delivery is listed, its run is not) is never offered again.
+  const delivered = { id: "e1", executionId: "e1", planId: "p1" };
+  assert.equal(nextStep({ ...none, plans: [started], deliveries: [delivered] }), null);
 });
 
 test("a plan is named after its specification", async () => {

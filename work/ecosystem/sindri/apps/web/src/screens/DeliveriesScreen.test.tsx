@@ -63,6 +63,29 @@ describe("DeliveriesScreen", () => {
     );
   });
 
+  it("says the checks failed, not Ready to export, and keeps the export closed", async () => {
+    const failed = delivery();
+    failed.report.tasks[0]!.gate = {
+      evaluationId: "gev_1",
+      passed: false,
+      failures: [{ gateId: "brokkr", reason: "verification_report_missing" }],
+    };
+    const api = mockApi({
+      listDeliveries: [summary],
+      getDelivery: failed,
+      deliveryTrace: trace(),
+      localDelivery: null,
+    });
+    renderWithStore(ui, api, { deliveryId: "e1" });
+    const exportButton = await screen.findByRole("button", { name: "Export local result" });
+    expect(screen.queryByText("Ready to export")).toBeNull();
+    expect(
+      exportButton.getAttribute("aria-disabled") ?? exportButton.hasAttribute("disabled"),
+    ).toBeTruthy();
+    await userEvent.click(exportButton);
+    expect(api.requestPr).not.toHaveBeenCalled();
+  });
+
   it("requests changes: sends the feedback, opens the drafted specification, and keeps the text on failure", async () => {
     const base = {
       listDeliveries: [summary],
@@ -117,9 +140,15 @@ describe("DeliveriesScreen", () => {
   it("shows the report, PR text with a copy button and the trace tree", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const failedGate = delivery();
+    failedGate.report.tasks[0]!.gate = {
+      evaluationId: "gev_1",
+      passed: false,
+      failures: [{ gateId: "brokkr", reason: "verification_report_missing" }],
+    };
     const api = mockApi({
       listDeliveries: [summary],
-      getDelivery: delivery(),
+      getDelivery: failedGate,
       localDelivery: null,
       deliveryTrace: trace(),
     });

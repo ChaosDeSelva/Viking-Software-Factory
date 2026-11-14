@@ -182,7 +182,7 @@ describe("AgentInspector", () => {
     const { client, sessionId } = setup();
     await user.click(await screen.findByRole("button", { name: "Soft stop" }));
     expect(client.sessions.stop).toHaveBeenCalledWith(sessionId, { mode: "soft" });
-    expect(screen.getByText(/requires an approved runtime.force_stop/i)).toBeTruthy();
+    expect(screen.getByText(/Force stop needs an approval first/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Force stop…" }));
     expect(client.sessions.stop).toHaveBeenCalledTimes(1);
     vi.mocked(client.sessions.stop).mockRejectedValueOnce(

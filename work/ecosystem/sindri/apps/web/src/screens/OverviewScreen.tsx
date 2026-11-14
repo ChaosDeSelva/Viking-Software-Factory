@@ -234,6 +234,23 @@ function NeedsYou({ s, href }: { s: Snapshot; href: (v: View, e?: object) => str
       to: href("autonomy"),
     })),
   ];
+  // The verification record (failed checks, reviewer findings) is listed under Needs you too;
+  // without this row the card said "Nothing needs you" while that page listed it.
+  const failures = r?.gateFailures?.length ?? 0,
+    findings = r?.findings?.length ?? 0;
+  if (failures + findings > 0)
+    rows.push({
+      key: "verification",
+      title: [
+        failures ? `${failures} failed quality check${failures === 1 ? "" : "s"}` : "",
+        findings ? `${findings} reviewer finding${findings === 1 ? "" : "s"}` : "",
+      ]
+        .filter(Boolean)
+        .join(" and "),
+      meta: "Read why, then fix or re-run the checks",
+      status: <Status value="failed" domain="gate" tooltip={false} />,
+      to: href("needs-you"),
+    });
   return (
     <Card title="Needs you" term="Needs attention" count={rows.length} flush>
       {rows.length === 0 ? (

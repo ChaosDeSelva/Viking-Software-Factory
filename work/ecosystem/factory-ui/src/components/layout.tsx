@@ -122,7 +122,8 @@ export function PageHeader({
             {scope && <ScopeChip scope={scope} />}
           </div>
           {(description || learnMore || hint) && (
-            <p className="max-w-[72ch] text-md text-muted">
+            // A div: descriptions often hold badges or progress bars, which a <p> cannot contain.
+            <div className="max-w-[72ch] text-md text-muted">
               {description}
               {learnMore ? (
                 <>
@@ -135,7 +136,7 @@ export function PageHeader({
               ) : (
                 hint
               )}
-            </p>
+            </div>
           )}
           {meta && <div className="text-xs text-muted">{meta}</div>}
         </div>
@@ -261,6 +262,8 @@ export function Card({
         <div
           className={cn(
             "min-w-0 flex-1 space-y-group",
+            // Edge-to-edge content (a table) would otherwise square off the card's bottom corners.
+            flush && !footer && "overflow-hidden rounded-b-lg",
             !flush && pad,
             !flush && hasHeader && "pt-4",
           )}

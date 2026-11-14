@@ -198,25 +198,26 @@ export function nextStep({
   specs,
   plans,
   executions,
+  deliveries = [],
 }: {
   intakes: R[];
   specs: R[];
   plans: R[];
   executions: R[];
+  /** Sindri's delivery rows: a plan with one has run, even when its run is not listed. */
+  deliveries?: R[];
 }): NextStep | null {
   const runOf = (plan: R) =>
-    executions.find((e) => e.execution?.planId === plan.id);
+    executions.find((e) => e.execution?.planId === plan.id) ??
+    deliveries.find((d) => d.planId === plan.id);
   const status = (e: R) => String(e.execution?.status ?? "");
-  if (
-    executions.some((e) =>
-      [
-        "awaiting_human",
-        "verified_pending_review",
-        "blocked",
-        "replan_requested",
-      ].includes(status(e)),
-    )
-  )
+  const NEEDS_YOU = [
+    "awaiting_human",
+    "verified_pending_review",
+    "blocked",
+    "replan_requested",
+  ];
+  if (executions.some((e) => NEEDS_YOU.includes(status(e))))
     return {
       text: "A run needs you. Review it in Quality & approvals.",
       page: "quality-approvals",

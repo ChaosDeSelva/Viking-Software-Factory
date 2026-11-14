@@ -40,8 +40,11 @@ export function ModeNotice({ aws }) {
       checked before every launch.
     </Callout>
   ) : (
-    <Callout tone="info" title="Simulation mode">
-      Lifecycle and event history work locally. Simulation creates no virtual machines, cloud resources or charges.
+    <Callout tone="info" title="Simulation mode: optional, not set up">
+      Skidbladnir is optional. It gives agents disposable cloud machines to work on; without it, Mimir runs agents on
+      this Mac, which is how the factory works by default. Here you can try a worker's lifecycle locally: simulation
+      creates no virtual machines, cloud resources or charges. Real workers need an AWS fleet configured
+      (SKIDBLADNIR_AWS_CONFIG); see How launching works.
     </Callout>
   );
 }
@@ -238,11 +241,11 @@ function FleetEmpty({ project, total, aws, setProject }) {
   return (
     <EmptyState
       icon="apps"
-      title="Your first voyage starts here."
+      title="No workers yet"
       body={
         aws
-          ? 'Launch an approved template and inspect its execution evidence.'
-          : 'Create a simulated worker to explore its lifecycle and evidence. Nothing real is started.'
+          ? 'A worker is a disposable cloud machine that agents run on. Launch an approved template and inspect its execution evidence.'
+          : 'A worker is a disposable machine that agents run on. Nothing needs one: agents run on this Mac by default. Create a simulated worker to see its lifecycle; nothing real is started.'
       }
       action={
         <Button variant="primary" icon="plus" onClick={() => navigate(href.launch())}>

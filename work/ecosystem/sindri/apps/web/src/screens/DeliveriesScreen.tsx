@@ -254,6 +254,8 @@ function ChangeDelivery({
   };
 
   const r = d.report;
+  // "Ready to export" only when every task's checks passed: Sindri refuses the export otherwise.
+  const gatesFailed = r.tasks.some((t) => t.gate && !t.gate.passed);
   const pendingExports =
     exportRequest?.prs.filter((p) => p.status === "awaiting_approval" && p.approvalId) ?? [];
   return (
@@ -268,7 +270,11 @@ function ChangeDelivery({
         <Cluster gap={3} justify="between" align="start">
           <Cluster gap={3} className="min-w-0">
             <DetailHeading>{r.spec.title}</DetailHeading>
-            <Status value={r.status} domain="delivery" size="md" />
+            {r.status === "built" && gatesFailed ? (
+              <Status value="failed" domain="gate" size="md" />
+            ) : (
+              <Status value={r.status} domain="delivery" size="md" />
+            )}
           </Cluster>
           <Cluster gap={2}>
             <Button variant="secondary" disabled={busy} onClick={reassess}>
@@ -276,7 +282,14 @@ function ChangeDelivery({
             </Button>
             <Button
               disabled={busy}
-              {...(locked ? { disabledReason: APPROVALS_LOCKED } : {})}
+              {...(locked
+                ? { disabledReason: APPROVALS_LOCKED }
+                : gatesFailed
+                  ? {
+                      disabledReason:
+                        "Quality checks have not passed. Fix them or re-run them first.",
+                    }
+                  : {})}
               aria-describedby="pr-hint"
               onClick={exportResult}
             >

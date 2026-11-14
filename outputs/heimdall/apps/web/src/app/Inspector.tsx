@@ -21,7 +21,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useHeimdall } from "./context";
 import { DrawerActions, DrawerFooter } from "./DrawerActions";
-import { Raw, Reasons, Status, label } from "../components/app";
+import { IntakeStatus, Raw, Reasons, Status, label } from "../components/app";
 import { download, type R } from "../lib/api";
 import { RaiseBudgetForm } from "../features/Budget";
 import { eventSubject, eventTitle } from "../features/events";
@@ -83,6 +83,7 @@ const STATUS_DOMAIN: Record<string, string> = {
   missions: "mission",
   crews: "crew",
   agents: "agent",
+  approvals: "approval",
   execution: "run",
   specs: "spec",
   plans: "plan",
@@ -511,7 +512,8 @@ export function Inspector({
   // A document run ends with your decision, not a status change: show the decision once made.
   const documentDecision: string | undefined =
     kind === "deliveries" || kind === "execution"
-      ? details?.report?.research?.decision?.decision
+      ? (details?.report?.research?.decision?.decision ??
+        details?.report?.proposal?.decision?.decision)
       : undefined;
   const status = documentDecision
     ? documentDecision
@@ -1106,8 +1108,17 @@ export function Inspector({
   if (kind === "specs" || kind === "plans") {
     const resource = kind === "specs" ? "spec" : "plan";
     const record = details?.spec ?? details?.plan ?? row;
+    // Sindri refuses to approve a spec while a blocking question is open; say so before the dialog.
+    const blockingOpen: R[] =
+      kind === "specs"
+        ? (record.body?.openQuestions ?? []).filter((q: R) => q.blocking)
+        : [];
     const approveWhy =
-      sindriWhy(resource + ".approve", record.status) || acknowledgeWhy;
+      sindriWhy(resource + ".approve", record.status) ||
+      acknowledgeWhy ||
+      (blockingOpen.length
+        ? `Answer the blocking ${blockingOpen.length === 1 ? "question" : `questions (${blockingOpen.length})`} first.`
+        : "");
     const noun = kind === "specs" ? "specification" : "plan";
     // Every review action lives in the pinned footer; the one the status calls for comes first,
     // full width and primary, the others below it with why they're unavailable.
@@ -1663,8 +1674,12 @@ export function Inspector({
       <DrawerFooter.Provider value={footerEl}>
         <Stack gap={6}>
           <div className="flex flex-wrap items-center gap-2">
-            {status != null && (
-              <Status value={status} domain={STATUS_DOMAIN[kind]} />
+            {kind === "intakes" ? (
+              <IntakeStatus row={row} specs={specsAll} />
+            ) : (
+              status != null && (
+                <Status value={status} domain={STATUS_DOMAIN[kind]} />
+              )
             )}
             {["deliveries", "intakes", "execution"].includes(kind) && (
               <WorkKindBadge

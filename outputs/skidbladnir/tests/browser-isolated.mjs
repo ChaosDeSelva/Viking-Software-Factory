@@ -118,7 +118,7 @@ try {
       assert.equal(await page.getByRole('link', { name: 'Setup guide' }).getAttribute('href'), '/site/guide.html');
 
       if (!aws) {
-        await page.getByText('Your first voyage starts here.').waitFor();
+        await page.getByText('No workers yet').waitFor();
         await noOverflowNoAxe(page);
         await page.getByRole('main').getByRole('button', { name: 'Launch a worker' }).last().click();
         await page.getByRole('heading', { name: 'Launch', exact: true, level: 1 }).waitFor();

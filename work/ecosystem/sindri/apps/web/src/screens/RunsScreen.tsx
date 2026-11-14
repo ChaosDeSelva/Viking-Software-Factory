@@ -218,6 +218,15 @@ function RunDetail({
   const status = useRef<string | null>(null);
   const shown = live ?? (loaded.state.status === "ready" ? loaded.state.data : null);
   status.current = shown?.execution.status ?? null;
+  // The list reads its rows once; when the live status moves on, it reads them again so the row
+  // and this detail agree (it said "Running" while the detail said "Needs you").
+  const seenStatus = useRef<string | null>(null);
+  const liveStatus = shown?.execution.status ?? null;
+  useEffect(() => {
+    if (liveStatus === null) return;
+    if (seenStatus.current !== null && seenStatus.current !== liveStatus) onChanged();
+    seenStatus.current = liveStatus;
+  }, [liveStatus, onChanged]);
 
   // Refreshes can answer out of order: only a view newer than the one shown replaces it.
   const requested = useRef(0);

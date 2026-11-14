@@ -26,7 +26,7 @@ import {
 } from "@factory/ui";
 import { useHeimdall } from "../app/context";
 import { navigate } from "../lib/router";
-import { LearnMore, Status } from "../components/app";
+import { IntakeStatus, LearnMore, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { AccessCallout } from "./AccessCallout";
 import {
@@ -314,6 +314,7 @@ export function InProgressPage() {
     intakes: recordsOf("intakes"),
     specs: recordsOf("specs"),
     plans: recordsOf("plans"),
+    deliveries: (sindri.deliveries ?? []).filter(inScope),
     executions: (sindri.executions ?? []).filter((e: R) =>
       inScope({ projectId: e.execution?.projectId ?? e.plan?.projectId }),
     ),
@@ -392,11 +393,12 @@ export function InProgressPage() {
                               kind={kindOf(r, sindri.plans ?? [])}
                             />
                           )}
-                          {list.kind === "intakes" &&
-                          (sindri.specs ?? []).some(
-                            (s: R) => s.intakeId === r.id,
-                          ) ? (
-                            <Badge tone="info">Spec drafted</Badge>
+                          {list.kind === "intakes" ? (
+                            <IntakeStatus
+                              row={r}
+                              specs={sindri.specs ?? []}
+                              size="sm"
+                            />
                           ) : (
                             statusBadge(list.kind, r) && (
                               <Status

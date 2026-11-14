@@ -167,11 +167,7 @@ export const delivery = (over: Partial<DeliveryDetail> = {}): DeliveryDetail => 
         role: "implementer",
         status: "completed",
         harness: { id: "frontend-react", version: "1.1.0", lockDigest: "sha256:x" },
-        gate: {
-          evaluationId: "gev_1",
-          passed: false,
-          failures: [{ gateId: "brokkr", reason: "verification_report_missing" }],
-        },
+        gate: { evaluationId: "gev_1", passed: true, failures: [] },
         brokkr: null,
       },
     ],

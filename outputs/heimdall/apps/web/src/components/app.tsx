@@ -1,7 +1,7 @@
 // Small Heimdall wrappers over @factory/ui so every screen shows statuses, raw records and
 // blocked-action reasons the same way.
 import { statusInfo, screenHref } from "@factory/docs";
-import { CodeBlock, Disclosure, Link, StatusPill } from "@factory/ui";
+import { Badge, CodeBlock, Disclosure, Link, StatusPill } from "@factory/ui";
 import type { ReactNode } from "react";
 import type { R } from "../lib/api";
 
@@ -54,6 +54,31 @@ export function Raw({
 }
 
 /** Why one or more controls are unavailable, said once below them (deduplicated). */
+/**
+ * An intake's status. A saved request has no tracker status ("Received"); once a spec is drafted
+ * from it, the work continues there, so every list and the drawer say so the same way.
+ */
+export function IntakeStatus({
+  row,
+  specs,
+  size,
+}: {
+  row: R;
+  specs: readonly R[];
+  size?: "sm" | "md";
+}) {
+  if (specs.some((s) => s.intakeId === row.id))
+    return <Badge tone="info">Spec drafted</Badge>;
+  return (
+    <Status
+      value={row.status ?? "received"}
+      domain="intake"
+      size={size}
+      tooltip={false}
+    />
+  );
+}
+
 export function Reasons({
   reasons,
 }: {

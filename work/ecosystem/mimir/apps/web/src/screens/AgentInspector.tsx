@@ -197,8 +197,7 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
             </Button>
           </div>
           <p className="text-sm text-muted">
-            Force stop requires an approved runtime.force_stop request; without it the server
-            refuses (403).
+            Force stop needs an approval first (decided in Reviews); without one it is refused.
           </p>
           <ActionResult outcome={stop.outcome} />
           {denied && (
@@ -215,7 +214,7 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
           open={confirmForce}
           onOpenChange={setConfirmForce}
           title="Force stop this agent?"
-          description="The session is killed at once; unsaved work in it is lost."
+          description="The session is killed at once; unsaved work in it is lost. This needs an approved force-stop request: without one, Mimir refuses and asks you to decide it in Reviews."
           confirmLabel="Confirm force stop"
           tone="danger"
           onConfirm={() => {
