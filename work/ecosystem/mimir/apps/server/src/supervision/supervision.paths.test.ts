@@ -351,6 +351,7 @@ describe("CliThinker (with a stub runtime: no model CLI runs)", () => {
     expect(specs[0]?.argv).toEqual([
       "codex",
       "exec",
+      "--ignore-user-config",
       "--skip-git-repo-check",
       "--sandbox",
       "read-only",

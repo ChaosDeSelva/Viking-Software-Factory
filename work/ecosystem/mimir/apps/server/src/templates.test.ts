@@ -32,6 +32,8 @@ describe("argv templates", () => {
     expect(argvFor("codex", "implementer", "Fix it")).toEqual([
       "codex",
       "exec",
+      // The operator's own MCP servers and plugins (config.toml) stay out of factory agents.
+      "--ignore-user-config",
       "--sandbox",
       "workspace-write",
       "--json",
@@ -109,6 +111,8 @@ describe("argv templates", () => {
     expect(argvFor("codex", "implementer", "Fix it", { codexSandbox })).toEqual([
       "codex",
       "exec",
+      // The operator's own MCP servers and plugins (config.toml) stay out of factory agents.
+      "--ignore-user-config",
       "--sandbox",
       "workspace-write",
       "--json",
@@ -190,6 +194,23 @@ describe("argv per task mode", () => {
     );
     keepsHardening(argv);
     expect(argv.at(-1)).toBe(documentBrief("reviewer", "x"));
+  });
+
+  it("claude read in a known worktree also allows its artifacts by absolute path", () => {
+    // Claude resolves a relative rule against the shell's current directory, which moves with
+    // the agent's `cd`: after `cd src/x` the relative rule no longer matches the worktree's
+    // artifacts and the document is refused (seen live: two fact-check attempts lost this way).
+    const cwd = "/data/worktrees/prj 1/tsk_1";
+    const argv = argvFor("claude", "reviewer", "x", { mode: mode("read", "none"), cwd });
+    expect(tools(argv).slice(-2)).toEqual([
+      "Write(//data/worktrees/prj 1/tsk_1/.mimir/artifacts/**)",
+      "Edit(//data/worktrees/prj 1/tsk_1/.mimir/artifacts/**)",
+    ]);
+    expect(tools(argv)).toContain("Write(.mimir/artifacts/**)");
+    // A write task is unchanged: it may write anywhere in the worktree already.
+    expect(argvFor("claude", "implementer", "x", { cwd })).toEqual(
+      argvFor("claude", "implementer", "x"),
+    );
   });
 
   it("claude read + web: the read tools plus the web tools", () => {

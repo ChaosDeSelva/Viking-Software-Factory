@@ -649,12 +649,14 @@ export class Orchestrator {
             inputsNote(inputs),
           ].filter((n): n is string => n !== undefined)
         : [];
+    const crew = task.crewId ? this.rm.crews.get(task.crewId) : undefined;
     const argv =
       explicit && spec.argv !== undefined
         ? spec.argv
         : argvFor(member.agentKind, member.role, [base, ...notes].join("\n\n"), {
             codexSandbox: projectSettings(project).agent?.codexSandbox,
             mode: task.mode,
+            cwd: project && crew ? this.worktreePlan(task, project, crew).path : undefined,
           });
     return { argv, classify: classifiedArgv(argv, explicit, member.agentKind) };
   }

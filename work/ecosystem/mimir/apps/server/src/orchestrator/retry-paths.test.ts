@@ -596,6 +596,7 @@ describe("the brief of an attempt after a failed verification (A7)", () => {
       expect(spec.argv.slice(0, -1)).toEqual([
         "codex",
         "exec",
+        "--ignore-user-config",
         "--sandbox",
         "workspace-write",
         "--json",
@@ -733,6 +734,7 @@ describe("project agent settings reach sessions and verification (Part B)", () =
     expect(specs[0]!.argv.slice(0, -1)).toEqual([
       "codex",
       "exec",
+      "--ignore-user-config",
       "--sandbox",
       "workspace-write",
       "--json",

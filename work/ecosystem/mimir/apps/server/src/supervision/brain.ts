@@ -55,7 +55,16 @@ export class CliThinker {
     mkdirSync(cwd, { recursive: true, mode: 0o700 });
     const argv =
       kind === "codex"
-        ? ["codex", "exec", "--skip-git-repo-check", "--sandbox", "read-only", "--json", prompt]
+        ? [
+            "codex",
+            "exec",
+            "--ignore-user-config",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--json",
+            prompt,
+          ]
         : [
             "claude",
             "-p",

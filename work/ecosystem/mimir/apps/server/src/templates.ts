@@ -55,7 +55,17 @@ export const AGENT_ARGV_TEMPLATES: Readonly<Record<string, readonly string[]>> =
     "--verbose",
     INSTRUCTION,
   ],
-  codex: ["codex", "exec", "--sandbox", "workspace-write", "--json", INSTRUCTION],
+  // `--ignore-user-config`: the operator's MCP servers and plugins in ~/.codex/config.toml stay
+  // out of factory agents, as `--strict-mcp-config` does for Claude; the login still applies.
+  codex: [
+    "codex",
+    "exec",
+    "--ignore-user-config",
+    "--sandbox",
+    "workspace-write",
+    "--json",
+    INSTRUCTION,
+  ],
   opencode: ["opencode", "run", "--format", "json", INSTRUCTION],
   gemini: ["gemini", "--output-format", "json", "-p", INSTRUCTION],
   pi: ["pi", "--print", INSTRUCTION],
@@ -94,9 +104,19 @@ export const ROLE_TEMPLATES: Readonly<Record<CrewRole, { preamble: string }>> = 
  * permission mode (anything not allowed is refused in print mode) and narrows the tools; `web`
  * adds the web tools.
  */
-function claudeArgv(template: readonly string[], mode: TaskMode | undefined): string[] {
+function claudeArgv(
+  template: readonly string[],
+  mode: TaskMode | undefined,
+  cwd: string | undefined,
+): string[] {
   const read = mode?.access === "read";
   const tools = [read ? CLAUDE_READ_TOOLS : CLAUDE_WRITE_TOOLS];
+  // Claude resolves the relative artifact rules against the shell's current directory, which an
+  // agent's `cd` moves; the absolute rule (`//` + path) keeps the worktree's artifacts writable.
+  if (read && cwd) {
+    const dir = `/${cwd.replace(/\/+$/, "")}/.mimir/artifacts/**`;
+    tools.push(`Write(${dir})`, `Edit(${dir})`);
+  }
   if (mode?.network === "web") tools.push(CLAUDE_WEB_TOOLS);
   return template.map((word, i) => {
     if (word === "acceptEdits" && template[i - 1] === "--permission-mode")
@@ -152,6 +172,8 @@ export function argvFor(
   options: {
     codexSandbox?: CodexSandboxOptions | undefined;
     mode?: TaskMode | undefined;
+    /** The session's working directory (the task's worktree), when known. */
+    cwd?: string | undefined;
   } = {},
 ): string[] {
   const template = AGENT_ARGV_TEMPLATES[agentKind];
@@ -178,6 +200,6 @@ export function argvFor(
             : options.codexSandbox,
         )
       : [];
-  const words = agentKind === "claude" ? claudeArgv(template, options.mode) : template;
+  const words = agentKind === "claude" ? claudeArgv(template, options.mode, options.cwd) : template;
   return words.flatMap((word) => (word === INSTRUCTION ? [...extra, text] : [word]));
 }
