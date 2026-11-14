@@ -61,6 +61,33 @@ describe("AppShell", () => {
     await expectNoSeriousA11yViolations(container);
   });
 
+  it("hands the pages to the page menu when the tabs do not fit, at any width", () => {
+    const sw = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(900);
+    const cw = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(400);
+    try {
+      setup(<Shell />);
+      // The strip keeps its place to measure, hidden from everyone; the menu is offered instead.
+      expect(screen.queryByRole("navigation", { name: "Project pages" })).toBeNull();
+      const menu = screen.getByRole("button", { name: "Project pages (current: Overview)" });
+      expect(menu.parentElement!.className).not.toMatch("sm:hidden");
+    } finally {
+      sw.mockRestore();
+      cw.mockRestore();
+    }
+    setup(<Shell />);
+    expect(screen.getAllByRole("navigation", { name: "Project pages" }).length).toBeGreaterThan(0);
+  });
+
+  it("closes the session popover on Escape, from inside its form too", async () => {
+    const { user } = setup(
+      <Shell session={{ mode: "read-only", content: <input aria-label="Operator code" /> }} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Session: Read-only" }));
+    await user.click(await screen.findByLabelText("Operator code"));
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByLabelText("Operator code")).toBeNull());
+  });
+
   it("keeps global things in the fixed bottom bar", () => {
     setup(<Shell onSignOut={() => undefined} onAsk={() => undefined} />);
     const bar = screen.getByRole("contentinfo", { name: "Status and global" });

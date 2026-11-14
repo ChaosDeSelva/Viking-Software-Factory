@@ -430,19 +430,21 @@ export function SplitView({
   return (
     <div
       className={cn(
-        "grid min-w-0 gap-4 md:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] md:gap-6",
+        // Side by side only where the detail pane stays wide enough for its tables (~850px at
+        // 1280); narrower, the list and the detail take turns as on a phone.
+        "grid min-w-0 gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] xl:gap-6",
         className,
       )}
     >
-      <div className={cn("min-w-0", showDetail && "max-md:hidden")}>{list}</div>
-      <div className={cn("min-w-0", !showDetail && "max-md:hidden")}>
+      <div className={cn("min-w-0", showDetail && "max-xl:hidden")}>{list}</div>
+      <div className={cn("min-w-0", !showDetail && "max-xl:hidden")}>
         {onBack && (
           <Button
             variant="ghost"
             size="sm"
             icon="chevronLeft"
             onClick={onBack}
-            className="mb-3 -ml-2 md:hidden"
+            className="mb-3 -ml-2 xl:hidden"
           >
             {backLabel}
           </Button>
@@ -493,20 +495,24 @@ export function KeyValue({
   columns?: 1 | 2 | undefined;
   className?: string | undefined;
 }) {
+  // Sized by the space it is given, not the window: in a side pane at tablet width a label column
+  // beside two value columns left about one character per line.
   return (
-    <dl className={cn("grid gap-x-8 gap-y-3", columns === 2 && "sm:grid-cols-2", className)}>
-      {items.map((item, i) => (
-        <div
-          key={i}
-          className="grid min-w-0 gap-1 sm:grid-cols-[minmax(120px,160px)_minmax(0,1fr)] sm:gap-4"
-        >
-          <dt className="flex items-center gap-1 text-sm text-muted">
-            {item.label}
-            {item.term && <InfoHint term={item.term} />}
-          </dt>
-          <dd className="min-w-0 text-sm [overflow-wrap:anywhere]">{item.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div className={cn("@container min-w-0", className)}>
+      <dl className={cn("grid gap-x-8 gap-y-3", columns === 2 && "@2xl:grid-cols-2")}>
+        {items.map((item, i) => (
+          <div
+            key={i}
+            className="grid min-w-0 gap-1 @sm:grid-cols-[minmax(120px,160px)_minmax(0,1fr)] @sm:gap-4"
+          >
+            <dt className="flex items-center gap-1 text-sm text-muted">
+              {item.label}
+              {item.term && <InfoHint term={item.term} />}
+            </dt>
+            <dd className="min-w-0 text-sm [overflow-wrap:anywhere]">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

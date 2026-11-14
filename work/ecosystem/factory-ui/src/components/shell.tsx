@@ -1,5 +1,12 @@
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { Icon, type IconName } from "../icons.js";
 import { cn, focusRing, Link, useTheme, type ThemePreference } from "../lib.js";
 import { ProjectPicker, type ProjectOption } from "./combobox.js";
@@ -132,16 +139,46 @@ function AppSwitcher({ apps, currentApp }: { apps: readonly AppLink[]; currentAp
   );
 }
 
+/** Whether a scroller's content is wider than it is: tabs that would be cut off. */
+function useOverflowing(ref: RefObject<HTMLElement | null>, key: string): boolean {
+  const [over, setOver] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setOver(el.scrollWidth > el.clientWidth + 1);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, key]);
+  return over;
+}
+
 function TabStrip({
   tabs,
   activeTabId,
+  listRef,
+  overflowing,
 }: {
   tabs: readonly NavTab[];
   activeTabId?: string | undefined;
+  listRef: RefObject<HTMLUListElement | null>;
+  overflowing: boolean;
 }) {
   return (
-    <nav aria-label="Project pages" className="min-w-0 flex-1 self-stretch max-sm:hidden">
-      <ul className="flex h-full items-stretch gap-1 overflow-x-auto [scrollbar-width:none]">
+    <nav
+      aria-label="Project pages"
+      // Tabs that do not fit would be cut off with no way to reach them: the strip keeps its
+      // space (so it can measure when they fit again) and the page menu takes over.
+      // visibility:hidden also takes its links out of the tab order and the accessibility tree.
+      style={overflowing ? { visibility: "hidden" } : undefined}
+      className="min-w-0 flex-1 self-stretch max-sm:hidden"
+    >
+      <ul
+        ref={listRef}
+        className="flex h-full items-stretch gap-1 overflow-x-auto [scrollbar-width:none]"
+      >
         {tabs.map((t, i) => {
           const active = t.id === activeTabId;
           const newGroup = i > 0 && t.group !== tabs[i - 1]!.group;
@@ -179,13 +216,16 @@ function TabStrip({
 function PageMenu({
   tabs,
   activeTabId,
+  always = false,
 }: {
   tabs: readonly NavTab[];
   activeTabId?: string | undefined;
+  /** Shown at any width (the tab strip does not fit). */
+  always?: boolean;
 }) {
   const active = tabs.find((t) => t.id === activeTabId);
   return (
-    <div className="ml-auto sm:hidden">
+    <div className={cn("ml-auto shrink-0", !always && "sm:hidden")}>
       <Menu.Root>
         <Menu.Trigger
           aria-label={`Project pages (current: ${active?.label ?? "none"})`}
@@ -266,6 +306,8 @@ export function TopBar({
   activeTabId,
   primaryAction,
 }: TopBarProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const overflowing = useOverflowing(listRef, tabs.map((t) => t.id).join());
   return (
     <header className="sticky top-0 z-[var(--z-bar)] border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85">
       <div className="flex h-topbar items-center gap-2 px-3 sm:gap-3 sm:px-4">
@@ -282,8 +324,13 @@ export function TopBar({
             disabledReason={projectPickerDisabledReason}
           />
         </div>
-        <TabStrip tabs={tabs} activeTabId={activeTabId} />
-        <PageMenu tabs={tabs} activeTabId={activeTabId} />
+        <TabStrip
+          tabs={tabs}
+          activeTabId={activeTabId}
+          listRef={listRef}
+          overflowing={overflowing}
+        />
+        <PageMenu tabs={tabs} activeTabId={activeTabId} always={overflowing} />
         {primaryAction && <div className="shrink-0 max-sm:hidden">{primaryAction}</div>}
       </div>
     </header>
