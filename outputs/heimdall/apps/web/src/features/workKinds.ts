@@ -3,7 +3,12 @@
 type R = Record<string, any>;
 
 /** The work kinds this UI labels; checked against @factory/docs in a test. */
-export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export const WORK_KINDS = [
+  "change",
+  "research",
+  "pr_review",
+  "proposal",
+] as const;
 export type WorkKind = (typeof WORK_KINDS)[number];
 /** Decisions a research document can carry; checked against @factory/docs in a test. */
 export const RESEARCH_DECISIONS = ["accepted", "rejected"] as const;
@@ -30,6 +35,11 @@ const LABELS: Record<
     text: "PR review",
     tone: "forest",
     hint: "A local review of a GitHub pull request",
+  },
+  proposal: {
+    text: "Plan",
+    tone: "accent",
+    hint: "A proposal and engineering appendix planned from pasted text",
   },
 };
 
@@ -348,7 +358,7 @@ export const researchChecksPassed = (research: R | null | undefined): boolean =>
 export function pendingDocuments(deliveries: R[]): R[] {
   return deliveries.filter((d) => {
     const w: WorkSummary | undefined = d.work;
-    if (w?.kind === "research") return !w.decision;
+    if (w?.kind === "research" || w?.kind === "proposal") return !w.decision;
     if (w?.kind === "pr_review") return !w.posted;
     return false;
   });
@@ -360,6 +370,10 @@ export function documentWaiting(work: WorkSummary | null | undefined): string {
     return work.gatePassed === true
       ? "Accept or reject"
       : "Reject or ask a follow-up (checks failed)";
+  if (work?.kind === "proposal")
+    return work.gatePassed === true
+      ? "Accept, reject or revise"
+      : "Reject or revise (checks failed)";
   return `Posting in Sindri · ${verdictLabel(work?.verdict)}`;
 }
 
@@ -381,4 +395,140 @@ export function commandErrorText(e: {
   if (e.code === "pr_changed_since_plan")
     return `The pull request changed since this review was planned (planned at ${shortSha(d.planHead)}, now at ${shortSha(d.currentHead)}). Import the pull request again to review the new commits.`;
   return e.message;
+}
+
+/** Sindri's limits on a plan request (MAX_PROPOSAL_TEXT_CHARS, MAX_PROPOSAL_REFERENCES). */
+export const PLAN_TEXT_MAX_CHARS = 200_000;
+export const PLAN_REFERENCES_MAX = 8;
+
+export interface DetectedProject {
+  projectId: string;
+  name: string;
+  mentions: number;
+  /** Named only by an everyday word ("frontend"), so suggested rather than assumed. */
+  weak: boolean;
+}
+
+/** Single words as likely to mean the thing as the project (Sindri's detect-projects GENERIC). */
+const GENERIC = new Set(
+  (
+    "admin api app apps backend cli client common core dashboard data docs frontend infra " +
+    "infrastructure internal lib mobile platform scripts sdk server service shared site tools " +
+    "ui utils web website worker"
+  ).split(" "),
+);
+const nameWords = (name: string) =>
+  name
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[\s\-_.]+/)
+    .map((w) => w.toLowerCase())
+    .filter(Boolean);
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const folderOf = (path: unknown) =>
+  typeof path === "string"
+    ? (path.split("/").filter(Boolean).at(-1) ?? "")
+    : "";
+
+/**
+ * Which projects a pasted text names, by name, folder or alias, most mentioned first. The same
+ * rules as Sindri's `detectProjects` (packages/intake/src/detect-projects.ts); suggestions only.
+ */
+export function detectProjects(text: string, projects: R[]): DetectedProject[] {
+  const found: (DetectedProject & { first: number })[] = [];
+  for (const p of projects) {
+    const aliases: unknown = p.settings?.aliases ?? p.aliases;
+    const terms = [
+      ...new Set(
+        [
+          p.name,
+          folderOf(p.repoPath),
+          ...(Array.isArray(aliases) ? aliases : []),
+        ].filter((t): t is string => typeof t === "string" && t.length > 0),
+      ),
+    ];
+    const positions = new Set<number>();
+    let weak = true;
+    for (const term of terms) {
+      const parts = nameWords(term);
+      if (parts.join("").length < 3) continue;
+      const re = new RegExp(
+        `\\b${parts.map(escapeRe).join("[\\s\\-_]?")}\\b`,
+        "gi",
+      );
+      let hit = false;
+      for (const m of text.matchAll(re)) {
+        positions.add(m.index ?? 0);
+        hit = true;
+      }
+      if (hit && !(parts.length === 1 && GENERIC.has(parts[0]!))) weak = false;
+    }
+    if (positions.size)
+      found.push({
+        projectId: String(p.id),
+        name: String(p.name ?? p.id),
+        mentions: positions.size,
+        weak,
+        first: Math.min(...positions),
+      });
+  }
+  return found
+    .sort((a, b) => b.mentions - a.mentions || a.first - b.first)
+    .map(({ first: _first, ...d }) => d);
+}
+
+export interface PlanInput {
+  /** The request's own project (where the plan lives). */
+  projectId: string;
+  title: string;
+  text: string;
+  /** Other projects the plan reads, besides the request's own. */
+  referenceProjectIds: string[];
+  web: boolean;
+  localOnly?: boolean;
+  factCheck: boolean;
+  notes: string;
+  skillIds: string[];
+}
+
+/** Why the plan form cannot be sent yet; "" when it can. */
+export function planBlock(f: PlanInput): string {
+  if (!f.projectId) return "Choose the project the plan belongs to.";
+  if (!f.text.trim()) return "Paste the text to plan from.";
+  if (f.text.length > PLAN_TEXT_MAX_CHARS)
+    return `The text is ${f.text.length.toLocaleString("en-US")} characters; the limit is ${PLAN_TEXT_MAX_CHARS.toLocaleString("en-US")}.`;
+  if (f.title.trim().length > QUESTION_MAX_CHARS)
+    return `Keep the title to ${QUESTION_MAX_CHARS} characters.`;
+  const others = f.referenceProjectIds.filter((id) => id !== f.projectId);
+  if (others.length > PLAN_REFERENCES_MAX)
+    return `Choose at most ${PLAN_REFERENCES_MAX} other projects (${others.length} selected).`;
+  if (utf8Bytes(f.notes) > REQUEST_NOTES_MAX_BYTES)
+    return "Notes are too long.";
+  return tooManySkills(f.skillIds);
+}
+
+/** The first non-empty line of the text, as a title when none is given. */
+export const planTitleOf = (f: Pick<PlanInput, "title" | "text">): string =>
+  f.title.trim() ||
+  (
+    f.text
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean) ?? "Plan"
+  ).slice(0, 120);
+
+export function planBody(f: PlanInput): R {
+  return {
+    projectId: f.projectId,
+    title: planTitleOf(f),
+    body: f.text,
+    workKind: "proposal",
+    proposal: {
+      referenceProjectIds: [...new Set(f.referenceProjectIds)].filter(
+        (id) => id !== f.projectId,
+      ),
+      sources: { code: true, web: f.web && !f.localOnly },
+      factCheck: f.factCheck,
+    },
+    ...guidance(f.notes, f.skillIds),
+  };
 }

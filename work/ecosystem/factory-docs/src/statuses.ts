@@ -319,6 +319,12 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
         "PR review",
         "A review of a GitHub pull request. Ends when you post it to GitHub, or leave it local.",
       ),
+      v(
+        "proposal",
+        "Plan",
+        "A proposal and engineering appendix planned from pasted text. Ends when you accept or reject it.",
+        "Revise turns your feedback into a new plan over the same projects.",
+      ),
     ],
   },
   {

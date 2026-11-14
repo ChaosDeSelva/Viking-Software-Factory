@@ -2,7 +2,7 @@
 // Enums are open (`string & {}`): an unknown value from a newer server must render, never throw.
 
 /** The work kinds this UI labels (`WorkKindBadge`); checked against @factory/docs in a test. */
-export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export const WORK_KINDS = ["change", "research", "pr_review", "proposal"] as const;
 export type WorkKind = (typeof WORK_KINDS)[number];
 /** Decisions a research document can carry; checked against @factory/docs in a test. */
 export const RESEARCH_DECISIONS = ["accepted", "rejected"] as const;

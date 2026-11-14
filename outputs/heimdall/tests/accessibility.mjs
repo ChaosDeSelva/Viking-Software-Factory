@@ -59,6 +59,11 @@ const WORK_STATES = [
   ["New work: research", kindForm("Research", "Save and draft spec")],
   ["New work: PR review", kindForm("Review a PR", "Review pull request import")],
   ["Inspector: research document", delivery("exe_research", "Research document")],
+  ["New work: plan from text", kindForm("Plan from text", "Save and draft spec")],
+  ["Inspector: plan", async () => {
+    await delivery("exe_plan", "Plan")();
+    await page.getByRole("dialog").getByLabel("Diagram").first().waitFor();
+  }],
   ["Inspector: PR review", async () => {
     await delivery("exe_review", "Leak check")();
     await page.getByRole("dialog").getByText("Posting is blocked").waitFor();

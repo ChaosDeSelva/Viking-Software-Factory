@@ -13,6 +13,7 @@ import {
   KeyValue,
   ResearchDoc,
   Stack,
+  Tabs,
   Textarea,
   Timestamp,
   cn,
@@ -25,6 +26,7 @@ import { Reasons, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { sindriDeliveryHref } from "../lib/apps";
 import { useDetail, WorkKindBadge } from "./WorkForms";
+import { renderDiagrams } from "../components/Mermaid";
 import {
   docSources,
   leakCheckOf,
@@ -370,6 +372,321 @@ export function ResearchView({
         />
         <Failures failures={research.gate?.failures} />
         {research.factCheck && (
+          <FindingsTable
+            findings={factFindings}
+            caption="Fact-check findings"
+            emptyText="The fact-check found nothing to correct."
+          />
+        )}
+      </Block>
+      <GuidanceUsed guidance={report.guidance} />
+    </Stack>
+  );
+}
+
+/** Whether a plan's own checks passed: every project's findings, the writer's documents, the check. */
+export function planChecksPassed(plan: R): boolean {
+  const findings: R[] = Array.isArray(plan.findings) ? plan.findings : [];
+  return (
+    plan.gate?.passed === true &&
+    findings.every((f) => f.gate?.passed === true) &&
+    (plan.factCheck == null || plan.factCheck.gatePassed !== false)
+  );
+}
+
+const download = (name: string, markdown: string) => {
+  const url = URL.createObjectURL(
+    new Blob([markdown], { type: "text/markdown" }),
+  );
+  const a = Object.assign(document.createElement("a"), {
+    href: url,
+    download: name,
+  });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+/**
+ * A plan from text: the readable proposal and its engineering appendix (diagrams drawn), each
+ * project's findings, the checks, and the decision (accept, reject or revise).
+ */
+export function ProposalView({
+  executionId,
+  report,
+}: {
+  executionId: string;
+  report: R;
+}) {
+  const { session, propose, notify } = useHeimdall();
+  const plan: R = report.proposal ?? {};
+  const [feedback, setFeedback] = useState("");
+  const sources = docSources(plan.sources);
+  const decision: R | null = plan.decision ?? null;
+  const proposal: string | null = plan.proposal?.markdown ?? null;
+  const engineering: string | null = plan.engineering?.markdown ?? null;
+  const findings: R[] = Array.isArray(plan.findings) ? plan.findings : [];
+  const checksFailed = !planChecksPassed(plan);
+  const access = actionBlock("research.accept", undefined, session);
+  const decided = decision ? `This plan was already ${decision.decision}.` : "";
+  const rejectWhy = access || decided;
+  const acceptWhy =
+    rejectWhy || (checksFailed ? "The quality checks have not passed." : "");
+  const reviseWhy =
+    actionBlock("research.followUp", undefined, session) ||
+    (feedback.trim() ? "" : "Say what to change first.");
+  const factFindings = tableFindings(plan.factCheck?.findings, "fc");
+  const copy = (markdown: string, what: string) =>
+    void navigator.clipboard.writeText(markdown).then(
+      () => notify(`Copied the ${what}.`, "success"),
+      () => notify("The clipboard is not available here.", "warning"),
+    );
+  const doc = (
+    markdown: string | null,
+    name: string,
+    what: string,
+    empty: string,
+  ) =>
+    markdown ? (
+      <Stack gap={3}>
+        <Cluster gap={2}>
+          <Button
+            size="sm"
+            variant="secondary"
+            icon="copy"
+            onClick={() => copy(markdown, what)}
+          >
+            Copy as Markdown
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => download(name, markdown)}
+          >
+            Download {name}
+          </Button>
+        </Cluster>
+        <div className="rounded-md border border-line p-4">
+          <ResearchDoc
+            markdown={markdown}
+            sources={sources}
+            renderCode={renderDiagrams}
+          />
+        </div>
+      </Stack>
+    ) : (
+      <Callout tone="warning">{empty}</Callout>
+    );
+  const projectName = (f: R) =>
+    f.project ? String(f.project) : "This project";
+  return (
+    <Stack gap={6}>
+      <Block title="Plan">
+        <Cluster gap={2}>
+          {decision ? (
+            <Badge
+              tone={decision.decision === "accepted" ? "forest" : "danger"}
+            >
+              {decision.decision === "accepted" ? "Accepted" : "Rejected"}
+            </Badge>
+          ) : (
+            <Badge tone="warning">Awaiting your decision</Badge>
+          )}
+          <Badge tone="neutral">
+            {findings.length} {findings.length === 1 ? "project" : "projects"}{" "}
+            researched
+          </Badge>
+        </Cluster>
+        {decision && (
+          <KeyValue
+            items={[
+              {
+                label: "Decided",
+                value: (
+                  <span className="[overflow-wrap:anywhere]">
+                    {decision.actor}
+                    {decision.decidedAt ? (
+                      <>
+                        , <Timestamp value={decision.decidedAt} />
+                      </>
+                    ) : null}
+                    {decision.reason ? ` · ${decision.reason}` : ""}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        )}
+        <DrawerActions>
+          {decision ? (
+            <p className="text-sm text-muted">{decided}</p>
+          ) : (
+            <>
+              {checksFailed && (
+                <Button
+                  variant="secondary"
+                  disabledReason={
+                    actionBlock("execution.assess", undefined, session) ||
+                    undefined
+                  }
+                  onClick={() => propose("execution.assess", executionId, {})}
+                >
+                  Re-run quality checks
+                </Button>
+              )}
+              <div className="flex w-full gap-2 [&>*]:flex-1">
+                <Button
+                  variant="primary"
+                  disabledReason={acceptWhy || undefined}
+                  onClick={() =>
+                    propose("research.accept", executionId, {
+                      reason: "",
+                      document: "plan",
+                    })
+                  }
+                >
+                  Accept plan
+                </Button>
+                <Button
+                  variant="danger"
+                  disabledReason={rejectWhy || undefined}
+                  onClick={() =>
+                    propose("research.reject", executionId, {
+                      reason: "",
+                      document: "plan",
+                    })
+                  }
+                >
+                  Reject plan
+                </Button>
+              </div>
+              <Reasons reasons={[acceptWhy, rejectWhy]} />
+            </>
+          )}
+        </DrawerActions>
+        <Disclosure title="Revise the plan">
+          <Stack gap={3}>
+            <Field
+              label="What to change"
+              hint="Starts a new plan over the same projects. Its writer gets this plan, its appendix and the fact-check to revise."
+            >
+              <Textarea
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+              />
+            </Field>
+            <div>
+              <Button
+                variant="secondary"
+                disabledReason={reviseWhy || undefined}
+                onClick={() =>
+                  propose(
+                    "research.followUp",
+                    executionId,
+                    { question: feedback.trim(), document: "plan" },
+                    {},
+                    { onSuccess: () => setFeedback("") },
+                  )
+                }
+              >
+                Revise
+              </Button>
+            </div>
+            <Reasons reasons={[reviseWhy]} />
+          </Stack>
+        </Disclosure>
+      </Block>
+      <Tabs
+        label="Plan documents"
+        items={[
+          {
+            value: "proposal",
+            label: "Proposal",
+            content: doc(
+              proposal,
+              "proposal.md",
+              "proposal",
+              "No proposal was recorded for this run.",
+            ),
+          },
+          {
+            value: "engineering",
+            label: "Engineering appendix",
+            content: doc(
+              engineering,
+              "engineering.md",
+              "engineering appendix",
+              "No engineering appendix was recorded for this run.",
+            ),
+          },
+          {
+            value: "findings",
+            label: "Findings",
+            count: findings.length,
+            content: (
+              <Stack gap={3}>
+                {findings.map((f) => (
+                  <Disclosure key={String(f.planTaskId)} title={projectName(f)}>
+                    <Stack gap={2}>
+                      {f.gate && (
+                        <Status
+                          value={f.gate.passed ? "passed" : "failed"}
+                          domain="gate"
+                        />
+                      )}
+                      <Failures failures={f.gate?.failures} />
+                      {f.document?.markdown ? (
+                        <ResearchDoc
+                          markdown={String(f.document.markdown)}
+                          sources={[]}
+                          renderCode={renderDiagrams}
+                        />
+                      ) : (
+                        <p className="text-sm text-muted">
+                          No findings were recorded.
+                        </p>
+                      )}
+                    </Stack>
+                  </Disclosure>
+                ))}
+              </Stack>
+            ),
+          },
+        ]}
+      />
+      <Block title="Checks">
+        <KeyValue
+          items={[
+            {
+              label: "Documents",
+              value: plan.gate ? (
+                <Status
+                  value={plan.gate.passed ? "passed" : "failed"}
+                  domain="gate"
+                />
+              ) : (
+                "Not reported"
+              ),
+            },
+            {
+              label: "Fact-check",
+              value: plan.factCheck ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>{verdictLabel(plan.factCheck.verdict)}</span>
+                  {typeof plan.factCheck.gatePassed === "boolean" && (
+                    <Status
+                      value={plan.factCheck.gatePassed ? "passed" : "failed"}
+                      domain="gate"
+                    />
+                  )}
+                </span>
+              ) : (
+                "Off for this plan"
+              ),
+            },
+          ]}
+        />
+        <Failures failures={plan.gate?.failures} />
+        {plan.factCheck && (
           <FindingsTable
             findings={factFindings}
             caption="Fact-check findings"

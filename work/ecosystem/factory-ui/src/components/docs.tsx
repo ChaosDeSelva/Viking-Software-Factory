@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Icon } from "../icons.js";
 import { cn, focusRing, headingSlug, Link } from "../lib.js";
 import { ArchitectureDiagram } from "./architecture.js";
@@ -87,8 +95,22 @@ function headingId(text: string, seen: Map<string, number>): string {
   return n === 0 ? base : `${base}-${n}`;
 }
 
+/**
+ * Renders one fenced code block instead of the default `<pre>`; `undefined` keeps the default.
+ * Apps use it for diagrams (```mermaid) without this package depending on a renderer.
+ */
+export type CodeRenderer = (lang: string, code: string) => ReactNode | undefined;
+
 /** Small, safe Markdown renderer for docs and guide answers (no raw HTML). */
-export function Markdown({ source, className }: { source: string; className?: string }) {
+export function Markdown({
+  source,
+  className,
+  renderCode,
+}: {
+  source: string;
+  className?: string;
+  renderCode?: CodeRenderer | undefined;
+}) {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
   const blocks: ReactNode[] = [];
   let i = 0;
@@ -114,8 +136,13 @@ export function Markdown({ source, className }: { source: string; className?: st
         blocks.push(<ArchitectureDiagram key={key} />);
         continue;
       }
+      const custom = renderCode?.(lang, body.join("\n"));
+      if (custom !== undefined) {
+        blocks.push(<Fragment key={key}>{custom}</Fragment>);
+        continue;
+      }
       blocks.push(
-        <pre key={key}>
+        <pre key={key} data-lang={lang || undefined}>
           <code>{body.join("\n")}</code>
         </pre>,
       );
@@ -222,6 +249,8 @@ export interface ResearchDocProps {
   hidePrivate?: boolean | undefined;
   fileHref?: ((ref: string) => string | undefined) | undefined;
   className?: string | undefined;
+  /** See `Markdown`'s `renderCode`. */
+  renderCode?: CodeRenderer | undefined;
 }
 
 export const isPrivateSource = (s: ResearchSource) => s.private === true || s.kind === "lesson";
@@ -366,6 +395,7 @@ export function ResearchDoc({
   hidePrivate = false,
   fileHref,
   className,
+  renderCode,
 }: ResearchDocProps) {
   const headingId = useId();
   const listed = sources
@@ -378,6 +408,7 @@ export function ResearchDoc({
         source={
           hidePrivate ? stripPrivateCitations(markdown, sources) : withoutSourcesSection(markdown)
         }
+        renderCode={renderCode}
       />
       {listed.length > 0 && (
         <section aria-labelledby={headingId} className="border-t border-line pt-4">

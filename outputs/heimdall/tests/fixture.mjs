@@ -373,11 +373,12 @@ export async function fixture() {
           }
           if (req.headers["x-sindri-approval"] !== "sindri-human-secret")
             return answer(403, { error: { code: "approval_required", message: "approvals need a valid approval secret" } });
-          if (report.research.decision)
+          const doc = report.research ?? report.proposal;
+          if (doc.decision)
             return answer(409, {
-              error: { code: "already_decided", message: "this document was already decided", details: { decision: report.research.decision } },
+              error: { code: "already_decided", message: "this document was already decided", details: { decision: doc.decision } },
             });
-          report.research.decision = {
+          doc.decision = {
             decision: decide[2] === "accept" ? "accepted" : "rejected",
             actor: "web",
             reason: input.reason ?? null,
@@ -800,12 +801,18 @@ export function installWorkKinds(source) {
     work: { kind },
     tasks: [],
   });
-  flow.plans.push(plan("pln_res", "research"), plan("pln_rev", "pr_review"), plan("pln_odd", "audit"));
+  flow.plans.push(
+    plan("pln_res", "research"),
+    plan("pln_rev", "pr_review"),
+    plan("pln_odd", "audit"),
+    plan("pln_plan", "proposal"),
+  );
   const delivery = (id, planId) => ({ id, executionId: id, projectId: "prj_demo", planId, status: "verified_pending_review" });
   flow.deliveries.push(
     delivery("exe_research", "pln_res"),
     delivery("exe_review", "pln_rev"),
     delivery("exe_odd", "pln_odd"),
+    delivery("exe_plan", "pln_plan"),
   );
   flow.intakes.push({ id: "int_odd", projectId: "prj_demo", title: "Mystery intake", body: "", workKind: "audit" });
   source.work = {
@@ -878,6 +885,68 @@ export function installWorkKinds(source) {
         },
       },
       exe_odd: { workKind: "audit", projectId: "prj_demo" },
+      exe_plan: {
+        workKind: "proposal",
+        projectId: "prj_demo",
+        proposal: {
+          proposal: {
+            markdown: [
+              "# Totals export plan",
+              "Three weeks, a demo every Friday.",
+              "## Why",
+              "Finance re-keys totals by hand [1].",
+              "## Goal",
+              "Export invoice totals to the ledger.",
+              "```mermaid",
+              "flowchart LR",
+              "  App[Invoice library] --> Export[Totals export] --> Ledger[Ledger app]",
+              "```",
+              "## Tickets",
+              "### Ticket 0 (spike): settle the format",
+              "- Read the ledger's import format",
+              "- Decide CSV or API",
+              "### Ticket 1: export totals",
+              "- [ ] Add the export command (S, Invoice library)",
+              "```mermaid",
+              "gantt",
+              "  title Weeks",
+              "  dateFormat YYYY-MM-DD",
+              "  Spike :a1, 2026-11-16, 5d",
+              "  Export :a2, after a1, 5d",
+              "```",
+              "## Sources",
+              "1. src/total.ts:4",
+            ].join("\n\n"),
+            artifactId: "art_plan",
+            taskId: "tsk_w",
+          },
+          engineering: {
+            markdown: "## Findings by project\n\n### Invoice library\n\nTotals are computed in src/total.ts [1].\n\n## Open questions\n\nNone.\n\n## Sources\n\n1. src/total.ts:4\n",
+            artifactId: "art_eng",
+            taskId: "tsk_w",
+          },
+          sources: [{ id: "1", kind: "file", ref: "src/total.ts:4" }],
+          findings: [
+            {
+              planTaskId: "research",
+              project: null,
+              slug: null,
+              document: { markdown: "## Answer\n\nTotals live in src/total.ts.\n", artifactId: "art_f1", taskId: "tsk_r" },
+              gate: { passed: true, failures: [] },
+            },
+            {
+              planTaskId: "research-ledger-app",
+              project: "Ledger app",
+              slug: "ledger-app",
+              document: { markdown: "## Answer\n\nThe ledger imports CSV.\n", artifactId: "art_f2", taskId: "tsk_r2" },
+              gate: { passed: true, failures: [] },
+            },
+          ],
+          gate: { passed: true, failures: [] },
+          factCheck: null,
+          decision: null,
+        },
+      },
     },
     previews: {
       exe_review: {

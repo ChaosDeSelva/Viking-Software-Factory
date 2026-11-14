@@ -41,7 +41,11 @@ import {
   scopeOf,
 } from "../features/scope";
 import { PlanEditor, SpecEditor } from "../features/Workflow";
-import { PrReviewView, ResearchView } from "../features/WorkDelivery";
+import {
+  PrReviewView,
+  ProposalView,
+  ResearchView,
+} from "../features/WorkDelivery";
 import { WorkKindBadge } from "../features/WorkForms";
 import { kindOf } from "../features/workKinds";
 import {
@@ -1407,11 +1411,16 @@ export function Inspector({
     kind === "deliveries"
       ? (details?.report?.workKind ?? kindOf(row, s.plans ?? [], executions))
       : undefined;
-  const workView = workKind === "research" || workKind === "pr_review";
+  const workView =
+    workKind === "research" ||
+    workKind === "pr_review" ||
+    workKind === "proposal";
   if (kind === "deliveries" && workView) {
     const report = details?.report;
     if (report?.workKind === "research")
       add("research", <ResearchView executionId={id} report={report} />);
+    else if (report?.workKind === "proposal")
+      add("plan", <ProposalView executionId={id} report={report} />);
     else if (report?.workKind === "pr_review")
       add(
         "review",

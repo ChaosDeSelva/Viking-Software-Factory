@@ -96,7 +96,7 @@ export function executionStatuses(db: SqliteDatabase): { id: string; status: str
 /** The state of a delivery's work, for lists (see `deliveryWork`). */
 export interface DeliveryWork {
   title: string | null;
-  /** Research only: the accept or reject decision. */
+  /** Research and plans (proposals) only: the accept or reject decision. */
   decision: "accepted" | "rejected" | null;
   /** PR reviews only: the review was posted to GitHub. */
   posted: boolean;
@@ -112,8 +112,9 @@ type PlanBits = {
   specId?: string;
   tasks?: { id: string }[];
   work?: {
-    kind?: "change" | "research" | "pr_review";
+    kind?: "change" | "research" | "pr_review" | "proposal";
     research?: { question?: string };
+    proposal?: { text?: string };
     prReview?: { title?: string; url?: string };
   };
 };
@@ -126,10 +127,10 @@ type PlanBits = {
 export function deliveriesWork(
   db: SqliteDatabase,
   executionIds: readonly string[],
-): Map<string, { workKind: "change" | "research" | "pr_review"; work: DeliveryWork }> {
+): Map<string, { workKind: "change" | "research" | "pr_review" | "proposal"; work: DeliveryWork }> {
   const out = new Map<
     string,
-    { workKind: "change" | "research" | "pr_review"; work: DeliveryWork }
+    { workKind: "change" | "research" | "pr_review" | "proposal"; work: DeliveryWork }
   >();
   if (executionIds.length === 0) return out;
   const tables = new Set(
@@ -214,6 +215,14 @@ export function deliveriesWork(
     };
     if (workKind === "research") {
       work.title = plan.work?.research?.question?.split("\n")[0]?.slice(0, 300) ?? null;
+      work.decision = decisions.get(e.id) ?? null;
+    } else if (workKind === "proposal") {
+      work.title =
+        (plan.specId && specTitle
+          ? (specTitle.get(plan.specId) as { title: string } | undefined)?.title
+          : undefined) ??
+        plan.work?.proposal?.text?.split("\n")[0]?.slice(0, 300) ??
+        null;
       work.decision = decisions.get(e.id) ?? null;
     } else if (workKind === "pr_review") {
       work.title = plan.work?.prReview?.title?.slice(0, 300) ?? null;

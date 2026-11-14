@@ -29,7 +29,12 @@ import { navigate } from "../lib/router";
 import { LearnMore, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { AccessCallout } from "./AccessCallout";
-import { PrReviewForm, ResearchForm, WorkKindBadge } from "./WorkForms";
+import {
+  PlanForm,
+  PrReviewForm,
+  ResearchForm,
+  WorkKindBadge,
+} from "./WorkForms";
 import { kindOf } from "./workKinds";
 import {
   actionBlock,
@@ -216,8 +221,12 @@ export function NewWorkPage() {
                 { value: "change", label: "Change" },
                 { value: "research", label: "Research" },
                 { value: "pr_review", label: "Review a PR" },
+                { value: "proposal", label: "Plan from text" },
               ]}
             />
+            {workKind === "proposal" && (
+              <PlanForm key={project} projectId={project} projects={projects} />
+            )}
             {workKind === "research" && (
               <ResearchForm key={project} projectId={project} />
             )}

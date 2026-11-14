@@ -5,6 +5,11 @@ const LABELS: Record<WorkKind, { text: string; tone: "neutral" | "info" | "ok"; 
   change: { text: "Change", tone: "neutral", hint: "A code change delivered as a patch" },
   research: { text: "Research", tone: "info", hint: "A research document with cited sources" },
   pr_review: { text: "PR review", tone: "ok", hint: "A local review of a GitHub pull request" },
+  proposal: {
+    text: "Plan",
+    tone: "info",
+    hint: "A proposal and engineering appendix planned from pasted text",
+  },
 };
 
 export const isWorkKind = (k: unknown): k is WorkKind =>

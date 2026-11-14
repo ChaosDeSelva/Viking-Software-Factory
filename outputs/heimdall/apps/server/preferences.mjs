@@ -14,8 +14,13 @@ export function validatePreferences(value) {
     throw Error("Preferences must be an object");
   const result = {};
   if (value.archivedProjects !== undefined) {
-    if (!Array.isArray(value.archivedProjects) || value.archivedProjects.length > 1000 ||
-      value.archivedProjects.some(id => typeof id !== "string" || !/^[\w-]{1,200}$/.test(id)))
+    if (
+      !Array.isArray(value.archivedProjects) ||
+      value.archivedProjects.length > 1000 ||
+      value.archivedProjects.some(
+        (id) => typeof id !== "string" || !/^[\w-]{1,200}$/.test(id),
+      )
+    )
       throw Error("Invalid archived project identifiers");
     result.archivedProjects = [...new Set(value.archivedProjects)];
   }
@@ -71,7 +76,14 @@ export function validatePreferences(value) {
   }
   if (
     Object.keys(value).some(
-      (k) => !["theme", "desktopNotifications", "stages", "graphs", "archivedProjects"].includes(k),
+      (k) =>
+        ![
+          "theme",
+          "desktopNotifications",
+          "stages",
+          "graphs",
+          "archivedProjects",
+        ].includes(k),
     )
   )
     throw Error("Unknown preference");

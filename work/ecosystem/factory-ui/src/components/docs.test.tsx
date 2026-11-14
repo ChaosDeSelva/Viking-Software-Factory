@@ -355,3 +355,19 @@ describe("citation numbers follow source ids", () => {
     expect(items[1]?.getAttribute("value")).toBe("2");
   });
 });
+
+describe("Markdown code renderers", () => {
+  it("lets the app render a fenced block, and keeps the default when it declines", () => {
+    const { container } = render(
+      <Markdown
+        source={"```mermaid\nflowchart LR\n  A --> B\n```\n\n```text\nplain\n```"}
+        renderCode={(lang, code) =>
+          lang === "mermaid" ? <figure data-testid="diagram">{code}</figure> : undefined
+        }
+      />,
+    );
+    expect(screen.getByTestId("diagram").textContent).toContain("A --> B");
+    expect(container.querySelector('pre[data-lang="text"]')?.textContent).toBe("plain");
+    expect(container.querySelector('pre[data-lang="mermaid"]')).toBeNull();
+  });
+});
