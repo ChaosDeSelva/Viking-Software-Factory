@@ -84,6 +84,11 @@ export function workDetail(path) {
   if (preview) return `/v1/executions/${preview[1]}/review/preview`;
   return null;
 }
+/** How long a sign-in lasts without use; using Heimdall renews it. */
+const SESSION_MS = 7 * 24 * 3600000;
+const sessionCookie = (name, sid) =>
+  `${name}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_MS / 1000}`;
+
 export async function startHeimdall(options = {}) {
   const env = options.env ?? process.env,
     port = Number(env.HEIMDALL_PORT ?? 4320);
@@ -115,13 +120,45 @@ export async function startHeimdall(options = {}) {
         };
       else delete connections[name];
     }
+  // The access token, operator code and signed-in sessions survive a restart (an update, a
+  // reboot), so restarting never signs anyone out. Both files are owner-only: they are secrets.
+  const authFile = join(dataDir, "auth.json"),
+    sessionFile = join(dataDir, "sessions.json");
+  const writePrivate = (file, value) => {
+    const temporary = file + ".tmp";
+    writeFileSync(temporary, JSON.stringify(value), { mode: 0o600 });
+    chmodSync(temporary, 0o600);
+    renameSync(temporary, file);
+  };
+  const readPrivate = (file) => {
+    try {
+      return JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const saved = readPrivate(authFile) ?? {};
   const store = new Store(dataDir),
     clients = new Map(),
-    sessions = new Map(),
+    sessions = new Map(
+      Object.entries(readPrivate(sessionFile) ?? {}).filter(
+        ([, s]) => s && typeof s.expires === "number" && s.expires > Date.now(),
+      ),
+    ),
     inFlight = new Set();
+  const saveSessions = () =>
+    writePrivate(sessionFile, Object.fromEntries(sessions));
   // An empty value would match an empty submission, so it counts as not set.
-  const token = env.HEIMDALL_TOKEN || randomBytes(24).toString("base64url"),
-    operatorCode = options.operatorCode || randomBytes(8).toString("hex");
+  const token =
+      env.HEIMDALL_TOKEN ||
+      (typeof saved.token === "string" && saved.token) ||
+      randomBytes(24).toString("base64url"),
+    operatorCode =
+      options.operatorCode ||
+      (typeof saved.operatorCode === "string" && saved.operatorCode) ||
+      randomBytes(8).toString("hex");
+  if (saved.token !== token || saved.operatorCode !== operatorCode)
+    writePrivate(authFile, { token, operatorCode });
   let timer;
   let closing = false;
   const broadcast = () => {
@@ -226,14 +263,12 @@ export async function startHeimdall(options = {}) {
           if (s.expires < Date.now()) sessions.delete(id);
         const sid = randomBytes(32).toString("base64url");
         sessions.set(sid, {
-          expires: Date.now() + 12 * 3600000,
+          expires: Date.now() + SESSION_MS,
           operator: false,
           approvalSecret: null,
         });
-        res.setHeader(
-          "set-cookie",
-          `${cookieName}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=43200`,
-        );
+        saveSessions();
+        res.setHeader("set-cookie", sessionCookie(cookieName, sid));
         return json(res, 200, { ok: true });
       }
       const sid = new RegExp(`(?:^|;\\s*)${cookieName}=([^;]+)`).exec(
@@ -241,14 +276,21 @@ export async function startHeimdall(options = {}) {
       )?.[1];
       const session = sessions.get(sid);
       if (!session || session.expires < Date.now()) {
-        sessions.delete(sid);
+        if (sessions.delete(sid)) saveSessions();
         throw Object.assign(
           Error("Sign in with the access token printed in the launcher."),
           { status: 401 },
         );
       }
+      // Sliding expiry: a session in use is renewed (at most daily) and lasts a week from then.
+      if (session.expires - Date.now() < SESSION_MS - 86400000) {
+        session.expires = Date.now() + SESSION_MS;
+        saveSessions();
+        res.setHeader("set-cookie", sessionCookie(cookieName, sid));
+      }
       if (path === "/api/logout" && req.method === "POST") {
         sessions.delete(sid);
+        saveSessions();
         for (const [stream, owner] of clients)
           if (owner === sid) stream.end();
         res.setHeader(
@@ -276,6 +318,7 @@ export async function startHeimdall(options = {}) {
         }
         attempts.unlock.failures = 0;
         session.operator = true;
+        saveSessions();
         store.audit({
           actor: "local operator",
           action: "operator.unlock",
@@ -302,6 +345,7 @@ export async function startHeimdall(options = {}) {
             },
           );
         session.approvalSecret = r.approvalSecret;
+        saveSessions();
         return json(res, 200, { paired: true, expiresAt: r.expiresAt });
       }
       if (path === "/api/config" && req.method === "GET")
@@ -419,6 +463,7 @@ export async function startHeimdall(options = {}) {
           renameSync(temporary, connectionFile);
           store.clearSource(b.source);
           for (const sess of sessions.values()) sess.approvalSecret = null;
+          saveSessions();
           hub = new Hub(connections, store, broadcast);
           void hub.start();
         }
@@ -726,7 +771,10 @@ export async function startHeimdall(options = {}) {
             route.source === "sindri" &&
             e.status === 403 &&
             e.code === "approval_required";
-          if (unpaired) session.approvalSecret = null;
+          if (unpaired) {
+            session.approvalSecret = null;
+            saveSessions();
+          }
           const working = e.code === "idempotency_in_progress";
           const final = !unpaired && !working && status < 500;
           // Refusals the page explains from their details: a PR import matching no single project,

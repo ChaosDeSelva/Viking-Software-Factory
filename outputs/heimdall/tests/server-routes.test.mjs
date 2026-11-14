@@ -154,10 +154,10 @@ test("an expired session's stream is closed by the heartbeat; a live one is kept
   const decoder = new TextDecoder();
   let text = "";
   while (!text.includes(": heartbeat")) text += decoder.decode((await reader.read()).value);
-  // Move the clock past the twelve-hour session lifetime.
+  // Move the clock past the one-week session lifetime.
   const now = Date.now;
   t.after(() => (Date.now = now));
-  Date.now = () => now() + 13 * 3600000;
+  Date.now = () => now() + 8 * 24 * 3600000;
   let done = false;
   while (!done) done = (await reader.read()).done;
   Date.now = now;
@@ -375,7 +375,7 @@ test("expired sessions are removed instead of kept for the life of the process",
   assert.equal(app.sessions.size, 2);
   const now = Date.now;
   t.after(() => (Date.now = now));
-  Date.now = () => now() + 13 * 3600000;
+  Date.now = () => now() + 8 * 24 * 3600000;
   setCookie(first);
   assert.equal((await call("session")).status, 401);
   await signIn();
