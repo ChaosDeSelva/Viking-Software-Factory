@@ -129,6 +129,9 @@ function Terminal({ sessionId, live }: { sessionId: SessionId; live: boolean }) 
 
 function Controls({ sessionId }: { sessionId: SessionId }) {
   const { client } = useStore();
+  const caps = useAsync(() => client.capabilities(), "caps");
+  // Non-interactive runtimes (`claude -p`, `codex exec`) take no input once an agent runs.
+  const canMessage = caps.status !== "ready" || caps.data.runtime?.features.sendInput !== false;
   const [text, setText] = useState("");
   const [confirmForce, setConfirmForce] = useState(false);
   const input = useAction();
@@ -138,25 +141,39 @@ function Controls({ sessionId }: { sessionId: SessionId }) {
     if (!text.trim()) return;
     const r = await input.run(
       () => client.sessions.input(sessionId, { text: text.trim() }),
-      () => "Instruction sent",
+      () => "Message sent",
     );
     if (r) setText("");
   };
   const denied = stop.outcome?.kind === "error" && stop.outcome.error.code === "policy_denied";
   return (
     <>
-      <Section title="Inputs" description="Typed into the agent's session as if at its prompt.">
-        <form onSubmit={(e) => void send(e)} className="flex max-w-2xl flex-col gap-field">
-          <Field label="Instruction">
-            <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} />
-          </Field>
-          <div>
-            <Button type="submit" variant="primary" loading={input.busy}>
-              Send instruction
-            </Button>
-          </div>
-          <ActionResult outcome={input.outcome} />
-        </form>
+      <Section
+        title="Message the agent"
+        description={
+          canMessage
+            ? "Typed into the agent's session as if at its prompt; the agent reads it on its next turn. Use it to steer an agent that is going off track."
+            : "This runtime runs agents non-interactively, so a running agent cannot take a message. To change its direction, stop it and retry the task with a note."
+        }
+      >
+        {canMessage ? (
+          <form onSubmit={(e) => void send(e)} className="flex max-w-2xl flex-col gap-field">
+            <Field label="Message">
+              <Textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={3}
+                placeholder="For example: Stop exploring. Only read src/api and src/jobs, then write the document."
+              />
+            </Field>
+            <div>
+              <Button type="submit" variant="primary" loading={input.busy}>
+                Send message
+              </Button>
+            </div>
+            <ActionResult outcome={input.outcome} />
+          </form>
+        ) : null}
       </Section>
       <Section
         title="Controls"

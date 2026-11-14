@@ -610,12 +610,12 @@ describe("screen details", () => {
       route: `/agents/${ag.runtimeSessionId}`,
       path: "/agents/:sessionId",
     });
-    const box = (await screen.findByLabelText("Instruction")) as HTMLTextAreaElement;
+    const box = (await screen.findByLabelText("Message")) as HTMLTextAreaElement;
     await user.type(box, "   ");
-    await user.click(screen.getByRole("button", { name: "Send instruction" }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(client.sessions.input).not.toHaveBeenCalled();
     await user.type(box, " go on ");
-    await user.click(screen.getByRole("button", { name: "Send instruction" }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(client.sessions.input).toHaveBeenCalledWith(ag.runtimeSessionId, { text: "go on" });
     await waitFor(() => expect(box.value).toBe(""));
     await user.click(screen.getByRole("button", { name: "Read terminal" }));
@@ -714,9 +714,9 @@ describe("remaining branches", () => {
       route: `/agents/${ag.runtimeSessionId}`,
       path: "/agents/:sessionId",
     });
-    const box = (await screen.findByLabelText("Instruction")) as HTMLTextAreaElement;
+    const box = (await screen.findByLabelText("Message")) as HTMLTextAreaElement;
     await user.type(box, "go");
-    await user.click(screen.getByRole("button", { name: "Send instruction" }));
+    await user.click(screen.getByRole("button", { name: "Send message" }));
     expect((await screen.findByRole("alert")).textContent).toContain("input refused");
     expect(box.value).toBe("go");
   });

@@ -192,8 +192,8 @@ importers:
   .:
     dependencies:
       '@factory/docs':
-        specifier: file:vendor/factory/factory-docs-0.1.8.tgz
-        version: file:vendor/factory/factory-docs-0.1.8.tgz
+        specifier: file:vendor/factory/factory-docs-0.1.9.tgz
+        version: file:vendor/factory/factory-docs-0.1.9.tgz
       '@factory/ui':
         specifier: file:vendor/factory/factory-ui-0.1.12.tgz
         version: file:vendor/factory/factory-ui-0.1.12.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -245,9 +245,9 @@ packages:
     peerDependencies:
       playwright-core: '>= 1.0.0'
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.8.tgz':
-    resolution: {integrity: sha512-ti+QhWxzj3TnDfPNBgikuaZ/81WpiLYZCPm2C9n3/t4aS7XEtt76rL5l3Vw3VPG5YZLEhqmzmyLi+AhfcczyKQ==, tarball: file:vendor/factory/factory-docs-0.1.8.tgz}
-    version: 0.1.8
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.9.tgz':
+    resolution: {integrity: sha512-MpYx5waF4eZx8qHyKTuJ1oqYR9l39wjc8BqVsIZocq0Zn8215idd9jodFXZ1B9TOkSyry5DE35HHtYazwFEWbg==, tarball: file:vendor/factory/factory-docs-0.1.9.tgz}
+    version: 0.1.9
     engines: {node: '>=24'}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.12.tgz':
@@ -1238,7 +1238,7 @@ snapshots:
       axe-core: 4.13.0
       playwright-core: 1.64.0
 
-  '@factory/docs@file:vendor/factory/factory-docs-0.1.8.tgz': {}
+  '@factory/docs@file:vendor/factory/factory-docs-0.1.9.tgz': {}
 
   '@factory/ui@file:vendor/factory/factory-ui-0.1.12.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:

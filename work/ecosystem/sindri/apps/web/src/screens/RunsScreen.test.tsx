@@ -169,6 +169,29 @@ describe("RunsScreen", () => {
     expect(await screen.findByRole("button", { name: "Open delivery" })).toBeTruthy();
   });
 
+  it("clamps a long task objective to two lines with Show more", async () => {
+    const long = "Write the engineering plan for the four-week delivery. ".repeat(12).trim();
+    const detail = executionDetail();
+    const api = mockApi({
+      listExecutions: [summary],
+      getExecution: {
+        ...detail,
+        plan: {
+          ...detail.plan!,
+          tasks: detail.plan!.tasks.map((t) => ({ ...t, objective: long })),
+        },
+      },
+      streamExecution: idleStream,
+    });
+    renderWithStore(ui, api, { executionId: "e1" });
+    const table = await screen.findByRole("table", { name: "Tasks" });
+    const text = within(table).getByText(long);
+    expect(text.className).toMatch(/line-clamp-2/);
+    await userEvent.click(within(table).getByRole("button", { name: "Show more" }));
+    expect(text.className).not.toMatch(/line-clamp-2/);
+    expect(within(table).getByRole("button", { name: "Show less" })).toBeTruthy();
+  });
+
   it("shows each task's gate result", async () => {
     const api = mockApi({
       listExecutions: [summary],

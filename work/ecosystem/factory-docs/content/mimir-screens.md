@@ -50,7 +50,8 @@ One agent session.
 
 - _State_: what the runtime reports, with provenance. Mimir never guesses from terminal text.
 - _Inputs_: the instruction it was given. It names any files the task got from finished dependencies under `.mimir/inputs/` (see [Task inputs](/docs/glossary#task-inputs)).
-- _Controls_: send an instruction, **Soft stop** (ask it to finish) or **Force stop**.
+- _Message the agent_: text typed into its session, read on its next turn, to steer it. Only where the runtime takes input; non-interactive agents (`claude -p`, `codex exec`) cannot, so stop the agent and retry the task with a note instead.
+- _Controls_: **Soft stop** (ask it to finish) or **Force stop**.
 - _Terminal_: the last 200 lines of output, when the runtime supports reading it. **Read terminal** reads it once (at most every 2 seconds). While the agent is live, the **Follow** switch re-reads it every 5 seconds and keeps the newest line in view; a **Live output** link turns it on for you.
 - _Timeline_ and _Cost_.
 

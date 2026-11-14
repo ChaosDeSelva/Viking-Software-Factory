@@ -13,7 +13,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@factory/docs": "file:../../vendor/factory/factory-docs-0.1.8.tgz",
+    "@factory/docs": "file:../../vendor/factory/factory-docs-0.1.9.tgz",
     "@factory/ui": "file:../../vendor/factory/factory-ui-0.1.11.tgz",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

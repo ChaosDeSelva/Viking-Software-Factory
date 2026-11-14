@@ -114,6 +114,18 @@ describe("AgentInspector", () => {
     expect(terminal.textContent).toContain("item.completed");
   });
 
+  it("offers no message box when the runtime cannot take input, and says what to do instead", async () => {
+    const { client } = setup();
+    const caps = await client.capabilities();
+    vi.mocked(client.capabilities).mockResolvedValue({
+      ...caps,
+      runtime: { ...caps.runtime!, features: { ...caps.runtime!.features, sendInput: false } },
+    });
+    const region = await screen.findByRole("region", { name: "Message the agent" });
+    expect(await within(region).findByText(/cannot take a message/)).toBeTruthy();
+    expect(within(region).queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
   it("puts a working agent's terminal first and can follow it every 5 s", async () => {
     const user = userEvent.setup();
     const { client, sessionId } = setup();
@@ -159,10 +171,10 @@ describe("AgentInspector", () => {
   it("sends an instruction", async () => {
     const user = userEvent.setup();
     const { client, sessionId } = setup();
-    await user.type(await screen.findByLabelText("Instruction"), "please add tests");
-    await user.click(screen.getByRole("button", { name: "Send instruction" }));
+    await user.type(await screen.findByLabelText("Message"), "please add tests");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(client.sessions.input).toHaveBeenCalledWith(sessionId, { text: "please add tests" });
-    expect(await screen.findByText(/Instruction sent/)).toBeTruthy();
+    expect(await screen.findByText(/Message sent/)).toBeTruthy();
   });
 
   it("soft stop is direct; force stop states the approval requirement and confirms", async () => {
@@ -303,12 +315,12 @@ describe("AgentInspector", () => {
     await screen.findByTestId("terminal");
     await user.click(screen.getByRole("button", { name: "Soft stop" }));
     expect(await screen.findByText(/Soft stop requested/)).toBeTruthy();
-    await user.type(screen.getByLabelText("Instruction"), "meant for the first agent");
+    await user.type(screen.getByLabelText("Message"), "meant for the first agent");
     await user.click(screen.getByRole("button", { name: "next" }));
     await waitFor(() => expect(screen.getByText(a2.runtimeSessionId as string)).toBeTruthy());
     expect(screen.queryByTestId("terminal")).toBeNull();
     expect(screen.queryByText(/Soft stop requested/)).toBeNull();
-    expect((screen.getByLabelText("Instruction") as HTMLTextAreaElement).value).toBe("");
+    expect((screen.getByLabelText("Message") as HTMLTextAreaElement).value).toBe("");
   });
 
   it("shows not found for an unknown session", async () => {
