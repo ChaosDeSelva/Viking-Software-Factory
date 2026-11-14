@@ -796,38 +796,64 @@ export function Stepper({
   current: number;
   className?: string;
 }) {
+  const n = steps.length;
+  // From sm up the list is a two-row grid: circles in auto columns with a stretchy connector
+  // column between each pair, labels below. The first circle sits at the left edge and the
+  // last at the right edge, with the rest evenly spaced. Each <li> is `display: contents` there
+  // so its circle, connector and label are placed in the grid; below sm it is a plain row.
+  const columns = steps.map((_, i) => (i < n - 1 ? "auto minmax(1rem, 1fr)" : "auto")).join(" ");
   return (
-    <ol className={cn("flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-0", className)}>
+    <ol
+      className={cn("flex flex-col gap-3 sm:grid sm:items-center sm:gap-x-0 sm:gap-y-2", className)}
+      style={{ gridTemplateColumns: columns }}
+    >
       {steps.map((step, i) => {
         const state = i < current ? "done" : i === current ? "current" : "upcoming";
+        const align = i === 0 ? "start" : i === n - 1 ? "end" : "center";
+        // The label spans the connectors beside its circle so it can centre (or end) under it.
+        const labelColumn =
+          n === 1
+            ? "1"
+            : i === 0
+              ? "1 / span 2"
+              : i === n - 1
+                ? `${2 * i} / span 2`
+                : `${2 * i} / span 3`;
         return (
           <li
             key={step.id}
             aria-current={state === "current" ? "step" : undefined}
-            className="flex min-w-0 flex-1 items-start gap-3 sm:flex-col sm:gap-2"
+            className="flex min-w-0 items-start gap-3 sm:contents"
           >
-            <div className="flex w-full items-center gap-2 max-sm:w-auto">
-              <span
-                className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
-                  state === "done" && "border-forest bg-forest text-surface",
-                  state === "current" && "border-accent bg-accent-soft text-accent-fg",
-                  state === "upcoming" && "border-line bg-surface text-muted",
-                )}
-              >
-                {state === "done" ? <Icon name="check" size={14} label="Done" /> : i + 1}
-              </span>
-              {i < steps.length - 1 && (
-                <span
-                  aria-hidden
-                  className={cn(
-                    "hidden h-px flex-1 sm:block",
-                    i < current ? "bg-forest" : "bg-line",
-                  )}
-                />
+            <span
+              style={{ gridColumn: 2 * i + 1, gridRow: 1 }}
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold",
+                state === "done" && "border-forest bg-forest text-surface",
+                state === "current" && "border-accent bg-accent-soft text-accent-fg",
+                state === "upcoming" && "border-line bg-surface text-muted",
               )}
-            </div>
-            <div className="min-w-0 sm:pr-4">
+            >
+              {state === "done" ? <Icon name="check" size={14} label="Done" /> : i + 1}
+            </span>
+            {i < n - 1 && (
+              <span
+                aria-hidden
+                data-step-connector
+                style={{ gridColumn: 2 * i + 2, gridRow: 1 }}
+                className={cn("mx-2 hidden h-px sm:block", i < current ? "bg-forest" : "bg-line")}
+              />
+            )}
+            <div
+              data-step-align={align}
+              style={{ gridColumn: labelColumn, gridRow: 2 }}
+              className={cn(
+                "min-w-0",
+                align === "start" && "sm:justify-self-start sm:text-left",
+                align === "center" && "sm:justify-self-center sm:text-center",
+                align === "end" && "sm:justify-self-end sm:text-right",
+              )}
+            >
               <p className={cn("text-sm font-medium", state === "upcoming" && "text-muted")}>
                 {step.label}
               </p>

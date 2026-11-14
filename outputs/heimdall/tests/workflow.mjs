@@ -414,6 +414,16 @@ try {
   console.log("Intake to a cancelled run");
   source.workflow.authoring = true;
   await nav("New work");
+  // With projects connected, the connect form is tucked under "Add a project" and the step bar
+  // shows "Describe the work" as current, even though this project already has earlier work.
+  assert.equal(await page.getByRole("heading", { name: "Connect a project" }).count(), 0);
+  await page.getByText("Add a project", { exact: true }).waitFor();
+  const current = page.locator('ol li[aria-current="step"]');
+  assert.match(await current.innerText(), /Describe the work/);
+  assert.deepEqual(
+    await page.locator("ol [data-step-align]").evaluateAll((els) => els.map((e) => e.getAttribute("data-step-align"))),
+    ["start", "center", "end"],
+  );
   await page.getByLabel("Intake title", { exact: true }).fill("Footer totals");
   await page.getByLabel("Request", { exact: true }).fill("Show the invoice total in the footer");
   await page.getByRole("button", { name: "Save intake" }).click();

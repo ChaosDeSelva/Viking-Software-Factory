@@ -122,8 +122,34 @@ export function NewWorkPage() {
       ? (sindri[kind] ?? [])
       : latestVersions(sindri[kind] ?? [])
     ).filter((r: R) => !project || r.projectId === project);
-  const started = LISTS.some((l) => recordsOf(l.kind).length > 0);
-  const step = !projects.length ? 0 : started ? 2 : 1;
+  // This page is where new work is described, so with a project connected the current step is
+  // "Describe the work", even when the project already has earlier intakes, specs or plans.
+  const step = projects.length ? 1 : 0;
+  const connectForm = (
+    <Stack gap={4}>
+      <Field label="Project name">
+        <Input value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Absolute repository path">
+        <Input
+          placeholder="/Users/you/Projects/my-app"
+          value={repo}
+          onChange={(e) => setRepo(e.target.value)}
+        />
+      </Field>
+      <Cluster>
+        <Button
+          variant="primary"
+          disabledReason={createWhy || undefined}
+          onClick={() =>
+            propose("project.create", "new", { name, repoPath: repo })
+          }
+        >
+          Review project creation
+        </Button>
+      </Cluster>
+    </Stack>
+  );
 
   return (
     <Page>
@@ -142,36 +168,18 @@ export function NewWorkPage() {
         Unlock operator controls and pair Sindri to create or run work.
       </AccessCallout>
       <Stepper steps={STEPS} current={step} />
-      <CardGroup min={340}>
-        <Card
-          title="Connect a project"
-          term="Project"
-          description="Register an existing local Git repository with Sindri. No remote repository is required."
-        >
-          <Stack gap={4}>
-            <Field label="Project name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label="Absolute repository path">
-              <Input
-                placeholder="/Users/you/Projects/my-app"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-              />
-            </Field>
-            <Cluster>
-              <Button
-                variant="primary"
-                disabledReason={createWhy || undefined}
-                onClick={() =>
-                  propose("project.create", "new", { name, repoPath: repo })
-                }
-              >
-                Review project creation
-              </Button>
-            </Cluster>
-          </Stack>
-        </Card>
+      <CardGroup min={projects.length ? 640 : 340}>
+        {/* The connect form is the first step only while no project exists; after that it is
+            tucked under "Add a project" so it doesn't compete with describing the work. */}
+        {!projects.length && (
+          <Card
+            title="Connect a project"
+            term="Project"
+            description="Register an existing local Git repository with Sindri. No remote repository is required."
+          >
+            {connectForm}
+          </Card>
+        )}
         <Card title="Describe the work" term="Intake">
           <Stack gap={4}>
             <Field label="Project" term="Project">
@@ -195,6 +203,9 @@ export function NewWorkPage() {
                 Read project context
               </Button>
             </Cluster>
+            {projects.length > 0 && (
+              <Disclosure title="Add a project">{connectForm}</Disclosure>
+            )}
             <SegmentedControl
               label="Kind of work"
               value={workKind}

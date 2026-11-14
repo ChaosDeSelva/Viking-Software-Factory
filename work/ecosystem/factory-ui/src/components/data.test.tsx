@@ -260,6 +260,33 @@ describe("LogView, Timeline, Stepper", () => {
     expect(screen.getByText("Review").closest("li")!.getAttribute("aria-current")).toBe("step");
     expect(screen.getByRole("img", { name: "Done" })).toBeTruthy();
   });
+
+  it("Stepper spreads steps edge to edge: first label left, middle centred, last right", () => {
+    const { container } = render(
+      <Stepper
+        current={1}
+        steps={[
+          { id: "a", label: "Connect" },
+          { id: "b", label: "Describe" },
+          { id: "c", label: "Review" },
+        ]}
+      />,
+    );
+    const align = (label: string) =>
+      screen.getByText(label).closest("[data-step-align]")!.getAttribute("data-step-align");
+    expect([align("Connect"), align("Describe"), align("Review")]).toEqual([
+      "start",
+      "center",
+      "end",
+    ]);
+    // One connecting line between each pair of steps, none after the last.
+    expect(container.querySelectorAll("[data-step-connector]")).toHaveLength(2);
+    // Circles take auto-width columns with stretchy connectors between, so the last circle
+    // sits at the right edge instead of stopping short.
+    expect((container.querySelector("ol") as HTMLElement).style.gridTemplateColumns).toBe(
+      "auto minmax(1rem, 1fr) auto minmax(1rem, 1fr) auto",
+    );
+  });
 });
 
 it("Timestamp ticks without a fixed now (no wall-clock assertions)", () => {

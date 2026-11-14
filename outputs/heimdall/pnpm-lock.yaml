@@ -195,8 +195,8 @@ importers:
         specifier: file:vendor/factory/factory-docs-0.1.7.tgz
         version: file:vendor/factory/factory-docs-0.1.7.tgz
       '@factory/ui':
-        specifier: file:vendor/factory/factory-ui-0.1.9.tgz
-        version: file:vendor/factory/factory-ui-0.1.9.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: file:vendor/factory/factory-ui-0.1.10.tgz
+        version: file:vendor/factory/factory-ui-0.1.10.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@radix-ui/react-dialog':
         specifier: ^1.3.1
         version: 1.3.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -250,9 +250,9 @@ packages:
     version: 0.1.7
     engines: {node: '>=24'}
 
-  '@factory/ui@file:vendor/factory/factory-ui-0.1.9.tgz':
-    resolution: {integrity: sha512-f4vbKwYsnJo5fgL4S/tDwnP3K/cbYkUqQE/3niFSRqN1CFAF2mlYLsdJ7I7YzcnNiQ8KzIXIibWPH26+428hcA==, tarball: file:vendor/factory/factory-ui-0.1.9.tgz}
-    version: 0.1.9
+  '@factory/ui@file:vendor/factory/factory-ui-0.1.10.tgz':
+    resolution: {integrity: sha512-3Ns4UfSnC41LUVal+OJN3uVOE5U5joWmNMIYt4KQ6J0nZ8lInC82i3tN3s47pgAKJ/dluL06Ige7QNee5dRzug==, tarball: file:vendor/factory/factory-ui-0.1.10.tgz}
+    version: 0.1.10
     engines: {node: '>=24'}
     peerDependencies:
       react: ^19.3.0
@@ -1240,7 +1240,7 @@ snapshots:
 
   '@factory/docs@file:vendor/factory/factory-docs-0.1.7.tgz': {}
 
-  '@factory/ui@file:vendor/factory/factory-ui-0.1.9.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@factory/ui@file:vendor/factory/factory-ui-0.1.10.tgz(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-dialog': 1.3.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@radix-ui/react-dropdown-menu': 2.2.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
