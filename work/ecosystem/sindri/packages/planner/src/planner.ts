@@ -56,6 +56,7 @@ import {
   MAX_FOLLOW_UP_CONTEXT_CHARS,
   MAX_PR_BODY_CHARS,
   MAX_PR_REVIEW_FILES,
+  MAX_PROPOSAL_TEXT_CHARS,
   MAX_RESEARCH_QUESTION_CHARS,
   MAX_TASK_LESSON_CHARS,
   type Budget,
@@ -63,6 +64,7 @@ import {
   type Plan,
   type PlanStatus,
   type PlanWork,
+  type ProposalPlan,
   type PlanTask,
   type PrReviewPlan,
   type ProjectCaps,
@@ -86,6 +88,12 @@ export class NotSupportedYetError extends Error {
 
 /** Roles a research plan may hold: it reads and writes a document, never code. */
 export const RESEARCH_ROLES: readonly Role[] = ["investigator", "reviewer"];
+
+/**
+ * Roles a proposal plan may hold: investigators read the projects, a docs writer turns their
+ * findings into the proposal, a reviewer checks it. Nobody writes code.
+ */
+export const PROPOSAL_ROLES: readonly Role[] = ["investigator", "docs", "reviewer"];
 
 /** Roles a PR review plan may hold: reviewers read the PR and write a review, never code. */
 export const PR_REVIEW_ROLES: readonly Role[] = ["reviewer", "security"];
@@ -117,6 +125,40 @@ function factCheckSection(factCheck: EarlierFactCheck | undefined): string {
     return `- ${typeof x.severity === "string" ? `[${x.severity}] ` : ""}${text ?? JSON.stringify(f)}`;
   });
   return `\n\n## Fact-check of this document (verdict: ${factCheck.verdict})\n${lines.join("\n")}`;
+}
+
+/**
+ * A proposal's other projects in the request's order, each with the path its research reads
+ * (from the caller) and a unique slug. A project missing from the caller's list was deleted
+ * after the request was made; it is left out rather than planned without a path.
+ */
+function proposalReferences(
+  ids: readonly string[],
+  given: ProposeOptions["references"],
+  names: (id: string) => string | undefined,
+): ProposalPlan["references"] {
+  const taken = new Set<string>(["research"]);
+  return ids.flatMap((id) => {
+    const ref = given?.find((r) => r.projectId === id);
+    const name = names(id);
+    if (!ref || !name) return [];
+    const slug = referenceSlug(name, taken);
+    taken.add(slug);
+    return [{ projectId: id, name, slug, path: ref.path, commit: ref.commit, label: ref.label }];
+  });
+}
+
+/** `Billing API` → `billing-api`: a task id suffix and citation prefix. */
+export function referenceSlug(name: string, taken: ReadonlySet<string>): string {
+  const base =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 36) || "project";
+  let slug = base;
+  for (let n = 2; taken.has(slug); n++) slug = `${base}-${n}`;
+  return slug;
 }
 
 export function prReviewWork(
@@ -170,6 +212,16 @@ export interface ProposeOptions {
   /** See `CompleteRequest.workspace` and `workspaceLabel`. */
   workspace?: string;
   workspaceLabel?: string;
+  /**
+   * A proposal's other projects, as the caller made them readable (a snapshot of each default
+   * branch, else its checkout), in the request's order. Ignored for other kinds of work.
+   */
+  references?: readonly {
+    projectId: string;
+    path: string;
+    commit: string | null;
+    label: string;
+  }[];
 }
 
 export interface RevisePatch {
@@ -485,14 +537,15 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
   const loadWork = (specId: string) => {
     const r = db
       .prepare(
-        `SELECT i.work_kind, i.research_json, i.notes, i.skill_ids_json, i.title,
-           i.raw_snapshot_json, i.linked_execution_id FROM specifications s
+        `SELECT i.work_kind, i.research_json, i.proposal_json, i.notes, i.skill_ids_json,
+           i.title, i.raw_snapshot_json, i.linked_execution_id FROM specifications s
          JOIN intakes i ON i.id = s.intake_id WHERE s.id = ?`,
       )
       .get(specId) as
       | {
           work_kind: PlanWork["kind"];
           research_json: string | null;
+          proposal_json: string | null;
           notes: string;
           skill_ids_json: string;
           title: string;
@@ -501,6 +554,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         }
       | undefined;
     const work: PlanWork = { kind: r?.work_kind ?? "change" };
+    let referenceIds: string[] = [];
     if (work.kind === "pr_review") {
       const snapshot = r
         ? (JSON.parse(r.raw_snapshot_json) as { body?: string; raw?: unknown })
@@ -526,8 +580,28 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
         ...(context ? { context } : {}),
       };
     }
+    if (work.kind === "proposal" && r?.proposal_json) {
+      const options = JSON.parse(r.proposal_json) as {
+        referenceProjectIds: string[];
+        sources: { code: boolean; web: boolean };
+        factCheck: boolean;
+      };
+      const body = (JSON.parse(r.raw_snapshot_json) as { body?: string }).body ?? "";
+      work.proposal = {
+        text: redactSecrets(`${r.title}\n\n${body}`.trim()).text.slice(
+          0,
+          MAX_PROPOSAL_TEXT_CHARS + 600,
+        ),
+        sources: options.sources,
+        factCheck: options.factCheck,
+        // Filled in by propose from the paths the caller made readable.
+        references: [],
+      };
+      referenceIds = options.referenceProjectIds;
+    }
     return {
       work,
+      referenceIds,
       notes: r?.notes ?? "",
       skillIds: r ? (JSON.parse(r.skill_ids_json) as string[]) : [],
     };
@@ -627,6 +701,51 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           ),
         });
       return review;
+    }
+    if (work.kind === "proposal") {
+      // One investigator per project, in parallel: the request's own project, then each other
+      // project it reads. A docs writer turns all their findings into the proposal and its
+      // engineering appendix; an optional reviewer checks both. Every task carries every
+      // criterion: the documents are the whole deliverable.
+      const all = spec.body.acceptanceCriteria.map((a) => a.id);
+      const selection = await select(
+        harnesses,
+        "research",
+        descriptor(
+          "research",
+          ["research", "investigation", "docs"],
+          all,
+          [],
+          `Research and plan: ${spec.title}`,
+        ),
+      );
+      const research = [
+        "research",
+        ...(work.proposal?.references ?? []).map((r) => `research-${r.slug}`),
+      ];
+      const tasks: SkeletonTask[] = research.map((id) => ({
+        id,
+        role: "investigator" as const,
+        acceptanceCriteria: [...all],
+        dependsOn: [],
+        selection,
+      }));
+      tasks.push({
+        id: "proposal",
+        role: "docs",
+        acceptanceCriteria: [...all],
+        dependsOn: research,
+        selection,
+      });
+      if (work.proposal?.factCheck ?? true)
+        tasks.push({
+          id: "fact-check",
+          role: "reviewer",
+          acceptanceCriteria: [...all],
+          dependsOn: ["proposal"],
+          selection,
+        });
+      return tasks;
     }
     if (work.kind === "research") {
       // One investigator answers the question in a document; an optional reviewer then
@@ -819,7 +938,17 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       if (spec.status !== "approved")
         throw new PlanStateError(`specification ${spec.id} must be approved before planning`);
       const caps = capsFor(opts.caps);
-      const { work, notes, skillIds } = loadWork(spec.id);
+      const { work, notes, skillIds, referenceIds } = loadWork(spec.id);
+      if (work.proposal)
+        work.proposal.references = proposalReferences(
+          referenceIds,
+          opts.references,
+          (id) =>
+            (
+              db.prepare("SELECT name FROM projects WHERE id = ?").get(id) as
+                { name: string } | undefined
+            )?.name,
+        );
       const areas = work.kind === "change" ? deriveWorkAreas(spec.body, opts.repoIndex) : [];
       if (work.kind === "change" && areas.length === 0)
         throw new PlanValidationError([
@@ -1005,7 +1134,19 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           ? RESEARCH_ROLES
           : prev.work?.kind === "pr_review"
             ? PR_REVIEW_ROLES
-            : null;
+            : prev.work?.kind === "proposal"
+              ? PROPOSAL_ROLES
+              : null;
+      if (prev.work?.kind === "proposal") {
+        // Briefs find each project's findings and the proposal by task id; they must stay.
+        const lost = prev.tasks
+          .filter((t) => t.role === "investigator" || t.id === "proposal")
+          .filter((t) => !patch.tasks.some((n) => n.id === t.id && n.role === t.role));
+        if (lost.length > 0)
+          throw new PlanValidationError(
+            lost.map((t) => `${t.id}: a proposal plan keeps its ${t.role} task id`),
+          );
+      }
       if (prev.work?.kind === "research") {
         // Briefs and gates find the research document by its task id; it must stay.
         const lost = prev.tasks
@@ -1022,7 +1163,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           throw new PlanValidationError(
             wrong.map(
               (t) =>
-                `${t.id}: a ${prev.work?.kind === "research" ? "research" : "PR review"} plan cannot hold a ${t.role} task`,
+                `${t.id}: a ${{ research: "research", pr_review: "PR review", proposal: "proposal" }[prev.work!.kind as "research"] ?? "PR review"} plan cannot hold a ${t.role} task`,
             ),
           );
       }

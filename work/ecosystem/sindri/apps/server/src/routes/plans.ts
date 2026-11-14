@@ -71,12 +71,28 @@ export function planRoutes(
               : {},
           )
         : undefined;
+    // A proposal's other projects are read by research tasks of their own, each in a read-only
+    // snapshot of the project's default branch (else its checkout, as for planning above).
+    const intake = spec.intakeId ? s.intake().get(spec.intakeId) : undefined;
+    const references = [];
+    for (const id of intake?.proposal?.referenceProjectIds ?? []) {
+      const other = s.knowledge.projects.get(id);
+      if (!other) continue;
+      const readable = await s.planningWorkspace(other, {});
+      references.push({
+        projectId: id,
+        path: readable.path,
+        commit: /\/([0-9a-f]{40})$/.exec(readable.path)?.[1] ?? null,
+        label: readable.label,
+      });
+    }
     const plan = await f.planner.propose(
       { id: spec.id },
       {
         provider,
         harnesses: service,
         ...(workspace ? { workspace: workspace.path, workspaceLabel: workspace.label } : {}),
+        ...(references.length ? { references } : {}),
       },
     );
     return reply.code(201).send({ plan, versions: versions(plan), harnessSource: source });

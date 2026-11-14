@@ -143,6 +143,86 @@ describe("planner: work kinds", () => {
     expect(lessonCalls).toBe(1);
   });
 
+  it("plans a proposal: research per project in parallel, a writer, then a fact-check", async () => {
+    const knowledge = openKnowledge(db);
+    const docs = knowledge.projects.create({ name: "docs-site", repoPath: "/tmp/docs-site" }).id;
+    const api = knowledge.projects.create({ name: "Billing API", repoPath: "/tmp/billing" }).id;
+    const transcript = `Call notes. ${"word ".repeat(9000)}END-OF-CALL`;
+    const intakeId = openIntake(db).createManual({
+      projectId,
+      title: "Plan from the kickoff call",
+      body: transcript,
+      workKind: "proposal",
+      proposal: { referenceProjectIds: [docs, api] },
+    }).id;
+    const references = [
+      { projectId: docs, path: "/snapshots/docs/abc", commit: "a".repeat(40), label: "snapshot" },
+      { projectId: api, path: "/snapshots/api/def", commit: null, label: "working checkout" },
+    ];
+    const plan = await openPlanner(db, { lessonsFor }).propose(specFor({}, intakeId), {
+      provider: new FakeProvider(filler),
+      harnesses: new FakeHarnessService(),
+      references,
+    });
+    expect(PlanSchema.safeParse(plan).success).toBe(true);
+    expect(plan.work).toMatchObject({
+      kind: "proposal",
+      proposal: {
+        sources: { code: true, web: false },
+        factCheck: true,
+        references: [
+          { projectId: docs, name: "docs-site", slug: "docs-site", path: "/snapshots/docs/abc" },
+          { projectId: api, name: "Billing API", slug: "billing-api", commit: null },
+        ],
+      },
+    });
+    // The whole pasted text reaches the plan.
+    expect(plan.work!.proposal!.text).toContain("END-OF-CALL");
+    expect(plan.tasks.map((t) => [t.id, t.role, t.dependsOn])).toEqual([
+      ["research", "investigator", []],
+      ["research-docs-site", "investigator", []],
+      ["research-billing-api", "investigator", []],
+      ["proposal", "docs", ["research", "research-docs-site", "research-billing-api"]],
+      ["fact-check", "reviewer", ["proposal"]],
+    ]);
+    for (const role of ["implementer", "qa", "security"])
+      expect(plan.tasks.some((t) => t.role === role)).toBe(false);
+  });
+
+  it("refuses a proposal revision that adds code roles or drops a project's research", async () => {
+    const knowledge = openKnowledge(db);
+    const docs = knowledge.projects.create({ name: "docs", repoPath: "/tmp/docs" }).id;
+    const intakeId = openIntake(db).createManual({
+      projectId,
+      title: "Plan it",
+      body: "notes",
+      workKind: "proposal",
+      proposal: { referenceProjectIds: [docs] },
+    }).id;
+    const planner = openPlanner(db, { lessonsFor });
+    const plan = await planner.propose(specFor({}, intakeId), {
+      provider: new FakeProvider(filler),
+      harnesses: new FakeHarnessService(),
+      references: [{ projectId: docs, path: "/snap/docs", commit: null, label: "checkout" }],
+    });
+    const harnesses = new FakeHarnessService();
+    const coder = { ...plan.tasks[0]!, id: "implement", role: "implementer" as const };
+    await expect(
+      planner.revise(plan.id, { tasks: [...plan.tasks, coder] }, { harnesses }),
+    ).rejects.toThrow(/proposal plan cannot hold a implementer task/);
+    await expect(
+      planner.revise(
+        plan.id,
+        {
+          tasks: plan.tasks
+            .filter((t) => t.id !== "research-docs")
+            .map((t) => ({ ...t, dependsOn: t.dependsOn.filter((d) => d !== "research-docs") })),
+        },
+        { harnesses },
+      ),
+    ).rejects.toThrow(/research-docs: a proposal plan keeps its investigator task id/);
+  });
+
   it("leaves the fact-check out when the request turns it off", async () => {
     const plan = await propose({ workKind: "research", research: { factCheck: false } });
     expect(plan.tasks.map((t) => t.id)).toEqual(["research"]);

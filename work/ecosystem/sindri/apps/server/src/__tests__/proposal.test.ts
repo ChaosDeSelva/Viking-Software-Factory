@@ -101,4 +101,57 @@ describe("plan (proposal) intakes", () => {
     });
     expect(empty.statusCode).toBe(422);
   });
+
+  it("plans one research task per project, each reading its project, then the writer", async () => {
+    const flow = (f = await startFlow());
+    const docs = await otherProject(flow, "docs-site");
+    const intake = (
+      await flow.h.call({
+        method: "POST",
+        url: "/v1/intakes",
+        payload: {
+          projectId: flow.projectId,
+          title: "Plan from the call",
+          body: "We talked about the reports page and the docs-site.",
+          workKind: "proposal",
+          proposal: { referenceProjectIds: [docs] },
+        },
+      })
+    ).json().intake;
+    const d = await flow.h.call({
+      method: "POST",
+      url: "/v1/director/draft",
+      payload: { projectId: flow.projectId, intakeId: intake.id, request: "Plan from the call" },
+    });
+    expect(d.statusCode).toBe(201);
+    const a = await flow.h.call({
+      method: "POST",
+      url: `/v1/specs/${d.json().spec.id}/answer`,
+      payload: { questionId: "Q1", answer: "Yes" },
+    });
+    const specId = a.json().spec.id as string;
+    await flow.h.call({ method: "POST", url: `/v1/specs/${specId}/submit`, payload: {} });
+    await flow.h.call({
+      method: "POST",
+      url: `/v1/specs/${specId}/approve`,
+      payload: {},
+      headers: await flow.h.approvalHeaders(),
+    });
+    const p = await flow.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId } });
+    expect(JSON.stringify(p.json().error ?? null)).toBe("null");
+    expect(p.statusCode).toBe(201);
+    const plan = p.json().plan;
+    expect(plan.work.kind).toBe("proposal");
+    const [ref] = plan.work.proposal.references;
+    expect(ref).toMatchObject({ projectId: docs, name: "docs-site", slug: "docs-site" });
+    // The other project is readable at a path of its own (a snapshot, else its checkout).
+    expect(typeof ref.path).toBe("string");
+    expect(ref.path.length).toBeGreaterThan(0);
+    expect(plan.tasks.map((t: { id: string }) => t.id)).toEqual([
+      "research",
+      "research-docs-site",
+      "proposal",
+      "fact-check",
+    ]);
+  });
 });

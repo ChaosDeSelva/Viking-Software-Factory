@@ -91,7 +91,7 @@ export const EstimatesSchema = z.object({
 export type Estimates = z.infer<typeof EstimatesSchema>;
 
 /** What a plan delivers; the intake's work kind decides the skeleton. */
-export const WORK_KINDS = ["change", "research", "pr_review"] as const;
+export const WORK_KINDS = ["change", "research", "pr_review", "proposal"] as const;
 export type PlanWorkKind = (typeof WORK_KINDS)[number];
 
 /**
@@ -153,11 +153,43 @@ export const PrReviewPlanSchema = z
   .strict();
 export type PrReviewPlan = z.infer<typeof PrReviewPlanSchema>;
 
+/** A proposal's pasted text (a call transcript, notes), at most this long. */
+export const MAX_PROPOSAL_TEXT_CHARS = 200_000;
+
+/** Another project a proposal reads, read-only, as of planning. */
+export const ProposalReferenceSchema = z
+  .object({
+    projectId: z.string().min(1),
+    name: z.string().min(1),
+    /** The task id suffix and citation prefix: `research-<slug>`, `<slug>/path:line`. */
+    slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
+    /** Where its research task reads it: a snapshot of its default branch, else its checkout. */
+    path: z.string().min(1),
+    commit: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .nullable(),
+    label: z.string(),
+  })
+  .strict();
+
+export const ProposalPlanSchema = z
+  .object({
+    /** The pasted text as given (title and body, secrets redacted). */
+    text: z.string().max(MAX_PROPOSAL_TEXT_CHARS + 600),
+    sources: z.object({ code: z.boolean(), web: z.boolean() }).strict(),
+    factCheck: z.boolean(),
+    references: z.array(ProposalReferenceSchema).max(8),
+  })
+  .strict();
+export type ProposalPlan = z.infer<typeof ProposalPlanSchema>;
+
 export const PlanWorkSchema = z
   .object({
     kind: z.enum(WORK_KINDS),
     research: ResearchPlanSchema.optional(),
     prReview: PrReviewPlanSchema.optional(),
+    proposal: ProposalPlanSchema.optional(),
   })
   .strict();
 export type PlanWork = z.infer<typeof PlanWorkSchema>;
