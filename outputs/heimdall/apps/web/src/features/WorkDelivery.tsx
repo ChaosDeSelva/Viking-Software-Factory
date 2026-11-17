@@ -451,7 +451,7 @@ export function ProposalView({
   const acceptWhy =
     rejectWhy ||
     (changesOnly
-      ? "The fact-check asked for changes. Revise the plan (its fact-check runs again), or reject it."
+      ? "The fact-check asked for changes. Revise the plan above (its fact-check runs again), or reject it."
       : checksFailed
         ? "The quality checks have not passed."
         : "");
@@ -587,7 +587,18 @@ export function ProposalView({
             </>
           )}
         </DrawerActions>
-        <Disclosure title="Revise the plan">
+        {changesOnly && !decision && (
+          <Callout tone="warning" title="The fact-check asked for changes">
+            {findingCounts(plan.factCheck?.findings) || "See its findings"}.
+            Read them in the Fact-check tab below, then revise the plan here:
+            the writer gets every finding, and the fact-check runs again on the
+            new version.
+          </Callout>
+        )}
+        <Disclosure
+          title="Revise the plan"
+          defaultOpen={changesOnly && !decision}
+        >
           <Stack gap={3}>
             <Field
               label="What to change"
@@ -598,6 +609,21 @@ export function ProposalView({
                 onChange={(e) => setFeedback(e.target.value)}
               />
             </Field>
+            {changesOnly && !feedback.trim() && (
+              <div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() =>
+                    setFeedback(
+                      `Fix every finding the fact-check raised (${findingCounts(plan.factCheck?.findings)}). Where a finding is a judgement call, say what you decided and why.`,
+                    )
+                  }
+                >
+                  Fill in: fix the fact-check's findings
+                </Button>
+              </div>
+            )}
             <div>
               <Button
                 variant="secondary"
@@ -642,6 +668,22 @@ export function ProposalView({
               "No engineering appendix was recorded for this run.",
             ),
           },
+          ...(plan.factCheck
+            ? [
+                {
+                  value: "fact-check",
+                  label: "Fact-check",
+                  count: factFindings.length,
+                  content: (
+                    <FindingsTable
+                      findings={factFindings}
+                      caption="Fact-check findings"
+                      emptyText="The fact-check found nothing to correct."
+                    />
+                  ),
+                },
+              ]
+            : []),
           {
             value: "findings",
             label: "Findings",
@@ -716,11 +758,9 @@ export function ProposalView({
         />
         <Failures failures={plan.gate?.failures} />
         {plan.factCheck && (
-          <FindingsTable
-            findings={factFindings}
-            caption="Fact-check findings"
-            emptyText="The fact-check found nothing to correct."
-          />
+          <p className="text-sm text-muted">
+            The fact-check&apos;s findings are in the Fact-check tab above.
+          </p>
         )}
       </Block>
       <GuidanceUsed guidance={report.guidance} />

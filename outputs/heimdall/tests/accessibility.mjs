@@ -62,7 +62,15 @@ const WORK_STATES = [
   ["New work: plan from text", kindForm("Plan from text", "Save and draft spec")],
   ["Inspector: plan", async () => {
     await delivery("exe_plan", "Plan")();
-    await page.getByRole("dialog").getByLabel("Diagram").first().waitFor();
+    const plan = page.getByRole("dialog");
+    await plan.getByLabel("Diagram").first().waitFor();
+    // A fact-check that asked for changes says what to do next, where the plan is read.
+    await plan.getByText("The fact-check asked for changes", { exact: true }).waitFor();
+    await plan.getByText(/1 major · 1 minor/).first().waitFor();
+    await plan.getByLabel("What to change").waitFor();
+    assert.equal(await plan.getByRole("button", { name: "Re-run quality checks" }).count(), 0);
+    await plan.getByRole("tab", { name: /Fact-check/ }).click();
+    await plan.getByRole("table", { name: "Fact-check findings" }).getByText("The Sources list skips [2]").waitFor();
   }],
   ["Inspector: PR review", async () => {
     await delivery("exe_review", "Leak check")();

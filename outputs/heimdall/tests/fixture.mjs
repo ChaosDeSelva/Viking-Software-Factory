@@ -943,7 +943,16 @@ export function installWorkKinds(source) {
             },
           ],
           gate: { passed: true, failures: [] },
-          factCheck: null,
+          factCheck: {
+            planTaskId: "fact-check",
+            verdict: "request_changes",
+            findings: [
+              { id: "fc1", severity: "major", message: "Week 1 does not fit the spike and the export" },
+              { id: "fc2", severity: "minor", message: "The Sources list skips [2]" },
+            ],
+            reviewArtifactId: null,
+            gatePassed: false,
+          },
           decision: null,
         },
       },
