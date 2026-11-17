@@ -35,7 +35,8 @@ import {
   ResearchForm,
   WorkKindBadge,
 } from "./WorkForms";
-import { kindOf } from "./workKinds";
+import { contextField, kindOf } from "./workKinds";
+import { ContextPicker, useContextDocs } from "./ContextPicker";
 import {
   actionBlock,
   latestVersions,
@@ -83,7 +84,8 @@ export function NewWorkPage() {
     [project, setProject] = useState(""),
     [request, setRequest] = useState(""),
     [title, setTitle] = useState(""),
-    [workKind, setWorkKind] = useState("change");
+    [workKind, setWorkKind] = useState("change"),
+    [context, setContext] = useContextDocs();
   const sindri: R = state?.sindri ?? {};
   // Sindri's records of the active (not archived) projects; one repository may be registered twice.
   const projects = scope.sindriProjects.filter((p) =>
@@ -251,6 +253,11 @@ export function NewWorkPage() {
                     placeholder="What should we build? Include outcomes, constraints, and how we can verify success."
                   />
                 </Field>
+                <ContextPicker
+                  id="change-context"
+                  value={context}
+                  onChange={setContext}
+                />
                 <Cluster gap={2}>
                   <Button
                     disabledReason={intakeWhy || undefined}
@@ -259,6 +266,7 @@ export function NewWorkPage() {
                         projectId: project,
                         title,
                         body: request,
+                        ...contextField(context),
                       })
                     }
                   >
@@ -268,18 +276,41 @@ export function NewWorkPage() {
                     variant="primary"
                     disabledReason={draftWhy || undefined}
                     onClick={() =>
-                      propose(
-                        "spec.draft",
-                        "new",
-                        { projectId: project, request },
-                        {},
-                        {
-                          onSent: () => {
-                            setTitle("");
-                            setRequest("");
-                          },
-                        },
-                      )
+                      context.length
+                        ? // Context lives on the request: save it, then draft from it.
+                          propose(
+                            "intake.create",
+                            "new",
+                            {
+                              projectId: project,
+                              title:
+                                title.trim() ||
+                                request.trim().split("\n")[0]!.slice(0, 200),
+                              body: request,
+                              ...contextField(context),
+                              thenDraft: true,
+                            },
+                            {},
+                            {
+                              onSent: () => {
+                                setTitle("");
+                                setRequest("");
+                                setContext([]);
+                              },
+                            },
+                          )
+                        : propose(
+                            "spec.draft",
+                            "new",
+                            { projectId: project, request },
+                            {},
+                            {
+                              onSent: () => {
+                                setTitle("");
+                                setRequest("");
+                              },
+                            },
+                          )
                     }
                   >
                     Draft specification

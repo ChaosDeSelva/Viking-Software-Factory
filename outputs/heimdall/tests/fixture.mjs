@@ -813,6 +813,19 @@ export function installWorkKinds(source) {
     delivery("exe_review", "pln_rev"),
     delivery("exe_odd", "pln_odd"),
     delivery("exe_plan", "pln_plan"),
+    // An accepted plan: on Documents, and offered as context on New work.
+    {
+      ...delivery("exe_accepted", "pln_plan"),
+      workKind: "proposal",
+      work: {
+        kind: "proposal",
+        title: "Accepted config plan",
+        decision: "accepted",
+        decidedAt: "2026-11-17T08:03:42.411Z",
+        decidedBy: "local:jacob/web#aps_1",
+        gatePassed: true,
+      },
+    },
   );
   flow.intakes.push({ id: "int_odd", projectId: "prj_demo", title: "Mystery intake", body: "", workKind: "audit" });
   // A Revise of the plan: its intake links the delivered plan, and its spec waits for approval.

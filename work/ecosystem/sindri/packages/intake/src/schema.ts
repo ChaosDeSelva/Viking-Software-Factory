@@ -61,6 +61,8 @@ export const INTAKE_MIGRATIONS: readonly string[] = [
   `,
   // v5: plan (proposal) options. The work_kind CHECK is widened by widenIntakeKinds.
   `ALTER TABLE intakes ADD COLUMN proposal_json TEXT`,
+  // v6: accepted documents (plans, research) the operator gave the request as context.
+  `ALTER TABLE intakes ADD COLUMN context_json TEXT`,
 ];
 
 const SOURCES_BEFORE_GITHUB = "'manual', 'jira', 'linear')";

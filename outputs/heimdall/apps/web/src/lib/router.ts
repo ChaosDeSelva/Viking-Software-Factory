@@ -12,6 +12,7 @@ export type PageId =
   | "execution-graph"
   | "activity"
   | "quality-approvals"
+  | "documents"
   | "autonomy"
   | "notifications"
   | "projects"
@@ -29,6 +30,7 @@ export const PATHS: Record<PageId, string> = {
   "execution-graph": "/graph",
   activity: "/activity",
   "quality-approvals": "/quality",
+  documents: "/documents",
   autonomy: "/autonomy",
   notifications: "/notifications",
   projects: "/projects",
@@ -41,6 +43,7 @@ export const PATHS: Record<PageId, string> = {
 /** Pages that show every project; the picker is disabled on them. */
 export const GLOBAL_PAGES: readonly PageId[] = [
   "notifications",
+  "documents",
   "projects",
   "connections",
   "fleet",

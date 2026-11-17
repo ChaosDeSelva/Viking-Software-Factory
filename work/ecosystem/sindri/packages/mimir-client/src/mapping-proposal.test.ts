@@ -119,6 +119,18 @@ describe("proposal plans", () => {
     expect(check).not.toContain("BODY-OF-EARLIER-PLAN");
   });
 
+  it("gives every task the accepted documents chosen as context, as background", () => {
+    const plan = proposal();
+    plan.work!.documents = [
+      { executionId: "exe_old", title: "Config plan", document: "# Config plan\nCONTEXT-BODY" },
+    ];
+    for (const t of mapPlan(plan).tasks) {
+      expect(t.brief).toContain("Context documents:");
+      expect(t.brief).toContain("CONTEXT-BODY");
+    }
+    expect(briefOf(proposal(), "proposal")).not.toContain("Context documents:");
+  });
+
   it("tells the resolver the kind of work, so a plan's writer can run on the planning agent", () => {
     const asked: [string, string | undefined][] = [];
     mapPlan(proposal(), {

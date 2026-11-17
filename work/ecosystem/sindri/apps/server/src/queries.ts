@@ -115,6 +115,9 @@ export interface DeliveryWork {
   title: string | null;
   /** Research and plans (proposals) only: the accept or reject decision. */
   decision: "accepted" | "rejected" | null;
+  /** Research and plans only: when and by whom the decision was made. */
+  decidedAt?: string | null;
+  decidedBy?: string | null;
   /** PR reviews only: the review was posted to GitHub. */
   posted: boolean;
   postedUrl: string | null;
@@ -209,12 +212,22 @@ export function deliveriesWork(
       c.set(g.plan_task_id, g.passed !== 1 && onlyChangesRequested(g.failures_json));
       changesOnly.set(g.execution_id, c);
     }
-  const decisions = new Map<string, "accepted" | "rejected">();
+  const decisions = new Map<
+    string,
+    { decision: "accepted" | "rejected"; decided_at: string; actor: string }
+  >();
   if (tables.has("document_decisions"))
     for (const d of db
-      .prepare(`SELECT execution_id, decision FROM document_decisions WHERE execution_id ${IN}`)
-      .all(ids) as { execution_id: string; decision: "accepted" | "rejected" }[])
-      decisions.set(d.execution_id, d.decision);
+      .prepare(
+        `SELECT execution_id, decision, decided_at, actor FROM document_decisions WHERE execution_id ${IN}`,
+      )
+      .all(ids) as {
+      execution_id: string;
+      decision: "accepted" | "rejected";
+      decided_at: string;
+      actor: string;
+    }[])
+      decisions.set(d.execution_id, d);
   const posts = new Map<string, string>();
   if (tables.has("review_posts"))
     for (const p of db
@@ -268,7 +281,9 @@ export function deliveriesWork(
     };
     if (workKind === "research") {
       work.title = plan.work?.research?.question?.split("\n")[0]?.slice(0, 300) ?? null;
-      work.decision = decisions.get(e.id) ?? null;
+      work.decision = decisions.get(e.id)?.decision ?? null;
+      work.decidedAt = decisions.get(e.id)?.decided_at ?? null;
+      work.decidedBy = decisions.get(e.id)?.actor ?? null;
     } else if (workKind === "proposal") {
       work.title =
         (plan.specId && specTitle
@@ -276,7 +291,9 @@ export function deliveriesWork(
           : undefined) ??
         plan.work?.proposal?.text?.split("\n")[0]?.slice(0, 300) ??
         null;
-      work.decision = decisions.get(e.id) ?? null;
+      work.decision = decisions.get(e.id)?.decision ?? null;
+      work.decidedAt = decisions.get(e.id)?.decided_at ?? null;
+      work.decidedBy = decisions.get(e.id)?.actor ?? null;
     } else if (workKind === "pr_review") {
       work.title = plan.work?.prReview?.title?.slice(0, 300) ?? null;
       work.prUrl = plan.work?.prReview?.url ?? null;

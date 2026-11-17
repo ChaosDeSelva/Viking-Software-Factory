@@ -64,6 +64,7 @@ import { CrewsPage } from "../pages/Crews";
 import { GraphPage } from "../pages/GraphPage";
 import { ActivityPage } from "../pages/Activity";
 import { QualityPage, qualityCount } from "../pages/Quality";
+import { DocumentsPage } from "../pages/Documents";
 import { DocsPage } from "../pages/Docs";
 import { AutonomyAllPage, AutonomyPage } from "../features/Autonomy";
 import { FleetPage } from "../features/Fleet";
@@ -104,6 +105,7 @@ const TABS: { id: PageId; label: string; group: string }[] = [
 ];
 const GLOBALS: { id: PageId; label: string; icon: GlobalLink["icon"] }[] = [
   { id: "notifications", label: "Notifications", icon: "inbox" },
+  { id: "documents", label: "Documents", icon: "book" },
   { id: "projects", label: "Projects", icon: "folder" },
   { id: "connections", label: "Connections", icon: "settings" },
   { id: "fleet", label: "Fleet", icon: "apps" },
@@ -541,6 +543,7 @@ export function App() {
     "execution-graph": () => <GraphPage />,
     activity: () => <ActivityPage />,
     "quality-approvals": () => <QualityPage />,
+    documents: () => <DocumentsPage />,
     autonomy: () => <AutonomyPage />,
     notifications: () => <NotificationsPage />,
     projects: () => <ProjectsPage />,

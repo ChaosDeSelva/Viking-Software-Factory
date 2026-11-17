@@ -66,6 +66,8 @@ export const MAX_PROPOSAL_TEXT_CHARS = 200_000;
 
 /** Skill ids one request may add to the project's defaults. */
 export const MAX_REQUEST_SKILLS = 20;
+/** Accepted documents a request may carry as context. */
+export const MAX_CONTEXT_DOCUMENTS = 5;
 
 /** What was stored for a ticket: normalised fields plus the untouched remote payload. */
 export interface StoredSnapshot {
@@ -114,6 +116,8 @@ export interface IntakeRecord {
   proposal: ProposalOptions | null;
   /** The execution whose result this intake follows up on. */
   linkedExecutionId: string | null;
+  /** Runs whose accepted documents the operator gave this request as context. */
+  contextExecutionIds: string[];
 }
 
 /** Work kind and operator guidance a new intake may carry. */
@@ -129,6 +133,8 @@ export interface WorkInput {
       }
     | undefined;
   linkedExecutionId?: string | undefined;
+  /** Runs whose accepted documents are context for this request (checked by the caller). */
+  contextExecutionIds?: readonly string[] | undefined;
   /** Plan intakes only; missing fields take `DEFAULT_PROPOSAL`. */
   proposal?:
     | {
@@ -209,6 +215,7 @@ interface IntakeRow {
   research_json: string | null;
   proposal_json?: string | null;
   linked_execution_id: string | null;
+  context_json?: string | null;
 }
 
 /**
@@ -232,6 +239,12 @@ function workColumns(input: WorkInput) {
     throw new SindriError("validation_failed", `unknown work kind ${String(workKind)}`);
   const notes = input.notes ?? "";
   assertUtf8Capped(notes, MAX_REQUEST_NOTES_BYTES, "request notes");
+  const contextIds = [...new Set(input.contextExecutionIds ?? [])];
+  if (contextIds.length > MAX_CONTEXT_DOCUMENTS)
+    throw new SindriError(
+      "validation_failed",
+      `at most ${MAX_CONTEXT_DOCUMENTS} context documents per request`,
+    );
   const skillIds = [...new Set(input.skillIds ?? [])];
   if (skillIds.length > MAX_REQUEST_SKILLS)
     throw new SindriError("validation_failed", `at most ${MAX_REQUEST_SKILLS} skills per request`);
@@ -280,17 +293,18 @@ function workColumns(input: WorkInput) {
     research_json: research ? JSON.stringify(research) : null,
     proposal_json: proposal ? JSON.stringify(proposal) : null,
     linked_execution_id: input.linkedExecutionId ?? null,
+    context_json: contextIds.length ? JSON.stringify(contextIds) : null,
   };
 }
 
 const INSERT_INTAKE = `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
     raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
     display_title, display_body, work_kind, notes, skill_ids_json, research_json, proposal_json,
-    linked_execution_id)
+    linked_execution_id, context_json)
   VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
     @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
     @display_title, @display_body, @work_kind, @notes, @skill_ids_json, @research_json,
-    @proposal_json, @linked_execution_id)`;
+    @proposal_json, @linked_execution_id, @context_json)`;
 
 const toRecord = (r: IntakeRow): IntakeRecord => {
   const snapshot = JSON.parse(r.raw_snapshot_json) as StoredSnapshot;
@@ -321,6 +335,7 @@ const toRecord = (r: IntakeRow): IntakeRecord => {
     research: r.research_json ? (JSON.parse(r.research_json) as ResearchOptions) : null,
     proposal: r.proposal_json ? (JSON.parse(r.proposal_json) as ProposalOptions) : null,
     linkedExecutionId: r.linked_execution_id ?? null,
+    contextExecutionIds: r.context_json ? (JSON.parse(r.context_json) as string[]) : [],
   };
 };
 

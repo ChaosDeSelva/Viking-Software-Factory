@@ -201,6 +201,64 @@ describe("proposal runs", () => {
     expect(accept.statusCode).toBe(200);
     expect(accept.json().report.proposal.decision).toMatchObject({ decision: "accepted" });
 
+    // An accepted plan is context for new work: stored on the request, and handed to its plan.
+    const notAccepted = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes",
+      payload: {
+        projectId: flow.projectId,
+        title: "Build ticket 1",
+        body: "Build it.",
+        contextExecutionIds: ["exe_unknown"],
+      },
+    });
+    expect(notAccepted.statusCode).toBe(422);
+    expect(notAccepted.json().error.details).toEqual({ missing: ["exe_unknown"] });
+    const withContext = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes",
+      payload: {
+        projectId: flow.projectId,
+        title: "Plan ticket 1 in detail",
+        body: "Plan ticket 1 of the accepted plan.",
+        workKind: "proposal",
+        proposal: { factCheck: false },
+        contextExecutionIds: [execution.id],
+      },
+    });
+    expect(withContext.statusCode).toBe(201);
+    expect(withContext.json().intake.contextExecutionIds).toEqual([execution.id]);
+    const ctxDraft = await flow.h.call({
+      method: "POST",
+      url: "/v1/director/draft",
+      payload: {
+        projectId: flow.projectId,
+        intakeId: withContext.json().intake.id,
+        request: "Plan ticket 1",
+      },
+    });
+    const ctxSpec = (
+      await flow.h.call({
+        method: "POST",
+        url: `/v1/specs/${ctxDraft.json().spec.id}/answer`,
+        payload: { questionId: "Q1", answer: "Yes" },
+      })
+    ).json().spec.id as string;
+    await flow.h.call({ method: "POST", url: `/v1/specs/${ctxSpec}/submit`, payload: {} });
+    await flow.h.call({
+      method: "POST",
+      url: `/v1/specs/${ctxSpec}/approve`,
+      payload: {},
+      headers: await flow.h.approvalHeaders(),
+    });
+    const ctxPlan = (
+      await flow.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId: ctxSpec } })
+    ).json().plan;
+    expect(ctxPlan.work.documents).toHaveLength(1);
+    expect(ctxPlan.work.documents[0].executionId).toBe(execution.id);
+    expect(ctxPlan.work.documents[0].document).toContain("## Demo plan");
+    expect(ctxPlan.work.documents[0].document).toContain("# Engineering appendix");
+
     // Revise: the feedback becomes a plan request over the same projects, and its writer is
     // handed the earlier proposal and appendix.
     const revise = await flow.h.call({

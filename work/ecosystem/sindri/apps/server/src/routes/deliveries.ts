@@ -461,6 +461,9 @@ export function deliveryRoutes(
           },
           ...(earlier?.notes ? { notes: earlier.notes } : {}),
           ...(earlier?.skillIds.length ? { skillIds: earlier.skillIds } : {}),
+          ...(earlier?.contextExecutionIds.length
+            ? { contextExecutionIds: earlier.contextExecutionIds }
+            : {}),
         });
         req.log.info({ executionId: execution.id, intakeId: revision.id }, "plan revision created");
         return reply.code(201).send({ intake: intakeView(revision) });
@@ -481,6 +484,9 @@ export function deliveryRoutes(
         ...work,
         ...(earlier?.notes ? { notes: earlier.notes } : {}),
         ...(earlier?.skillIds.length ? { skillIds: earlier.skillIds } : {}),
+        ...(earlier?.contextExecutionIds.length
+          ? { contextExecutionIds: earlier.contextExecutionIds }
+          : {}),
       });
       req.log.info(
         { executionId: execution.id, intakeId: intake.id },

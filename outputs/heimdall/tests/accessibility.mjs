@@ -31,6 +31,7 @@ const PAGES = [
   ["/graph", "Execution graph"],
   ["/activity", "Activity"],
   ["/quality", "Quality & approvals"],
+  ["/documents", "Documents"],
   ["/autonomy", "Autonomy"],
   ["/new-work", "New work"],
   ["/in-progress", "In progress"],
@@ -78,6 +79,18 @@ const WORK_STATES = [
     // The run's input folders are dropped from the location, and the fix reads apart.
     await facts.getByText("proposal.md:12", { exact: true }).waitFor();
     await facts.getByText("move the export to week 2.").waitFor();
+  }],
+  ["Documents: use an accepted plan as context", async () => {
+    await page.goto(app.url + "/documents");
+    const table = page.getByRole("table", { name: "Accepted documents" });
+    await table.getByText("Accepted config plan").waitFor();
+    // A plan with no decision is not in the library.
+    assert.equal(await table.getByText("Plan for proposal").count(), 0);
+    await table.getByRole("button", { name: "Use as context" }).click();
+    await page.waitForURL(/\/new-work\?.*context=exe_accepted/);
+    const picked = page.getByRole("checkbox", { name: /Accepted config plan/ });
+    await picked.waitFor();
+    assert.equal(await picked.isChecked(), true);
   }],
   ["Inspector: plan revision", async () => {
     await page.goto(app.url + "/quality?project=prj_demo");

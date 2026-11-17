@@ -33,10 +33,12 @@ import {
   projectCandidates,
   researchBlock,
   researchBody,
+  contextField,
   utf8Bytes,
   webSourceBlock,
 } from "./workKinds";
 import { actionBlock } from "./workflowState";
+import { ContextPicker, useContextDocs } from "./ContextPicker";
 
 type Load<T> =
   | { status: "loading" }
@@ -212,7 +214,8 @@ export function ResearchForm({ projectId }: { projectId: string }) {
     [web, setWeb] = useState(false),
     [factCheck, setFactCheck] = useState(true),
     [notes, setNotes] = useState(""),
-    [skillIds, setSkillIds] = useState<string[]>([]);
+    [skillIds, setSkillIds] = useState<string[]>([]),
+    [context, setContext] = useContextDocs();
   const lessonsTouched = useRef(false);
   useEffect(() => {
     if (!lessonsTouched.current) setLessons(linked);
@@ -308,6 +311,7 @@ export function ResearchForm({ projectId }: { projectId: string }) {
         onChange={setSkillIds}
         hint="Each selected skill's SKILL.md is given to the agent as guidance."
       />
+      <ContextPicker id="research-context" value={context} onChange={setContext} />
       <div>
         <Button
           variant="primary"
@@ -317,7 +321,7 @@ export function ResearchForm({ projectId }: { projectId: string }) {
               "intake.create",
               "new",
               // Saved and drafted in one step; the spec is then approved and planned in one.
-              { ...researchBody(input), thenDraft: true },
+              { ...researchBody(input), ...contextField(context), thenDraft: true },
               {},
               {
                 onSent: () => {
@@ -331,6 +335,7 @@ export function ResearchForm({ projectId }: { projectId: string }) {
                   setBackground("");
                   setNotes("");
                   setSkillIds([]);
+                  setContext([]);
                 },
               },
             )
@@ -351,6 +356,7 @@ export function PrReviewForm({ projectId }: { projectId: string }) {
   const [url, setUrl] = useState(""),
     [notes, setNotes] = useState(""),
     [skillIds, setSkillIds] = useState<string[]>([]),
+    [context, setContext] = useContextDocs(),
     [candidates, setCandidates] = useState<
       { id: string; name: string }[] | null
     >(null),
@@ -423,6 +429,7 @@ export function PrReviewForm({ projectId }: { projectId: string }) {
         }}
         hint="Pre-selected with the project's default review skills."
       />
+      <ContextPicker id="pr-context" value={context} onChange={setContext} />
       <div>
         <Button
           variant="primary"
@@ -431,12 +438,13 @@ export function PrReviewForm({ projectId }: { projectId: string }) {
             propose(
               "intake.import",
               "new",
-              prReviewBody(input),
+              { ...prReviewBody(input), ...contextField(context) },
               {},
               {
                 onSuccess: () => {
                   setUrl("");
                   setNotes("");
+                  setContext([]);
                   setCandidates(null);
                   setPick("");
                 },
@@ -487,6 +495,7 @@ export function PlanForm({
     [factCheck, setFactCheck] = useState(true),
     [notes, setNotes] = useState(""),
     [skillIds, setSkillIds] = useState<string[]>([]),
+    [context, setContext] = useContextDocs(),
     // Projects the operator ticked or unticked by hand win over detection.
     [picked, setPicked] = useState<Record<string, boolean>>({});
   const others = projects.filter((p) => p.id !== projectId);
@@ -515,6 +524,7 @@ export function PlanForm({
     setTitle("");
     setNotes("");
     setSkillIds([]);
+    setContext([]);
     setPicked({});
   };
   const projectBox = (p: R) => {
@@ -613,6 +623,7 @@ export function PlanForm({
         onChange={setSkillIds}
         hint="Each selected skill's SKILL.md is given to the agents as guidance."
       />
+      <ContextPicker id="plan-context" value={context} onChange={setContext} />
       <div>
         <Button
           variant="primary"
@@ -621,7 +632,7 @@ export function PlanForm({
             propose(
               "intake.create",
               "new",
-              { ...planBody(input), thenDraft: true },
+              { ...planBody(input), ...contextField(context), thenDraft: true },
               {},
               { onSent: clear, onSuccess: clear },
             )

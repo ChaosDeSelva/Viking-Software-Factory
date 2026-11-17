@@ -192,12 +192,26 @@ export const ProposalPlanSchema = z
   .strict();
 export type ProposalPlan = z.infer<typeof ProposalPlanSchema>;
 
+/** Accepted documents an operator gave a request as context, together at most this long. */
+export const MAX_CONTEXT_DOCUMENTS_CHARS = 120_000;
+
+export const ContextDocumentSchema = z
+  .object({
+    executionId: z.string().min(1),
+    title: z.string().max(500),
+    document: z.string().max(MAX_CONTEXT_DOCUMENTS_CHARS + 64),
+  })
+  .strict();
+export type ContextDocument = z.infer<typeof ContextDocumentSchema>;
+
 export const PlanWorkSchema = z
   .object({
     kind: z.enum(WORK_KINDS),
     research: ResearchPlanSchema.optional(),
     prReview: PrReviewPlanSchema.optional(),
     proposal: ProposalPlanSchema.optional(),
+    /** Accepted plans or research documents the operator chose as context, for every task. */
+    documents: z.array(ContextDocumentSchema).max(5).optional(),
   })
   .strict();
 export type PlanWork = z.infer<typeof PlanWorkSchema>;

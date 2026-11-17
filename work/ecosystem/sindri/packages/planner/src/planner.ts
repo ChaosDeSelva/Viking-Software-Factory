@@ -53,6 +53,7 @@ import { planSystem, SKELETON_MARKER } from "./prompts.js";
 import {
   CONTEXT_TRUNCATED_MARKER,
   DEFAULT_CAPS,
+  MAX_CONTEXT_DOCUMENTS_CHARS,
   MAX_FOLLOW_UP_CONTEXT_CHARS,
   MAX_PR_BODY_CHARS,
   MAX_PR_REVIEW_FILES,
@@ -60,6 +61,7 @@ import {
   MAX_RESEARCH_QUESTION_CHARS,
   MAX_TASK_LESSON_CHARS,
   type Budget,
+  type ContextDocument,
   type Escalation,
   type Plan,
   type PlanStatus,
@@ -552,11 +554,78 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
     return { executionId, document: revisionContext(markdown, factCheck) };
   };
 
+  /**
+   * The accepted documents a request names as context: a plan (with its appendix) or a research
+   * document, as their delivery report keeps them, sharing one size budget. A document no longer
+   * accepted, or without a report, is left out.
+   */
+  const contextDocuments = (executionIds: readonly string[]): ContextDocument[] => {
+    const tables = new Set(
+      (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('deliveries', 'document_decisions')",
+          )
+          .all() as { name: string }[]
+      ).map((t) => t.name),
+    );
+    if (!tables.has("deliveries") || !tables.has("document_decisions")) return [];
+    const found: { executionId: string; title: string; markdown: string }[] = [];
+    for (const executionId of executionIds) {
+      const accepted = db
+        .prepare(
+          "SELECT 1 FROM document_decisions WHERE execution_id = ? AND decision = 'accepted'",
+        )
+        .get(executionId);
+      if (!accepted) continue;
+      const row = db
+        .prepare(
+          "SELECT report_json FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1",
+        )
+        .get(executionId) as { report_json: string } | undefined;
+      let markdown: string | undefined;
+      try {
+        const report = row
+          ? (JSON.parse(row.report_json) as {
+              research?: { document?: { markdown?: unknown } };
+              proposal?: {
+                proposal?: { markdown?: unknown } | null;
+                engineering?: { markdown?: unknown } | null;
+              };
+            })
+          : undefined;
+        const p = report?.proposal?.proposal?.markdown;
+        const e = report?.proposal?.engineering?.markdown;
+        const r = report?.research?.document?.markdown;
+        markdown =
+          typeof p === "string" && p
+            ? `${p}${typeof e === "string" && e ? `\n\n---\n\n# Engineering appendix\n\n${e}` : ""}`
+            : typeof r === "string" && r
+              ? r
+              : undefined;
+      } catch {
+        markdown = undefined;
+      }
+      if (!markdown) continue;
+      const heading = /^#\s+(.+)$/m.exec(markdown)?.[1]?.trim();
+      found.push({ executionId, title: (heading ?? executionId).slice(0, 500), markdown });
+    }
+    const each = found.length ? Math.floor(MAX_CONTEXT_DOCUMENTS_CHARS / found.length) : 0;
+    return found.map((d) => {
+      const text = redactSecrets(d.markdown).text;
+      return {
+        executionId: d.executionId,
+        title: d.title,
+        document: text.length > each ? text.slice(0, each) + "\n[document truncated]" : text,
+      };
+    });
+  };
+
   const loadWork = (specId: string) => {
     const r = db
       .prepare(
         `SELECT i.work_kind, i.research_json, i.proposal_json, i.notes, i.skill_ids_json,
-           i.title, i.raw_snapshot_json, i.linked_execution_id FROM specifications s
+           i.title, i.raw_snapshot_json, i.linked_execution_id, i.context_json FROM specifications s
          JOIN intakes i ON i.id = s.intake_id WHERE s.id = ?`,
       )
       .get(specId) as
@@ -569,9 +638,13 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           title: string;
           raw_snapshot_json: string;
           linked_execution_id: string | null;
+          context_json: string | null;
         }
       | undefined;
     const work: PlanWork = { kind: r?.work_kind ?? "change" };
+    const contextIds = r?.context_json ? (JSON.parse(r.context_json) as string[]) : [];
+    const documents = contextDocuments(contextIds);
+    if (documents.length) work.documents = documents;
     let referenceIds: string[] = [];
     if (work.kind === "pr_review") {
       const snapshot = r

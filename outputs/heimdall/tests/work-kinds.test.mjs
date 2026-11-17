@@ -470,6 +470,8 @@ test("list summaries are trimmed to what lists show, and an unevaluated gate has
       decision: "accepted",
       gatePassed: true,
       changesRequested: false,
+      decidedAt: null,
+      decidedBy: null,
     },
   );
   assert.equal(
@@ -609,6 +611,8 @@ test("the snapshot labels deliveries with their kind and keeps research and revi
     decision: null,
     gatePassed: true,
     changesRequested: false,
+    decidedAt: null,
+    decidedBy: null,
   });
   assert.equal(row("exe_p").work.posted, false);
   assert.equal(row("exe_x").workKind, "audit");
@@ -677,6 +681,8 @@ test("summaries Sindri puts on its list rows are used without reading the report
     decision: "accepted",
     gatePassed: true,
     changesRequested: false,
+    decidedAt: null,
+    decidedBy: null,
   });
   await app.hub.refresh();
   assert.equal(
@@ -868,6 +874,8 @@ test("a plan delivery waits for a decision and is listed with its title", async 
     decision: null,
     gatePassed: true,
     changesRequested: false,
+    decidedAt: null,
+    decidedBy: null,
   });
 });
 
@@ -937,4 +945,29 @@ test("a fact-check finding's fix reads apart, and its location drops the run's i
   });
   assert.equal(shortLocation({ file: "a.md", placement: "general" }), null);
   assert.equal(shortLocation({}), null);
+});
+
+test("Documents lists decided plans and research, newest first; context links are checked", async () => {
+  const { decidedDocuments, contextFromQuery, contextField } = await import(
+    "../apps/web/src/features/workKinds.ts"
+  );
+  const row = (id, kind, decision, decidedAt) => ({
+    executionId: id,
+    work: { kind, title: id, decision, decidedAt },
+  });
+  const rows = [
+    row("a", "proposal", "accepted", "2026-11-14T10:00:00Z"),
+    row("b", "research", "accepted", "2026-11-17T08:00:00Z"),
+    row("c", "proposal", "rejected", "2026-11-16T08:00:00Z"),
+    row("d", "proposal", null, null),
+    row("e", "pr_review", "accepted", "2026-11-17T09:00:00Z"),
+  ];
+  assert.deepEqual(decidedDocuments(rows).map((r) => r.executionId), ["b", "a"]);
+  assert.deepEqual(
+    decidedDocuments(rows, { rejected: true }).map((r) => r.executionId),
+    ["b", "c", "a"],
+  );
+  assert.deepEqual(contextFromQuery("?context=exe_1,exe_2,../x,exe_1"), ["exe_1", "exe_2"]);
+  assert.deepEqual(contextField([]), {});
+  assert.deepEqual(contextField(["a", "b", "c", "d", "e", "f"]).contextExecutionIds.length, 5);
 });

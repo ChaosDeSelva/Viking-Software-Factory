@@ -44,6 +44,8 @@ export function listedWork(row, kind) {
       kind,
       title,
       decision: w.decision ?? null,
+      decidedAt: typeof w.decidedAt === "string" ? w.decidedAt : null,
+      decidedBy: typeof w.decidedBy === "string" ? w.decidedBy : null,
       gatePassed: w.gatePassed === true,
       changesRequested: w.changesRequested === true,
     };

@@ -1,5 +1,6 @@
 import {
   detectProjects,
+  MAX_CONTEXT_DOCUMENTS,
   MAX_FIELD_CHARS,
   MAX_PROPOSAL_REFERENCES,
   MAX_PROPOSAL_TEXT_CHARS,
@@ -65,6 +66,7 @@ export function intakeView(r: IntakeRecord) {
       research: r.research,
       proposal: r.proposal,
       linkedExecutionId: r.linkedExecutionId,
+      contextExecutionIds: r.contextExecutionIds,
       pullRequest: pullRequestView(r),
     }),
     title: r.display.title,
@@ -93,6 +95,7 @@ const sanitized = { config: { [DISPLAY_SANITIZED]: true } };
 /** Work kind and operator guidance a new intake may carry. */
 const WorkFields = {
   workKind: z.enum(WORK_KINDS).optional(),
+  contextExecutionIds: z.array(z.string().min(1).max(200)).max(MAX_CONTEXT_DOCUMENTS).optional(),
   notes: utf8Capped(MAX_REQUEST_NOTES_BYTES, "notes").optional(),
   skillIds: z.array(z.string().min(1).max(100)).max(MAX_REQUEST_SKILLS).optional(),
   research: z
@@ -144,6 +147,33 @@ const ImportIntake = z.strictObject({
   url: z.string().url().max(2048),
   ...WorkFields,
 });
+
+/**
+ * 422 unless every run named as context delivered a document someone accepted: only accepted
+ * plans and research are handed to agents as context.
+ */
+export function requireAcceptedDocuments(
+  s: Pick<Services, "db">,
+  ids: readonly string[] | undefined,
+) {
+  if (!ids?.length) return;
+  const has = s.db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_decisions'")
+    .get();
+  const accepted = (id: string) =>
+    has &&
+    s.db
+      .prepare("SELECT 1 FROM document_decisions WHERE execution_id = ? AND decision = 'accepted'")
+      .get(id);
+  const missing = [...new Set(ids)].filter((id) => !accepted(id));
+  if (missing.length)
+    throw new ApiError(
+      422,
+      "validation_failed",
+      "context documents must be accepted plans or research documents",
+      { missing },
+    );
+}
 
 /** 422 `local_only` for a research request that asks for the web while local-only mode is on. */
 export function refuseLocalOnlyWeb(
@@ -231,6 +261,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
     refuseLocalOnlyWeb(s, body);
     requireProject(body.projectId);
     requireSkills(body.skillIds);
+    requireAcceptedDocuments(s, body.contextExecutionIds);
     const rec = s.intake().createManual(body);
     return reply.code(201).send({ intake: intakeView(rec) });
   });
@@ -242,6 +273,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
       throw new ApiError(503, "local_only", "local-only mode is on: ticket imports are disabled");
     if (body.projectId) requireProject(body.projectId);
     requireSkills(body.skillIds);
+    requireAcceptedDocuments(s, body.contextExecutionIds);
     const { url, projectId: given, ...work } = body;
     const projectId = given ?? (await projectForPullRequest(url));
     // 200 when the ticket was already imported: the existing intake comes back.

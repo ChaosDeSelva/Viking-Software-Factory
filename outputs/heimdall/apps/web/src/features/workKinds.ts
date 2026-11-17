@@ -349,6 +349,8 @@ export interface WorkSummary {
   gatePassed?: boolean;
   /** The checks failed only because the reviewer asked for changes (nothing broke). */
   changesRequested?: boolean;
+  decidedAt?: string | null;
+  decidedBy?: string | null;
 }
 
 /**
@@ -597,3 +599,55 @@ export function shortLocation(f: {
   const name = f.file.split("/").filter(Boolean).pop() ?? f.file;
   return { short: `${name}${line}`, full: `${f.file}${line}` };
 }
+
+/**
+ * A run's document decision, when it delivered a plan or research document someone decided on:
+ * the run itself stays `verified_pending_review`, but nothing waits on it any more.
+ */
+export function documentDecision(
+  deliveries: R[],
+  executionId: string,
+): { kind: "research" | "proposal"; decision: "accepted" | "rejected" } | null {
+  const d = deliveries.find((x) => (x.executionId ?? x.id) === executionId);
+  const w: WorkSummary | undefined = d?.work;
+  if (
+    (w?.kind === "research" || w?.kind === "proposal") &&
+    (w.decision === "accepted" || w.decision === "rejected")
+  )
+    return { kind: w.kind, decision: w.decision };
+  return null;
+}
+
+/** Most a request may carry as context (Sindri's limit). */
+export const MAX_CONTEXT_DOCUMENTS = 5;
+
+/**
+ * Plans and research documents with a decision, newest decision first: accepted ones, and with
+ * `rejected` the rejected ones too. Each row is a deliveries list row (`executionId`, `work`).
+ */
+export function decidedDocuments(deliveries: R[], { rejected = false } = {}): R[] {
+  return deliveries
+    .filter((d) => {
+      const w: WorkSummary | undefined = d.work;
+      return (
+        (w?.kind === "research" || w?.kind === "proposal") &&
+        (w.decision === "accepted" || (rejected && w.decision === "rejected"))
+      );
+    })
+    .sort((a, b) =>
+      String(b.work?.decidedAt ?? "").localeCompare(String(a.work?.decidedAt ?? "")),
+    );
+}
+
+/** The `?context=` runs a link to New work preselects (comma-separated), at most the limit. */
+export function contextFromQuery(search: string): string[] {
+  const raw = new URLSearchParams(search).get("context") ?? "";
+  return [...new Set(raw.split(",").filter((id) => /^[\w-]{1,200}$/.test(id)))].slice(
+    0,
+    MAX_CONTEXT_DOCUMENTS,
+  );
+}
+
+/** The request field for chosen context documents; nothing when none are chosen. */
+export const contextField = (ids: string[]): R =>
+  ids.length ? { contextExecutionIds: ids.slice(0, MAX_CONTEXT_DOCUMENTS) } : {};

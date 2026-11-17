@@ -25,6 +25,7 @@ import { useHeimdall } from "../app/context";
 import { Reasons, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { sindriDeliveryHref } from "../lib/apps";
+import { hrefFor, navigate } from "../lib/router";
 import { useDetail, WorkKindBadge } from "./WorkForms";
 import { renderDiagrams } from "../components/Mermaid";
 import { FactCheckList } from "./FactCheckList";
@@ -230,7 +231,27 @@ export function ResearchView({
         )}
         <DrawerActions>
           {decision ? (
-            <p className="text-sm text-muted">{decided}</p>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {decision.decision === "accepted" && (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={() =>
+                    navigate(
+                      hrefFor("new-work", {
+                        project: report.projectId,
+                        context: executionId,
+                      }),
+                    )
+                  }
+                >
+                  Start new work with this as context
+                </Button>
+              )}
+              <p className="text-sm text-muted">
+                {decided} Find it again on the Documents page.
+              </p>
+            </div>
           ) : (
             <>
               {checksFailed && !changesOnly && (
@@ -544,7 +565,27 @@ export function ProposalView({
         )}
         <DrawerActions>
           {decision ? (
-            <p className="text-sm text-muted">{decided}</p>
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              {decision.decision === "accepted" && (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  onClick={() =>
+                    navigate(
+                      hrefFor("new-work", {
+                        project: report.projectId,
+                        context: executionId,
+                      }),
+                    )
+                  }
+                >
+                  Start new work with this as context
+                </Button>
+              )}
+              <p className="text-sm text-muted">
+                {decided} Find it again on the Documents page.
+              </p>
+            </div>
           ) : (
             <>
               {checksFailed && !changesOnly && (
