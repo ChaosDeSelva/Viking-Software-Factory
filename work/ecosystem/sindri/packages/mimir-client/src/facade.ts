@@ -32,7 +32,12 @@ import {
 } from "@mimir/protocol";
 import { applyMigrations, type SqliteDatabase } from "@sindri/knowledge";
 import type { Plan, Role } from "@sindri/planner";
-import { mapPlan, type AgentKindResolver, type MappedPlan } from "./mapping.js";
+import {
+  mapPlan,
+  type AgentKindResolver,
+  type FallbackAgentResolver,
+  type MappedPlan,
+} from "./mapping.js";
 import { MIMIR_CLIENT_MIGRATIONS } from "./migrations.js";
 import {
   OWNED_SETTINGS,
@@ -59,6 +64,8 @@ export interface MimirClientFacadeOptions {
   acceptanceCriteriaFor?: (plan: Plan) => { id: string; text: string }[];
   /** Mimir `agentKind` per (harness, role). Default `claude` for everything. */
   agentKindFor?: AgentKindResolver;
+  /** See `MapPlanOptions.fallbackAgentFor`. */
+  fallbackAgentFor?: FallbackAgentResolver;
   /** Per-role crew concurrency, merged over the planner's `DEFAULT_CONCURRENCY`. */
   concurrency?: Partial<Record<Role, number>>;
   /** Read per plan: local-only mode refuses a plan that needs the web. */
@@ -261,6 +268,9 @@ export class MimirClientFacade {
           ? { acceptanceCriteria: this.options.acceptanceCriteriaFor(plan) }
           : {}),
         ...(this.options.agentKindFor ? { agentKindFor: this.options.agentKindFor } : {}),
+        ...(this.options.fallbackAgentFor
+          ? { fallbackAgentFor: this.options.fallbackAgentFor }
+          : {}),
         ...(this.options.concurrency ? { concurrency: this.options.concurrency } : {}),
         ...(run !== undefined ? { run } : {}),
         ...(this.options.localOnly ? { localOnly: this.options.localOnly() } : {}),
@@ -367,6 +377,21 @@ export class MimirClientFacade {
     await this.sdk.missions.cancel(missionId as MissionId, reason ? { reason } : {}, {
       idempotencyKey: `sindri:cancel:${missionId}${why}`,
     });
+  }
+
+  /**
+   * Restarts a failed or cancelled mission: Mimir keeps completed tasks and gives the others
+   * fresh attempts. One restart per reason (the key names it, as for cancel).
+   */
+  async reopen(missionId: MissionId | string, reason: string): Promise<void> {
+    const why = createHash("sha256").update(`${reason}:${Date.now()}`).digest("hex").slice(0, 16);
+    await this.sdk.missions.reopen(
+      missionId as MissionId,
+      { reason },
+      {
+        idempotencyKey: `sindri:reopen:${missionId}:${why}`,
+      },
+    );
   }
 
   async approvalForMission(missionId: string, approvalId: string) {

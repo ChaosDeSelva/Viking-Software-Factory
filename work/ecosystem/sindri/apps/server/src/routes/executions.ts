@@ -21,6 +21,7 @@ const Decide = z.strictObject({
   reason: z.string().trim().min(1).max(2000).optional(),
 });
 const Cancel = z.strictObject({ reason: z.string().trim().min(1).max(2000).optional() });
+const Restart = z.strictObject({ reason: z.string().trim().min(1).max(2000) });
 const Resolve = z.strictObject({
   decision: z.enum(["retry", "skip", "replan", "abort"]),
   reason: z.string().trim().min(1).max(2000),
@@ -344,6 +345,28 @@ export function executionRoutes(
     } catch (err) {
       throw asMimirUnavailable(err);
     }
+    return view(id);
+  });
+
+  /**
+   * Restarts a run that stopped (failed, cancelled, or waiting on a task Mimir can no longer
+   * retry) from where it stopped: completed tasks are kept, the rest run again with fresh
+   * attempts. Nothing that already finished runs twice.
+   */
+  app.post<IdParams>("/v1/executions/:id/restart", async (req) => {
+    const { id } = req.params;
+    requireExecution(id);
+    const body = parseBody(Restart, req.body);
+    try {
+      // The run continues in the background, as the execution's consumer.
+      await hub.takeover(id, async ({ loop }, signal) => {
+        await loop.restart(id, { actor: "user", reason: body.reason });
+        await loop.resume(id, { signal });
+      });
+    } catch (err) {
+      throw asMimirUnavailable(err);
+    }
+    req.log.info({ executionId: id }, "execution restarted");
     return view(id);
   });
 

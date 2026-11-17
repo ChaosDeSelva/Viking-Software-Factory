@@ -127,6 +127,8 @@ export interface FakeMimir {
   /** Commands sent to sessions (`input`, `stop`). */
   readonly sessionCommands: { sessionId: string; kind: "input" | "stop"; body: unknown }[];
   script(titleOrPrefix: string, steps: TaskStep[]): void;
+  /** Fails the mission, as Mimir does once a task has no attempts left. */
+  failMission(missionId: string): void;
   /** Appends an event (validated with `parseEvent`) without changing any entity. */
   inject(
     type: EventType,
@@ -196,6 +198,7 @@ const ROUTES = [
   "GET /v1/missions/{id}",
   "POST /v1/missions/{id}/start",
   "POST /v1/missions/{id}/cancel",
+  "POST /v1/missions/{id}/reopen",
   "GET /v1/crews",
   "POST /v1/crews",
   "GET /v1/tasks",
@@ -701,6 +704,45 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       );
       return { status: 202, body: accepted() };
     },
+    // Restarts an ended mission: completed tasks stay; each failed or cancelled task is reopened
+    // (pending while a dependency is unfinished) and runs its title's current script again.
+    "POST /v1/missions/{id}/reopen": ({ params, body }) => {
+      const { id } = parseWith(MissionIdParamsSchema, params, "path");
+      const req = parseWith(CancelMissionRequestSchema, body, "body");
+      const mission = need(missions, id, "mission");
+      if (!["failed", "cancelled"].includes(mission.status)) {
+        throw new MimirError("invalid_transition", `mission is ${mission.status}`);
+      }
+      const from = mission.status;
+      mission.status = "active";
+      touch(mission);
+      emit(
+        "mission.resumed",
+        { from, to: "active", ...(req.reason ? { reason: req.reason } : {}) },
+        { missionId: id },
+      );
+      for (const st of tasks.values()) {
+        if (st.task.missionId !== id || !["failed", "cancelled"].includes(st.task.status)) continue;
+        const waiting = st.dependsOn.some((d) => tasks.get(d)?.task.status !== "completed");
+        const prev = st.task.status;
+        st.task.status = waiting ? "pending" : "ready";
+        st.task.maxAttempts = st.task.attempt + 3;
+        st.steps = [...stepsFor(st.task.title)];
+        touch(st.task);
+        emit(
+          "task.reopened",
+          {
+            from: prev,
+            to: st.task.status,
+            attempt: st.task.attempt,
+            maxAttempts: st.task.maxAttempts,
+          },
+          { missionId: id, taskId: st.task.id, crewId: st.task.crewId },
+        );
+        if (!waiting) later(() => runAttempt(st));
+      }
+      return { status: 202, body: accepted() };
+    },
     "GET /v1/crews": ({ query }) => {
       const q = parseWith(ListCrewsQuerySchema, query, "query");
       const list = [...crews.values()]
@@ -1120,6 +1162,17 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
     sessionCommands,
     script(titleOrPrefix, steps) {
       scripts.set(titleOrPrefix, steps);
+    },
+    failMission(missionId) {
+      const mission = need(missions, missionId, "mission");
+      const from = mission.status;
+      mission.status = "failed";
+      touch(mission);
+      emit(
+        "mission.failed",
+        { from, to: "failed", reason: "tasks_failed" },
+        { missionId: mission.id },
+      );
     },
     inject(type, payload, refs) {
       emit(type, payload, refs);

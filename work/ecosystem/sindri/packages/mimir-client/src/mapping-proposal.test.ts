@@ -124,4 +124,15 @@ describe("proposal plans", () => {
     expect(crew.taskIds).toEqual(["research", "research-docs-site"]);
     expect(crew.request.limits.maxConcurrentTasks).toBe(2);
   });
+
+  it("gives each crew a fallback member on the other agent, used only while its own cannot work", () => {
+    const mapped = mapPlan(proposal(), {
+      agentKindFor: (_h, role) => (role === "docs" ? "claude" : "codex"),
+      fallbackAgentFor: (k) => ({ claude: "codex", codex: "claude" })[k],
+    });
+    const writer = mapped.crews.find((c) => c.role === "docs")!;
+    expect(writer.request.members.map((m) => m.agentKind)).toEqual(["claude", "codex"]);
+    const none = mapPlan(proposal(), { agentKindFor: () => "claude" });
+    expect(none.crews.every((c) => c.request.members.length === 1)).toBe(true);
+  });
 });

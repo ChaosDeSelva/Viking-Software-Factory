@@ -65,6 +65,11 @@ export const SettingsSchema = z.strictObject({
       "commandcode",
     ])
     .optional(),
+  /**
+   * When a task's agent cannot work (a usage limit, a failed login), run it on the other of
+   * Claude Code and Codex instead of waiting for the limit to reset. On unless set to false.
+   */
+  fallbackAgent: z.boolean().optional(),
   localOnly: z.boolean(),
   mimirUrl: HttpUrl.optional(),
   /** SecretStore key holding the Mimir bearer token. */

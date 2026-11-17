@@ -271,4 +271,85 @@ describe("proposal runs", () => {
     expect(writer.passed).toBe(false);
     expect(writer.failures.map((x) => x.reason)).toContain("too_few_diagrams:0");
   });
+
+  it("restarts a run whose writer stopped, from where it stopped: research is not run again", async () => {
+    const limit = { kind: "fail" as const, reason: "session_failed", retryable: false };
+    const flow = (f = await startMimirFlow(
+      {
+        research: findingsStep("The app"),
+        "research-docs-site": findingsStep("The docs site"),
+        proposal: Array.from({ length: 8 }, () => limit),
+      },
+      TRUST_FAKE,
+    ));
+    const plan = await approvedProposalPlan(flow);
+    const ex = await flow.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: plan.id },
+    });
+    const execution = ex.json().execution as { id: string; mimirMissionId: string };
+    const state = async () => (await flow.h.call({ url: `/v1/executions/${execution.id}` })).json();
+    // The writer runs out of attempts and is escalated; then Mimir fails the mission.
+    await until(state, (v: { tasks: { planTaskId: string; escalation: string | null }[] }) =>
+      v.tasks.some((t) => t.planTaskId === "proposal" && t.escalation),
+    );
+    const missionId = (await state()).execution.mimirMissionId as string;
+    flow.fake.failMission(missionId);
+    await until(state, (v: { execution: { status: string } }) =>
+      ["awaiting_human", "failed"].includes(v.execution.status),
+    );
+    const retry = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/escalations/proposal`,
+      payload: { decision: "retry", reason: "limit reset" },
+    });
+    expect(retry.statusCode).toBe(409);
+
+    const startedBefore = (await state()).tasks.map((t: { planTaskId: string; status: string }) => [
+      t.planTaskId,
+      t.status,
+    ]);
+    expect(startedBefore).toContainEqual(["research", "completed"]);
+    const mimirStarts = () =>
+      flow.h.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM execution_events WHERE execution_id = ? AND type = 'task.started'",
+        )
+        .get(execution.id) as { n: number };
+    const before = mimirStarts().n;
+
+    // The limit has reset: restart the run.
+    flow.fake.script("proposal", [
+      {
+        kind: "complete",
+        artifacts: ["report@proposal.md", "file@engineering.md", "file@sources.json"],
+        contents: {
+          "report@proposal.md": PROPOSAL,
+          "file@engineering.md": ENGINEERING,
+          "file@sources.json": SOURCES,
+        },
+      },
+    ]);
+    const restart = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/restart`,
+      payload: { reason: "Claude's weekly limit reset" },
+    });
+    expect(JSON.stringify(restart.json().error ?? null)).toBe("null");
+    expect(restart.statusCode).toBe(200);
+    const done = await until(
+      state,
+      (v: { execution: { status: string } }) => v.execution.status === "verified_pending_review",
+    );
+    expect(done.execution.status).toBe("verified_pending_review");
+    // Only the writer ran again: one more session start, none for the research.
+    expect(mimirStarts().n).toBe(before + 1);
+    const restartedTwice = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/restart`,
+      payload: { reason: "again" },
+    });
+    expect(restartedTwice.statusCode).toBe(409);
+  });
 });

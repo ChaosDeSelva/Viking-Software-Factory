@@ -346,6 +346,11 @@ export class ExecutionHub {
           ? (st.reviewerAgent ?? "claude")
           : (st.workerAgent ?? "claude");
       },
+      // Claude Code and Codex stand in for each other while one cannot work.
+      fallbackAgentFor: (kind: string) =>
+        this.#o.settings.get().fallbackAgent === false
+          ? undefined
+          : ({ claude: "codex", codex: "claude" } as Record<string, string>)[kind],
       localOnly: () => this.#o.settings.get().localOnly,
       ...(this.#o.mimirFetch ? { fetch: this.#o.mimirFetch } : {}),
       ...(this.#o.now ? { now: this.#o.now } : {}),

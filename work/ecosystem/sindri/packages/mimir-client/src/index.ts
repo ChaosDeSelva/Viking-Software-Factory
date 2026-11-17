@@ -38,6 +38,7 @@ export {
   taskContract,
   mimirRoleFor,
   type AgentKindResolver,
+  type FallbackAgentResolver,
   type MapPlanOptions,
   type MappedCrew,
   type MappedPlan,

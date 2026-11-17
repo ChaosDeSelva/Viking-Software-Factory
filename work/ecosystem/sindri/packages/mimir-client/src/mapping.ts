@@ -18,10 +18,14 @@ import {
 /** Picks the Mimir `agentKind` (e.g. `claude`, `codex`, `shell`) for a harness and role. */
 /** The agent kind a task's crew runs; `workKind` lets a plan's writer differ from a change's. */
 export type AgentKindResolver = (harnessId: string, role: Role, workKind?: string) => string;
+/** The agent a crew falls back to when its own cannot work, or undefined for none. */
+export type FallbackAgentResolver = (agentKind: string) => string | undefined;
 
 export interface MapPlanOptions {
   acceptanceCriteria?: { id: string; text: string }[];
   agentKindFor?: AgentKindResolver;
+  /** Adds a second crew member on this agent, used while the first cannot work. */
+  fallbackAgentFor?: FallbackAgentResolver;
   /** Per-role crew concurrency; merged over the planner's `DEFAULT_CONCURRENCY`. */
   concurrency?: Partial<Record<Role, number>>;
   /**
@@ -527,6 +531,8 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
       continue;
     }
     const role = mimirRoleFor(task.role);
+    const agentKind = agentKindFor(task.harnessId, task.role, plan.work?.kind);
+    const fallback = options.fallbackAgentFor?.(agentKind);
     crews.set(key, {
       key,
       idempotencyKey: idempotencyKey(plan, `@crew:${key}`, run),
@@ -537,12 +543,12 @@ export function mapPlan(plan: Plan, options: MapPlanOptions = {}): MappedPlan {
       request: {
         template: role,
         limits: {},
+        // Mimir runs the first member; the second only while the first cannot work.
         members: [
-          {
-            role,
-            agentKind: agentKindFor(task.harnessId, task.role, plan.work?.kind),
-            name: `${task.harnessId}-${task.role}`,
-          },
+          { role, agentKind, name: `${task.harnessId}-${task.role}` },
+          ...(fallback && fallback !== agentKind
+            ? [{ role, agentKind: fallback, name: `${task.harnessId}-${task.role}-fallback` }]
+            : []),
         ],
       },
     });
