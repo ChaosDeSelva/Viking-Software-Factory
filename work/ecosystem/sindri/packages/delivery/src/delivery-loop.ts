@@ -448,6 +448,31 @@ export class DeliveryLoop {
           ? "this run finished; start the plan again to run it anew"
           : `this run is ${row.status}; only a run that stopped can be restarted`,
       );
+    // Whatever Mimir recorded before the restart (failures the run stopped reading when it
+    // waited on a person) is history: recorded, never acted on. Otherwise an old failure read
+    // after the restart would count against the fresh attempts and escalate the task again.
+    const backlog = await this.mimir.catchUp(row.mimir_mission_id);
+    this.db.transaction(() => {
+      const seen = this.db.prepare(
+        "SELECT 1 FROM execution_events WHERE execution_id = ? AND mimir_event_id = ?",
+      );
+      const insert = this.db.prepare(
+        `INSERT INTO execution_events (id, execution_id, mimir_event_id, type, payload_json, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      for (const e of backlog.events) {
+        if (seen.get(executionId, e.id)) continue;
+        insert.run(
+          `exv_${randomUUID()}`,
+          executionId,
+          e.id,
+          e.type,
+          JSON.stringify(e.payload),
+          e.occurredAt,
+        );
+      }
+    })();
+    if (backlog.cursor) this.mimir.saveCursor(row.mimir_mission_id, backlog.cursor);
     await this.mimir.reopen(row.mimir_mission_id, `restarted by ${input.actor}: ${input.reason}`);
     const at = this.now().toISOString();
     const notices: DeliveryNotice[] = [];

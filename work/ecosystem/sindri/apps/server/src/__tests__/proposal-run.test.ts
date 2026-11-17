@@ -296,6 +296,17 @@ describe("proposal runs", () => {
       v.tasks.some((t) => t.planTaskId === "proposal" && t.escalation),
     );
     const missionId = (await state()).execution.mimirMissionId as string;
+    // Mimir records a last failure the run has not read yet (it stopped reading on the
+    // escalation), then fails the mission: after a restart that old failure must not count.
+    const writer = (await state()).tasks.find(
+      (t: { planTaskId: string; mimirTaskId: string }) => t.planTaskId === "proposal",
+    );
+    for (const attempt of [9, 10, 11])
+      flow.fake.inject(
+        "task.failed",
+        { from: "running", to: "failed", reason: "session_failed", attempt, retryable: false },
+        { missionId: missionId as never, taskId: writer.mimirTaskId },
+      );
     flow.fake.failMission(missionId);
     await until(state, (v: { execution: { status: string } }) =>
       ["awaiting_human", "failed"].includes(v.execution.status),
