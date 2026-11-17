@@ -14,7 +14,9 @@ export interface ExecutionSummaryRow {
   mimirMissionId: string;
   createdAt: string;
   finishedAt: string | null;
+  /** Removed runs only (listed with `removed`). */
   removedAt?: string;
+  removedReason?: string;
 }
 
 export interface EventRow {
@@ -36,15 +38,19 @@ export function executionsByProject(
     .prepare(
       `SELECT e.id, e.plan_id AS planId, e.plan_version AS planVersion, p.project_id AS projectId,
               e.status, e.mimir_mission_id AS mimirMissionId, e.created_at AS createdAt,
-              e.finished_at AS finishedAt, e.removed_at AS removedAt
+              e.finished_at AS finishedAt, e.removed_at AS removedAt,
+              e.removed_reason AS removedReason
        FROM executions e JOIN plans p ON p.id = e.plan_id
        WHERE p.project_id = ? AND e.removed_at IS ${removed ? "NOT NULL" : "NULL"}
        ORDER BY e.created_at DESC, e.rowid DESC`,
     )
     .all(projectId)
     .map((r) => {
-      const { removedAt, ...row } = r as ExecutionSummaryRow & { removedAt: string | null };
-      return removedAt ? { ...row, removedAt } : row;
+      const { removedAt, removedReason, ...row } = r as ExecutionSummaryRow & {
+        removedAt: string | null;
+        removedReason: string | null;
+      };
+      return removedAt ? { ...row, removedAt, removedReason: removedReason ?? "" } : row;
     });
 }
 
@@ -117,6 +123,11 @@ export interface DeliveryWork {
   prUrl: string | null;
   /** Every plan task's latest gate evaluation passed (true), one failed (false), or not all evaluated (null). */
   gatePassed: boolean | null;
+  /**
+   * The gates failed only because a reviewer asked for changes (nothing broke): every failure of
+   * every failed gate is `review_request_changes`.
+   */
+  changesRequested: boolean;
 }
 
 type PlanBits = {
@@ -129,6 +140,23 @@ type PlanBits = {
     prReview?: { title?: string; url?: string };
   };
 };
+
+function onlyChangesRequested(failuresJson: string | null): boolean {
+  let failures: unknown;
+  try {
+    failures = JSON.parse(failuresJson ?? "[]");
+  } catch {
+    return false;
+  }
+  return (
+    Array.isArray(failures) &&
+    failures.length > 0 &&
+    failures.every((f) => {
+      const reason = typeof f === "string" ? f : (f as { reason?: unknown } | null)?.reason;
+      return typeof reason === "string" && reason.split(":")[0] === "review_request_changes";
+    })
+  );
+}
 
 /**
  * Work kind and a summary of each delivery's state from stored rows only (no Mimir call, no
@@ -160,16 +188,26 @@ export function deliveriesWork(
     .prepare(`SELECT id, plan_id, plan_version, plan_json FROM executions WHERE id ${IN}`)
     .all(ids) as { id: string; plan_id: string; plan_version: number; plan_json: string }[];
   const gates = new Map<string, Map<string, boolean>>();
+  /** Per execution, per plan task: the latest failed gate asked only for changes. */
+  const changesOnly = new Map<string, Map<string, boolean>>();
   if (tables.has("gate_evaluations"))
     for (const g of db
       .prepare(
-        `SELECT execution_id, plan_task_id, passed FROM gate_evaluations WHERE execution_id ${IN}
-         ORDER BY rowid`,
+        `SELECT execution_id, plan_task_id, passed, failures_json FROM gate_evaluations
+         WHERE execution_id ${IN} ORDER BY rowid`,
       )
-      .all(ids) as { execution_id: string; plan_task_id: string; passed: number }[]) {
+      .all(ids) as {
+      execution_id: string;
+      plan_task_id: string;
+      passed: number;
+      failures_json: string | null;
+    }[]) {
       const m = gates.get(g.execution_id) ?? new Map<string, boolean>();
       m.set(g.plan_task_id, g.passed === 1);
       gates.set(g.execution_id, m);
+      const c = changesOnly.get(g.execution_id) ?? new Map<string, boolean>();
+      c.set(g.plan_task_id, g.passed !== 1 && onlyChangesRequested(g.failures_json));
+      changesOnly.set(g.execution_id, c);
     }
   const decisions = new Map<string, "accepted" | "rejected">();
   if (tables.has("document_decisions"))
@@ -215,6 +253,7 @@ export function deliveriesWork(
       : taskIds.length > 0 && taskIds.every((id) => latest.get(id) === true)
         ? true
         : null;
+    const failedTasks = [...latest].filter(([, passed]) => !passed).map(([id]) => id);
     const work: DeliveryWork = {
       title: null,
       decision: null,
@@ -223,6 +262,9 @@ export function deliveriesWork(
       verdict: null,
       prUrl: null,
       gatePassed,
+      changesRequested:
+        failedTasks.length > 0 &&
+        failedTasks.every((id) => changesOnly.get(e.id)?.get(id) === true),
     };
     if (workKind === "research") {
       work.title = plan.work?.research?.question?.split("\n")[0]?.slice(0, 300) ?? null;

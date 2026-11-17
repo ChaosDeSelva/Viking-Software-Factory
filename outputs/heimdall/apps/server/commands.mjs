@@ -244,6 +244,11 @@ export function commandRoute(c) {
     path = `/v1/executions/${id}/remove`;
     for (const key of Object.keys(body)) delete body[key];
     body.reason = text(c.reason, "A reason for removing the run", 2000);
+  } else if (c.action === "execution.restore") {
+    source = "sindri";
+    path = `/v1/executions/${id}/restore`;
+    for (const key of Object.keys(body)) delete body[key];
+    body.reason = text(c.reason, "A reason for restoring the run", 2000);
   } else if (c.action === "project.profile") {
     // The body is the whole profile; Sindri replaces the stored one with it.
     source = "sindri";

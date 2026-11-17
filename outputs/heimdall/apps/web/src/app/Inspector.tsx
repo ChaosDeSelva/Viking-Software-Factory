@@ -47,7 +47,7 @@ import {
   ResearchView,
 } from "../features/WorkDelivery";
 import { WorkKindBadge } from "../features/WorkForms";
-import { kindOf } from "../features/workKinds";
+import { gateResult, kindOf } from "../features/workKinds";
 import {
   planTitle,
   actionBlock,
@@ -924,9 +924,7 @@ export function Inspector({
         "gate:" + g.planTaskId,
         <Block
           title="Verification gate"
-          actions={
-            <Status value={g.passed ? "passed" : "failed"} domain="gate" />
-          }
+          actions={<Status value={gateResult(g)} domain="gate" />}
         >
           <Raw data={g} title="Gate evidence & failures" />
         </Block>,

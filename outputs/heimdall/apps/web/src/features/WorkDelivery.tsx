@@ -29,6 +29,7 @@ import { useDetail, WorkKindBadge } from "./WorkForms";
 import { renderDiagrams } from "../components/Mermaid";
 import {
   docSources,
+  findingCounts,
   leakCheckOf,
   postedUrl,
   researchChecksPassed,
@@ -162,13 +163,23 @@ export function ResearchView({
   const decision: R | null = research.decision ?? null;
   const markdown: string | null = research.document?.markdown ?? null;
   const checksFailed = !researchChecksPassed(research);
+  // Only the fact-check asked for changes: re-running the checks re-reads the same verdict.
+  const changesOnly =
+    checksFailed &&
+    research.factCheck?.verdict === "request_changes" &&
+    researchChecksPassed({ ...research, factCheck: null });
   const access = actionBlock("research.accept", undefined, session);
   const decided = decision
     ? `This document was already ${decision.decision}.`
     : "";
   const rejectWhy = access || decided;
   const acceptWhy =
-    rejectWhy || (checksFailed ? "The quality checks have not passed." : "");
+    rejectWhy ||
+    (changesOnly
+      ? "The fact-check asked for changes. Ask a follow-up (its fact-check runs again), or reject it."
+      : checksFailed
+        ? "The quality checks have not passed."
+        : "");
   const followWhy =
     actionBlock("research.followUp", undefined, session) ||
     (question.trim() ? "" : "Ask a question first.");
@@ -221,7 +232,7 @@ export function ResearchView({
             <p className="text-sm text-muted">{decided}</p>
           ) : (
             <>
-              {checksFailed && (
+              {checksFailed && !changesOnly && (
                 // Without this a failed check is a dead end: Accept stays disabled until the checks
                 // run again (for example after a fix to how they read the files).
                 <Button
@@ -354,12 +365,15 @@ export function ResearchView({
               label: "Fact-check",
               value: research.factCheck ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span>{verdictLabel(research.factCheck.verdict)}</span>
+                  <span>
+                    {research.factCheck.verdict === "request_changes" &&
+                    findingCounts(research.factCheck.findings)
+                      ? findingCounts(research.factCheck.findings)
+                      : verdictLabel(research.factCheck.verdict)}
+                  </span>
                   {typeof research.factCheck.gatePassed === "boolean" && (
                     <Status
-                      value={
-                        research.factCheck.gatePassed ? "passed" : "failed"
-                      }
+                      value={factCheckResult(research.factCheck)}
                       domain="gate"
                     />
                   )}
@@ -426,11 +440,21 @@ export function ProposalView({
   const engineering: string | null = plan.engineering?.markdown ?? null;
   const findings: R[] = Array.isArray(plan.findings) ? plan.findings : [];
   const checksFailed = !planChecksPassed(plan);
+  // Only the fact-check asked for changes: re-running the checks re-reads the same verdict.
+  const changesOnly =
+    checksFailed &&
+    plan.factCheck?.verdict === "request_changes" &&
+    planChecksPassed({ ...plan, factCheck: null });
   const access = actionBlock("research.accept", undefined, session);
   const decided = decision ? `This plan was already ${decision.decision}.` : "";
   const rejectWhy = access || decided;
   const acceptWhy =
-    rejectWhy || (checksFailed ? "The quality checks have not passed." : "");
+    rejectWhy ||
+    (changesOnly
+      ? "The fact-check asked for changes. Revise the plan (its fact-check runs again), or reject it."
+      : checksFailed
+        ? "The quality checks have not passed."
+        : "");
   const reviseWhy =
     actionBlock("research.followUp", undefined, session) ||
     (feedback.trim() ? "" : "Say what to change first.");
@@ -521,7 +545,7 @@ export function ProposalView({
             <p className="text-sm text-muted">{decided}</p>
           ) : (
             <>
-              {checksFailed && (
+              {checksFailed && !changesOnly && (
                 <Button
                   variant="secondary"
                   disabledReason={
@@ -671,10 +695,15 @@ export function ProposalView({
               label: "Fact-check",
               value: plan.factCheck ? (
                 <span className="flex flex-wrap items-center gap-2">
-                  <span>{verdictLabel(plan.factCheck.verdict)}</span>
+                  <span>
+                    {plan.factCheck.verdict === "request_changes" &&
+                    findingCounts(plan.factCheck.findings)
+                      ? findingCounts(plan.factCheck.findings)
+                      : verdictLabel(plan.factCheck.verdict)}
+                  </span>
                   {typeof plan.factCheck.gatePassed === "boolean" && (
                     <Status
-                      value={plan.factCheck.gatePassed ? "passed" : "failed"}
+                      value={factCheckResult(plan.factCheck)}
                       domain="gate"
                     />
                   )}
@@ -906,4 +935,10 @@ function Question({ text }: { text: string }) {
       )}
     </div>
   );
+}
+
+/** The fact-check's gate badge: asking for changes is not a failure of the check itself. */
+function factCheckResult(f: R): "passed" | "request_changes" | "failed" {
+  if (f.gatePassed === true) return "passed";
+  return f.verdict === "request_changes" ? "request_changes" : "failed";
 }

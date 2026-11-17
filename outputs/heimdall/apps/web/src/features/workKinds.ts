@@ -347,6 +347,46 @@ export interface WorkSummary {
   posted?: boolean;
   verdict?: string | null;
   gatePassed?: boolean;
+  /** The checks failed only because the reviewer asked for changes (nothing broke). */
+  changesRequested?: boolean;
+}
+
+/**
+ * A gate's result for its badge: a gate that failed only because the reviewer asked for changes
+ * is `request_changes` ("Changes requested"), not `failed`.
+ */
+export function gateResult(g: {
+  passed?: unknown;
+  failures?: unknown;
+}): "passed" | "request_changes" | "failed" {
+  if (g.passed === true) return "passed";
+  const failures = Array.isArray(g.failures) ? g.failures : [];
+  const reason = (f: unknown) =>
+    String(typeof f === "string" ? f : ((f as R | null)?.reason ?? "")).split(
+      ":",
+    )[0];
+  return failures.length > 0 &&
+    failures.every((f) => reason(f) === "review_request_changes")
+    ? "request_changes"
+    : "failed";
+}
+
+/** "2 major · 5 minor · 5 info": a findings list by severity, most severe first. */
+export function findingCounts(findings: unknown): string {
+  const order = ["blocking", "critical", "major", "minor", "info"];
+  const n = new Map<string, number>();
+  for (const f of Array.isArray(findings) ? findings : [])
+    if (f && typeof f === "object") {
+      const s = String((f as R).severity ?? "info");
+      n.set(s, (n.get(s) ?? 0) + 1);
+    }
+  return [...n]
+    .sort(([a], [b]) => {
+      const i = (s: string) => (order.includes(s) ? order.indexOf(s) : 99);
+      return i(a) - i(b);
+    })
+    .map(([s, c]) => `${c} ${s}`)
+    .join(" · ");
 }
 
 /** Sindri accepts a document only when every gate reported passed; a missing result has not. */
@@ -369,11 +409,15 @@ export function documentWaiting(work: WorkSummary | null | undefined): string {
   if (work?.kind === "research")
     return work.gatePassed === true
       ? "Accept or reject"
-      : "Reject or ask a follow-up (checks failed)";
+      : work.changesRequested
+        ? "Reject or ask a follow-up (fact-check asked for changes)"
+        : "Reject or ask a follow-up (checks failed)";
   if (work?.kind === "proposal")
     return work.gatePassed === true
       ? "Accept, reject or revise"
-      : "Reject or revise (checks failed)";
+      : work.changesRequested
+        ? "Reject or revise (fact-check asked for changes)"
+        : "Reject or revise (checks failed)";
   return `Posting in Sindri · ${verdictLabel(work?.verdict)}`;
 }
 

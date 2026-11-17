@@ -400,11 +400,13 @@ try {
   await nav("Pipeline");
   await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
   const cancelRun = inspector.getByRole("button", { name: /^Cancel run\b/ });
-  assert.equal(await unavailable(cancelRun), true);
-  assert.match(await reasonOf(cancelRun), /This run has ended/);
+  // A finished run has nothing to cancel; it can be removed from the lists instead.
+  await inspector.getByRole("button", { name: /^Remove run\b/ }).waitFor();
+  assert.equal(await cancelRun.count(), 0);
   source.execution.execution.status = "running";
   await app.hub.refresh();
   await inspector.getByText(/Cancelling stops the run for good/).waitFor();
+  assert.equal(await inspector.getByRole("button", { name: /^Remove run\b/ }).count(), 0);
   assert.equal(await unavailable(cancelRun), false);
   await cancelRun.click();
   await send("Wrong plan");
@@ -416,8 +418,10 @@ try {
   const cancelPost = source.requests.find((r) => r.path === "/v1/executions/exe_demo/cancel");
   assert.deepEqual(JSON.parse(cancelPost.body), { reason: "Wrong plan" });
   await runs.getByRole("button", { name: /Exact invoice totals/ }).click();
-  assert.equal(await unavailable(cancelRun), true);
-  assert.match(await reasonOf(cancelRun), /status is cancelled/);
+  // Cancelled now: it restarts or is removed, and is not cancelled twice.
+  await inspector.getByRole("button", { name: /^Restart run\b/ }).waitFor();
+  await inspector.getByRole("button", { name: /^Remove run\b/ }).waitFor();
+  assert.equal(await cancelRun.count(), 0);
   await closeInspector();
 
   console.log("Intake to a cancelled run");
@@ -542,7 +546,8 @@ try {
   await inspector.waitFor({ state: "hidden" });
   await runs.getByText("0 in progress · 2 failed or cancelled").waitFor();
   await newRun.click();
-  assert.match(await reasonOf(cancelRun), /status is cancelled/);
+  await inspector.getByRole("button", { name: /^Remove run\b/ }).waitFor();
+  assert.equal(await cancelRun.count(), 0);
   await closeInspector();
 
   console.log("An intake without a description is drafted from its title");

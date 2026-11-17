@@ -14,6 +14,8 @@ import {
   pendingDocuments,
   commandErrorText,
   documentWaiting,
+  findingCounts,
+  gateResult,
   postedUrl,
   researchChecksPassed,
   prReviewBlock,
@@ -456,7 +458,13 @@ test("list summaries are trimmed to what lists show, and an unevaluated gate has
       title: "T",
       decision: "accepted",
       gatePassed: true,
+      changesRequested: false,
     },
+  );
+  assert.equal(
+    listedWork(work({ gatePassed: false, changesRequested: true }), "proposal")
+      .changesRequested,
+    true,
   );
   assert.equal(listedWork(work({}), "research").gatePassed, false);
   assert.equal(
@@ -589,6 +597,7 @@ test("the snapshot labels deliveries with their kind and keeps research and revi
     title: "Why?",
     decision: null,
     gatePassed: true,
+    changesRequested: false,
   });
   assert.equal(row("exe_p").work.posted, false);
   assert.equal(row("exe_x").workKind, "audit");
@@ -656,6 +665,7 @@ test("summaries Sindri puts on its list rows are used without reading the report
     title: "Listed",
     decision: "accepted",
     gatePassed: true,
+    changesRequested: false,
   });
   await app.hub.refresh();
   assert.equal(
@@ -846,5 +856,60 @@ test("a plan delivery waits for a decision and is listed with its title", async 
     title: "Reports plan",
     decision: null,
     gatePassed: true,
+    changesRequested: false,
   });
+});
+
+test("a fact-check that asked for changes is not shown as a failed check", () => {
+  const changes = {
+    gateId: "review-verdict",
+    reason: "review_request_changes",
+  };
+  assert.equal(gateResult({ passed: true, failures: [] }), "passed");
+  assert.equal(
+    gateResult({ passed: false, failures: [changes] }),
+    "request_changes",
+  );
+  assert.equal(
+    gateResult({
+      passed: false,
+      failures: ["review_request_changes:blocking_finding"],
+    }),
+    "request_changes",
+  );
+  // Anything else that failed with it, or a failure with no reason, is a real failure.
+  assert.equal(
+    gateResult({
+      passed: false,
+      failures: [changes, { reason: "too_few_diagrams:0" }],
+    }),
+    "failed",
+  );
+  assert.equal(gateResult({ passed: false, failures: [] }), "failed");
+  assert.equal(
+    documentWaiting({
+      kind: "proposal",
+      title: null,
+      gatePassed: false,
+      changesRequested: true,
+    }),
+    "Reject or revise (fact-check asked for changes)",
+  );
+  assert.equal(
+    documentWaiting({ kind: "proposal", title: null, gatePassed: false }),
+    "Reject or revise (checks failed)",
+  );
+  assert.equal(
+    findingCounts([
+      { severity: "info" },
+      { severity: "major" },
+      { severity: "minor" },
+      { severity: "major" },
+      "junk",
+    ]),
+    "2 major · 1 minor · 1 info",
+  );
+  assert.equal(findingCounts(undefined), "");
+  // The badge value has a label of its own in the shared vocabulary.
+  assert.ok(JSON.stringify(statuses).includes("request_changes"));
 });

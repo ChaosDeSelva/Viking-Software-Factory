@@ -45,6 +45,7 @@ export function listedWork(row, kind) {
       title,
       decision: w.decision ?? null,
       gatePassed: w.gatePassed === true,
+      changesRequested: w.changesRequested === true,
     };
   if (kind === "pr_review")
     return {
@@ -342,6 +343,7 @@ export class Hub {
                 intakes: [],
                 executions: [],
                 deliveries: [],
+                removedExecutions: [],
               };
               for (const p of projects) {
                 const parts = await Promise.all(
@@ -354,6 +356,15 @@ export class Hub {
                   ),
                 );
                 for (const [k, rows] of parts) next[k].push(...rows);
+                // Removed runs, to restore one. A Sindri without removal ignores `removed` and
+                // lists every run, so only rows marked removed are kept.
+                const removed = await request(
+                  c,
+                  `/v1/executions?projectId=${encodeURIComponent(p.id)}&removed=1`,
+                ).catch(() => ({ executions: [] }));
+                next.removedExecutions.push(
+                  ...(removed.executions ?? []).filter((e) => e.removedAt),
+                );
               }
               // Execution details carry authoritative task mappings, gates, and escalations.
               next.executions = await Promise.all(

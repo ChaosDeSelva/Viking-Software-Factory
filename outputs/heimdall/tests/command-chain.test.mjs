@@ -115,3 +115,14 @@ test("a remove goes to Sindri's remove with the dialog's reason, nothing else", 
     commandRoute({ action: "execution.remove", id: "../x", reason: "r" }),
   );
 });
+
+test("a restore goes to Sindri's restore with the dialog's reason, nothing else", () => {
+  const route = commandRoute({
+    action: "execution.restore",
+    id: "exe_1",
+    reason: "Restore run",
+    body: { stray: 1 },
+  });
+  assert.equal(route.path, "/v1/executions/exe_1/restore");
+  assert.deepEqual(route.body, { reason: "Restore run" });
+});

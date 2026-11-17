@@ -49,6 +49,8 @@ export interface Scope {
   intakes: R[];
   deliveries: R[];
   executions: R[];
+  /** Runs an operator removed from the lists (Sindri summary rows), to restore one. */
+  removedExecutions: R[];
   approvals: R[];
   sindriProjects: R[];
   /** Sindri project ids behind the selection (one repository may be registered twice). */
@@ -127,6 +129,7 @@ export function scopeOf(state: R | null, selection: string): Scope {
     intakes: (s.intakes ?? []).filter(inSindri),
     deliveries: (s.deliveries ?? []).filter(inSindri),
     executions,
+    removedExecutions: (s.removedExecutions ?? []).filter(inSindri),
     approvals: (m.approvals ?? []).filter(
       (r: R) => r.status === "pending" && missionIds.has(r.missionId),
     ),

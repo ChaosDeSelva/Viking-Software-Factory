@@ -73,6 +73,10 @@ const state = {
     intakes: [],
     deliveries: [],
     executions: [],
+    removedExecutions: [
+      { id: "exe_a", projectId: "sp_a", removedAt: "2026-11-17T04:18:37Z" },
+      { id: "exe_z", projectId: "sp_other", removedAt: "2026-11-17T04:18:37Z" },
+    ],
   },
 };
 
@@ -381,4 +385,18 @@ test("desktop alerts skip an archived project's news, as the badge and the Notif
   // Restoring the project later does not replay what arrived while it was archived.
   const [, after] = newAlerts(seen, news);
   assert.deepEqual(after, []);
+});
+
+test("removed runs follow the selected project", () => {
+  assert.deepEqual(
+    scopeOf(state, "/r/a").removedExecutions.map((e) => e.id),
+    ["exe_a"],
+  );
+  assert.deepEqual(
+    scopeOf(
+      { ...state, sindri: { ...state.sindri, removedExecutions: undefined } },
+      "/r/a",
+    ).removedExecutions,
+    [],
+  );
 });
