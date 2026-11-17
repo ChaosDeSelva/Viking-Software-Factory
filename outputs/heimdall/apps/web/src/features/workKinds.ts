@@ -649,15 +649,25 @@ export function decidedDocuments(deliveries: R[], { rejected = false } = {}): R[
 /** The `?context=` runs a link to New work preselects (comma-separated), at most the limit. */
 export function contextFromQuery(search: string): string[] {
   const raw = new URLSearchParams(search).get("context") ?? "";
-  return [...new Set(raw.split(",").filter((id) => /^[\w-]{1,200}$/.test(id)))].slice(
+  return [...new Set(raw.split(",").filter((id) => /^(?:file:)?[\w-]{1,200}$/.test(id)))].slice(
     0,
     MAX_CONTEXT_DOCUMENTS,
   );
 }
 
-/** The request field for chosen context documents; nothing when none are chosen. */
-export const contextField = (ids: string[]): R =>
-  ids.length ? { contextExecutionIds: ids.slice(0, MAX_CONTEXT_DOCUMENTS) } : {};
+/**
+ * The request fields for chosen context: accepted documents by run, and uploaded files
+ * (`file:<id>`). Nothing when none are chosen; at most the limit together.
+ */
+export function contextField(ids: string[]): R {
+  const chosen = ids.slice(0, MAX_CONTEXT_DOCUMENTS);
+  const files = chosen.filter((id) => id.startsWith("file:")).map((id) => id.slice(5));
+  const runs = chosen.filter((id) => !id.startsWith("file:"));
+  return {
+    ...(runs.length ? { contextExecutionIds: runs } : {}),
+    ...(files.length ? { contextFileIds: files } : {}),
+  };
+}
 
 /** A finished piece of work for Overview's Results: what it was, how it ended, and when. */
 export interface Result {

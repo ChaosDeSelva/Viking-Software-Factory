@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
   createDataNonce,
@@ -62,6 +63,7 @@ import {
   MAX_TASK_LESSON_CHARS,
   type Budget,
   type ContextDocument,
+  type ContextImage,
   type Escalation,
   type Plan,
   type PlanStatus,
@@ -559,7 +561,10 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
    * document, as their delivery report keeps them, sharing one size budget. A document no longer
    * accepted, or without a report, is left out.
    */
-  const contextDocuments = (executionIds: readonly string[]): ContextDocument[] => {
+  const contextDocuments = (
+    executionIds: readonly string[],
+    fileIds: readonly string[],
+  ): { documents: ContextDocument[]; images: ContextImage[] } => {
     const tables = new Set(
       (
         db
@@ -569,9 +574,21 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           .all() as { name: string }[]
       ).map((t) => t.name),
     );
-    if (!tables.has("deliveries") || !tables.has("document_decisions")) return [];
-    const found: { executionId: string; title: string; markdown: string }[] = [];
-    for (const executionId of executionIds) {
+    const found: { executionId?: string; fileId?: string; title: string; markdown: string }[] = [];
+    const images: ContextImage[] = [];
+    const hasFiles = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'context_files'")
+      .get();
+    for (const fileId of hasFiles ? fileIds : []) {
+      const f = db
+        .prepare("SELECT name, kind, path FROM context_files WHERE id = ?")
+        .get(fileId) as { name: string; kind: string; path: string } | undefined;
+      if (!f || !existsSync(f.path)) continue;
+      if (f.kind === "image") images.push({ fileId, name: f.name, path: f.path });
+      else found.push({ fileId, title: f.name, markdown: readFileSync(f.path, "utf8") });
+    }
+    const documentsOk = tables.has("deliveries") && tables.has("document_decisions");
+    for (const executionId of documentsOk ? executionIds : []) {
       const accepted = db
         .prepare(
           "SELECT 1 FROM document_decisions WHERE execution_id = ? AND decision = 'accepted'",
@@ -611,21 +628,24 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       found.push({ executionId, title: (heading ?? executionId).slice(0, 500), markdown });
     }
     const each = found.length ? Math.floor(MAX_CONTEXT_DOCUMENTS_CHARS / found.length) : 0;
-    return found.map((d) => {
+    const documents = found.map((d) => {
       const text = redactSecrets(d.markdown).text;
       return {
-        executionId: d.executionId,
+        ...(d.executionId ? { executionId: d.executionId } : {}),
+        ...(d.fileId ? { fileId: d.fileId } : {}),
         title: d.title,
         document: text.length > each ? text.slice(0, each) + "\n[document truncated]" : text,
       };
     });
+    return { documents, images };
   };
 
   const loadWork = (specId: string) => {
     const r = db
       .prepare(
         `SELECT i.work_kind, i.research_json, i.proposal_json, i.notes, i.skill_ids_json,
-           i.title, i.raw_snapshot_json, i.linked_execution_id, i.context_json FROM specifications s
+           i.title, i.raw_snapshot_json, i.linked_execution_id, i.context_json,
+           i.context_files_json FROM specifications s
          JOIN intakes i ON i.id = s.intake_id WHERE s.id = ?`,
       )
       .get(specId) as
@@ -639,12 +659,15 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
           raw_snapshot_json: string;
           linked_execution_id: string | null;
           context_json: string | null;
+          context_files_json: string | null;
         }
       | undefined;
     const work: PlanWork = { kind: r?.work_kind ?? "change" };
     const contextIds = r?.context_json ? (JSON.parse(r.context_json) as string[]) : [];
-    const documents = contextDocuments(contextIds);
+    const fileIds = r?.context_files_json ? (JSON.parse(r.context_files_json) as string[]) : [];
+    const { documents, images } = contextDocuments(contextIds, fileIds);
     if (documents.length) work.documents = documents;
+    if (images.length) work.images = images;
     let referenceIds: string[] = [];
     if (work.kind === "pr_review") {
       const snapshot = r

@@ -17,6 +17,7 @@ import { z } from "zod";
 import { DISPLAY_SANITIZED, forDisplay } from "../display.js";
 import { ApiError, notFound, parseBody } from "../errors.js";
 import { cachedRemoteLookup } from "../review-mirror.js";
+import { requireContextFiles } from "./context-files.js";
 import type { Services } from "../services.js";
 
 /**
@@ -67,6 +68,7 @@ export function intakeView(r: IntakeRecord) {
       proposal: r.proposal,
       linkedExecutionId: r.linkedExecutionId,
       contextExecutionIds: r.contextExecutionIds,
+      contextFileIds: r.contextFileIds,
       pullRequest: pullRequestView(r),
     }),
     title: r.display.title,
@@ -96,6 +98,7 @@ const sanitized = { config: { [DISPLAY_SANITIZED]: true } };
 const WorkFields = {
   workKind: z.enum(WORK_KINDS).optional(),
   contextExecutionIds: z.array(z.string().min(1).max(200)).max(MAX_CONTEXT_DOCUMENTS).optional(),
+  contextFileIds: z.array(z.string().min(1).max(200)).max(MAX_CONTEXT_DOCUMENTS).optional(),
   notes: utf8Capped(MAX_REQUEST_NOTES_BYTES, "notes").optional(),
   skillIds: z.array(z.string().min(1).max(100)).max(MAX_REQUEST_SKILLS).optional(),
   research: z
@@ -262,6 +265,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
     requireProject(body.projectId);
     requireSkills(body.skillIds);
     requireAcceptedDocuments(s, body.contextExecutionIds);
+    requireContextFiles(s.db, body.contextFileIds);
     const rec = s.intake().createManual(body);
     return reply.code(201).send({ intake: intakeView(rec) });
   });
@@ -274,6 +278,7 @@ export function intakeRoutes(app: FastifyInstance, s: Services) {
     if (body.projectId) requireProject(body.projectId);
     requireSkills(body.skillIds);
     requireAcceptedDocuments(s, body.contextExecutionIds);
+    requireContextFiles(s.db, body.contextFileIds);
     const { url, projectId: given, ...work } = body;
     const projectId = given ?? (await projectForPullRequest(url));
     // 200 when the ticket was already imported: the existing intake comes back.

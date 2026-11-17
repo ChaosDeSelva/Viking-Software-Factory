@@ -191,6 +191,9 @@ export async function fixture() {
       return res.end(
         JSON.stringify({ projects: flow?.projects ?? data.projects }),
       );
+    // Uploaded context files, when the flow has any.
+    if (req.url === "/v1/context-files" && req.method === "GET")
+      return res.end(JSON.stringify({ files: flow?.contextFiles ?? [] }));
     const listed = /^\/v1\/(specs|plans|intakes|deliveries)\?projectId=(.+)$/.exec(
       req.url,
     );
@@ -840,6 +843,9 @@ export function installWorkKinds(source) {
       },
     },
   );
+  flow.contextFiles = [
+    { id: "cf_notes", name: "call-notes.md", kind: "markdown", mime: "text/markdown", bytes: 2048, createdAt: "2026-11-17T08:00:00Z" },
+  ];
   flow.intakes.push({ id: "int_odd", projectId: "prj_demo", title: "Mystery intake", body: "", workKind: "audit" });
   // A Revise of the plan: its intake links the delivered plan, and its spec waits for approval.
   flow.plans.find((p) => p.id === "pln_plan").specId = "spc_plan";

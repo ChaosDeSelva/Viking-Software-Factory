@@ -36,6 +36,8 @@ export function commandTitle(action: string, body: R = {}): string {
     "budget.raise": "Raise budget",
     "execution.create": "Start approved plan",
     "plan.start": "Start the plan",
+    "contextFile.upload": "Upload a context file",
+    "contextFile.delete": "Delete an uploaded file",
     "execution.cancel": "Cancel run",
     "execution.restart": "Restart run",
     "execution.remove": "Remove run",
@@ -125,7 +127,17 @@ export function CommandDialog({
                 <Id value={String(command.id)} />
                 <code className="text-xs text-muted">{command.action}</code>
               </p>
-              <Raw data={command.body} title="Command payload" />
+              <Raw
+                data={
+                  typeof command.body?.contentBase64 === "string"
+                    ? {
+                        ...command.body,
+                        contentBase64: `(${command.body.contentBase64.length.toLocaleString("en-US")} characters of file content)`,
+                      }
+                    : command.body
+                }
+                title="Command payload"
+              />
             </div>
           </Disclosure>
           <Field

@@ -1021,3 +1021,24 @@ test("Results lists finished work newest first; In progress and Next step see de
   const executions = [{ execution: { id: "exe_plan", planId: "pln_1", status: "verified_pending_review" } }];
   assert.notEqual(nextStep({ ...lists, executions })?.page, "quality-approvals");
 });
+
+test("uploaded files route to Sindri, and chosen ones travel as contextFileIds", async () => {
+  const { contextField, contextFromQuery } = await import("../apps/web/src/features/workKinds.ts");
+  const up = commandRoute({
+    action: "contextFile.upload",
+    id: "new",
+    body: { name: "notes.md", mime: "text/markdown", contentBase64: "IyBIaQ==", stray: 1 },
+  });
+  assert.deepEqual([up.source, up.path, up.body], [
+    "sindri",
+    "/v1/context-files",
+    { name: "notes.md", mime: "text/markdown", contentBase64: "IyBIaQ==" },
+  ]);
+  const del = commandRoute({ action: "contextFile.delete", id: "cf_1", body: {} });
+  assert.deepEqual([del.method, del.path], ["DELETE", "/v1/context-files/cf_1"]);
+  assert.deepEqual(contextField(["exe_1", "file:cf_1"]), {
+    contextExecutionIds: ["exe_1"],
+    contextFileIds: ["cf_1"],
+  });
+  assert.deepEqual(contextFromQuery("?context=file:cf_1"), ["file:cf_1"]);
+});

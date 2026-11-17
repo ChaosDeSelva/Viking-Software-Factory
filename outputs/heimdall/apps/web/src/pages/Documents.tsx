@@ -19,6 +19,7 @@ import { hrefFor, navigate } from "../lib/router";
 import { RunStatus } from "../features/RunStatus";
 import { WorkKindBadge } from "../features/WorkForms";
 import { decidedDocuments } from "../features/workKinds";
+import { actionBlock } from "../features/workflowState";
 import { scopeOf } from "../features/scope";
 
 const runOf = (d: R) => String(d.executionId ?? d.id);
@@ -35,7 +36,29 @@ export const contextHref = (d: R) =>
   hrefFor("new-work", { project: d.projectId, context: runOf(d) });
 
 export function DocumentsPage() {
-  const { state, open } = useHeimdall();
+  const { state, open, propose, notify, session } = useHeimdall();
+  const files: R[] = state?.sindri?.contextFiles ?? [];
+  const uploadWhy = actionBlock("contextFile.upload", undefined, session);
+  const upload = async (list: FileList | null) => {
+    for (const file of Array.from(list ?? [])) {
+      const limit = file.type.startsWith("image/") ? 10 : 1;
+      if (file.size > limit * 1024 * 1024) {
+        notify(`${file.name} is over ${limit} MB.`, "warning");
+        continue;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 0x8000)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      propose("contextFile.upload", "new", {
+        name: file.name,
+        mime: file.type,
+        contentBase64: btoa(binary),
+      });
+      // One dialog at a time: the next file waits for this one.
+      break;
+    }
+  };
   // A library across every project: a plan made for one project often guides another.
   const scope = scopeOf(state, "all");
   const [search, setSearch] = useState(""),
@@ -102,12 +125,104 @@ export function DocumentsPage() {
       ),
     },
   ];
+  const fileColumns: Column<R>[] = [
+    {
+      key: "name",
+      header: "File",
+      primary: true,
+      cell: (f) => (
+        <span className="flex min-w-0 flex-col gap-1">
+          <span className="font-medium [overflow-wrap:anywhere]">{String(f.name)}</span>
+          <span className="text-xs font-normal text-muted">
+            {f.kind === "image" ? "Image" : "Markdown"} ·{" "}
+            {Math.max(1, Math.round(Number(f.bytes) / 1024)).toLocaleString("en-US")} KB
+          </span>
+        </span>
+      ),
+    },
+    {
+      key: "added",
+      header: "Added",
+      cell: (f) => (f.createdAt ? <Timestamp value={f.createdAt} /> : null),
+    },
+    {
+      key: "actions",
+      header: "Actions",
+      align: "right",
+      cell: (f) => (
+        <span className="flex flex-wrap justify-end gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() =>
+              navigate(hrefFor("new-work", { context: `file:${f.id}` }))
+            }
+          >
+            Use as context
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabledReason={actionBlock("contextFile.delete", undefined, session) || undefined}
+            onClick={() => propose("contextFile.delete", String(f.id))}
+          >
+            Delete
+          </Button>
+        </span>
+      ),
+    },
+  ];
   return (
     <Page>
       <PageHeader
         title="Documents"
-        description="Plans and research documents you accepted: read them again, download them, or start new work with them as context."
+        description="Plans and research you accepted, and files you uploaded: read them again, or start new work with them as context."
       />
+      <Card
+        title="Uploaded files"
+        count={files.length}
+        description="Markdown documents and images (screenshots, diagrams, mock-ups) to give new work as context."
+        flush
+        actions={
+          <label
+            className={
+              uploadWhy
+                ? "cursor-not-allowed text-sm text-muted"
+                : "inline-flex cursor-pointer items-center rounded-md border border-line px-3 py-1.5 text-sm font-medium hover:bg-surface-2 focus-within:outline-2 focus-within:outline-focus"
+            }
+            title={uploadWhy || undefined}
+          >
+            Upload a file
+            <input
+              type="file"
+              className="sr-only"
+              accept=".md,.markdown,text/markdown,image/png,image/jpeg,image/gif,image/webp"
+              disabled={!!uploadWhy}
+              onChange={(e) => {
+                void upload(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        }
+      >
+        <DataTable
+          caption="Uploaded files"
+          columns={fileColumns}
+          rows={files}
+          rowKey={(f) => String(f.id)}
+          rowLabel={(f) => String(f.name)}
+          className="rounded-none border-0"
+          empty={
+            <EmptyState
+              compact
+              icon="plus"
+              title="No uploaded files"
+              body="Upload a .md file (up to 1 MB) or a PNG, JPEG, GIF or WebP image (up to 10 MB)."
+            />
+          }
+        />
+      </Card>
       <Card
         title="Accepted documents"
         count={rows.length}

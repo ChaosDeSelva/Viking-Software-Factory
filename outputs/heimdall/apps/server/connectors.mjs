@@ -347,6 +347,7 @@ export class Hub {
                 executions: [],
                 deliveries: [],
                 removedExecutions: [],
+                contextFiles: [],
               };
               for (const p of projects) {
                 const parts = await Promise.all(
@@ -369,6 +370,11 @@ export class Hub {
                   ...(removed.executions ?? []).filter((e) => e.removedAt),
                 );
               }
+              // Uploaded context files (Markdown, images), for Documents and New work. A Sindri
+              // without uploads answers 404: none.
+              next.contextFiles = (
+                await request(c, "/v1/context-files").catch(() => ({ files: [] }))
+              ).files ?? [];
               // Execution details carry authoritative task mappings, gates, and escalations.
               next.executions = await Promise.all(
                 next.executions.map((e) =>

@@ -92,11 +92,14 @@ const WORK_STATES = [
     await table.getByText("Replaced config plan").waitFor();
     await table.getByText("Replaced by a revision").waitFor();
     await page.getByLabel("Show rejected and replaced").uncheck();
+    await page.getByRole("table", { name: "Uploaded files" }).getByText("call-notes.md").waitFor();
     await table.getByRole("button", { name: "Use as context" }).click();
     await page.waitForURL(/\/new-work\?.*context=exe_accepted/);
     const picked = page.getByRole("checkbox", { name: /Accepted config plan/ });
     await picked.waitFor();
     assert.equal(await picked.isChecked(), true);
+    // Uploaded files are offered too.
+    await page.getByRole("checkbox", { name: /call-notes\.md/ }).waitFor();
   }],
   ["Quality: a replaced plan does not wait", async () => {
     await page.goto(app.url + "/quality?project=prj_demo");

@@ -197,12 +197,27 @@ export const MAX_CONTEXT_DOCUMENTS_CHARS = 120_000;
 
 export const ContextDocumentSchema = z
   .object({
-    executionId: z.string().min(1),
+    /** The run of an accepted document, or the id of an uploaded Markdown file. */
+    executionId: z.string().min(1).optional(),
+    fileId: z.string().min(1).optional(),
     title: z.string().max(500),
     document: z.string().max(MAX_CONTEXT_DOCUMENTS_CHARS + 64),
   })
   .strict();
 export type ContextDocument = z.infer<typeof ContextDocumentSchema>;
+
+/** An uploaded image the operator gave a request as context; agents may open its file. */
+export const ContextImageSchema = z
+  .object({
+    fileId: z.string().min(1),
+    name: z.string().max(300),
+    path: z
+      .string()
+      .regex(/^\/[^\0]*$/)
+      .max(1024),
+  })
+  .strict();
+export type ContextImage = z.infer<typeof ContextImageSchema>;
 
 export const PlanWorkSchema = z
   .object({
@@ -212,6 +227,7 @@ export const PlanWorkSchema = z
     proposal: ProposalPlanSchema.optional(),
     /** Accepted plans or research documents the operator chose as context, for every task. */
     documents: z.array(ContextDocumentSchema).max(5).optional(),
+    images: z.array(ContextImageSchema).max(5).optional(),
   })
   .strict();
 export type PlanWork = z.infer<typeof PlanWorkSchema>;

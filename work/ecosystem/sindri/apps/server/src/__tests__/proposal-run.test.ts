@@ -69,7 +69,11 @@ const findingsStep = (what: string) => [
   },
 ];
 
-async function approvedProposalPlan(flow: MimirFlow, factCheck = false) {
+async function approvedProposalPlan(
+  flow: MimirFlow,
+  factCheck = false,
+  extra: Record<string, unknown> = {},
+) {
   const repo = mkdtempSync(join(tmpdir(), "sindri-docs-site-"));
   const docs = (
     await flow.h.call({
@@ -88,6 +92,7 @@ async function approvedProposalPlan(flow: MimirFlow, factCheck = false) {
         body: "We talked about the reports page and the docs-site.",
         workKind: "proposal",
         proposal: { referenceProjectIds: [docs], factCheck },
+        ...extra,
       },
     })
   ).json().intake;
@@ -111,7 +116,14 @@ async function approvedProposalPlan(flow: MimirFlow, factCheck = false) {
   });
   const plan = (
     await flow.h.call({ method: "POST", url: "/v1/plans/propose", payload: { specId } })
-  ).json().plan as { id: string; tasks: { id: string }[] };
+  ).json().plan as {
+    id: string;
+    tasks: { id: string }[];
+    work: {
+      documents?: { fileId?: string; title: string; document: string }[];
+      images?: { fileId: string; name: string; path: string }[];
+    };
+  };
   await flow.h.call({ method: "POST", url: `/v1/plans/${plan.id}/submit`, payload: {} });
   const ok = await flow.h.call({
     method: "POST",
@@ -396,6 +408,59 @@ describe("proposal runs", () => {
       reason: "Week 1 is our call; we cut it on Monday",
       overrodeFactCheck: "fact-check",
     });
+  });
+
+  it("stores uploaded Markdown and images, and hands them to a request's plan as context", async () => {
+    const flow = (f = await startMimirFlow({}, TRUST_FAKE));
+    const upload = (name: string, mime: string, content: Buffer | string) =>
+      flow.h.call({
+        method: "POST",
+        url: "/v1/context-files",
+        payload: { name, mime, contentBase64: Buffer.from(content).toString("base64") },
+      });
+    const md = await upload("notes.md", "text/markdown", "# Call notes\nShip the reports page.");
+    expect(md.statusCode).toBe(201);
+    expect(md.json().file).toMatchObject({ name: "notes.md", kind: "markdown" });
+    // A 1x1 PNG.
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const img = await upload("../../screen shot.png", "image/png", png);
+    expect(img.statusCode).toBe(201);
+    expect(img.json().file).toMatchObject({ name: "screen shot.png", kind: "image" });
+    expect((await upload("run.sh", "text/x-sh", "rm -rf /")).statusCode).toBe(422);
+    const list = (await flow.h.call({ url: "/v1/context-files" })).json().files as { id: string }[];
+    expect(list.map((x) => x.id).sort()).toEqual([md.json().file.id, img.json().file.id].sort());
+    const content = await flow.h.call({ url: `/v1/context-files/${img.json().file.id}/content` });
+    expect(content.headers["content-type"]).toBe("image/png");
+    expect(content.rawPayload.equals(png)).toBe(true);
+    // Unknown ids are refused; known ones reach the plan.
+    const bad = await flow.h.call({
+      method: "POST",
+      url: "/v1/intakes",
+      payload: { projectId: flow.projectId, title: "x", body: "x", contextFileIds: ["cf_nope"] },
+    });
+    expect(bad.statusCode).toBe(422);
+    const plan = await approvedProposalPlan(flow, false, {
+      contextFileIds: [md.json().file.id, img.json().file.id],
+    });
+    expect(plan.work.documents?.[0]).toMatchObject({
+      fileId: md.json().file.id,
+      title: "notes.md",
+    });
+    expect(plan.work.documents?.[0]?.document).toContain("Ship the reports page.");
+    expect(plan.work.images?.[0]).toMatchObject({
+      fileId: img.json().file.id,
+      name: "screen shot.png",
+    });
+    expect(plan.work.images?.[0]?.path).toMatch(/context-files\/cf_[\w-]+\/screen shot\.png$/);
+    const del = await flow.h.call({
+      method: "DELETE",
+      url: `/v1/context-files/${md.json().file.id}`,
+    });
+    expect(del.statusCode).toBe(200);
+    expect((await flow.h.call({ url: "/v1/context-files" })).json().files).toHaveLength(1);
   });
 
   it("restarts a run whose writer stopped, from where it stopped: research is not run again", async () => {

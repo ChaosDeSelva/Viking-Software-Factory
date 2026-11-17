@@ -131,6 +131,31 @@ describe("proposal plans", () => {
     expect(briefOf(proposal(), "proposal")).not.toContain("Context documents:");
   });
 
+  it("lets every task open uploaded context images, a code change too", () => {
+    const image = {
+      fileId: "cf_1",
+      name: "screen.png",
+      path: "/data/context-files/cf_1/screen.png",
+    };
+    const plan = proposal();
+    plan.work!.images = [image];
+    for (const t of mapPlan(plan).tasks) {
+      expect(t.mode?.readDirs).toContain("/data/context-files/cf_1");
+      expect(t.brief).toContain("/data/context-files/cf_1/screen.png");
+    }
+    const change = approvedPlan([planTask("build", { role: "implementer" })], {
+      work: { kind: "change", images: [image] },
+    });
+    expect(modeFor(change, change.tasks[0]!)).toEqual({
+      deliverable: "diff",
+      access: "write",
+      network: "none",
+      readDirs: ["/data/context-files/cf_1"],
+    });
+    const plain = approvedPlan([planTask("build", { role: "implementer" })]);
+    expect(modeFor(plain, plain.tasks[0]!)).toBeUndefined();
+  });
+
   it("tells the resolver the kind of work, so a plan's writer can run on the planning agent", () => {
     const asked: [string, string | undefined][] = [];
     mapPlan(proposal(), {

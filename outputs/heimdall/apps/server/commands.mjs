@@ -289,6 +289,20 @@ export function commandRoute(c) {
     const question = text(body.question, "A follow-up question");
     for (const key of Object.keys(body)) delete body[key];
     body.question = question.trim();
+  } else if (c.action === "contextFile.upload") {
+    // A Markdown file or an image to give new work as context; Sindri checks type and size.
+    source = "sindri";
+    path = "/v1/context-files";
+    const name = text(body.name, "A file name", 300);
+    const mime = typeof body.mime === "string" ? body.mime.slice(0, 100) : "";
+    const contentBase64 = text(body.contentBase64, "The file", 14 * 1024 * 1024);
+    for (const key of Object.keys(body)) delete body[key];
+    Object.assign(body, { name, mime, contentBase64 });
+  } else if (c.action === "contextFile.delete") {
+    source = "sindri";
+    method = "DELETE";
+    path = `/v1/context-files/${id}`;
+    for (const key of Object.keys(body)) delete body[key];
   } else if (c.action === "intake.import") {
     source = "sindri";
     path = "/v1/intakes/import";

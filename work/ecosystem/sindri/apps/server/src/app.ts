@@ -14,6 +14,7 @@ import { GUIDE_CLIENT_HEADER, guideRoutes } from "./routes/guide.js";
 import { guidanceRoutes } from "./routes/guidance.js";
 import { harnessRoutes } from "./routes/harnesses.js";
 import { intakeRoutes } from "./routes/intakes.js";
+import { contextFileRoutes } from "./routes/context-files.js";
 import { knowledgeRoutes } from "./routes/knowledge.js";
 import { planRoutes } from "./routes/plans.js";
 import { prReviewRoutes } from "./routes/pr-reviews.js";
@@ -243,6 +244,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   approvalRoutes(app, approvals);
   projectRoutes(app, services, approvals);
   intakeRoutes(app, services);
+  contextFileRoutes(app, services);
   specRoutes(app, services, approvals);
   knowledgeRoutes(app, services);
   guidanceRoutes(app, services);

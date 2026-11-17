@@ -27,11 +27,11 @@ const json = (res, status, data) => {
   });
   res.end(JSON.stringify(data));
 };
-async function body(req) {
+async function body(req, limit = 524288) {
   let text = "";
   for await (const chunk of req) {
     text += chunk;
-    if (text.length > 524288)
+    if (text.length > limit)
       throw Object.assign(Error("Request too large"), { status: 413 });
   }
   const value = JSON.parse(text || "{}");
@@ -672,7 +672,8 @@ export async function startHeimdall(options = {}) {
             ),
             { status: 403 },
           );
-        const c = await body(req);
+        // An uploaded context file (an image is up to 10 MB, a third larger as base64).
+        const c = await body(req, 14 * 1024 * 1024 + 65536);
         if (
           typeof c.reason !== "string" ||
           !c.reason.trim() ||

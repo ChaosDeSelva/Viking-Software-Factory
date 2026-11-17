@@ -29,6 +29,7 @@ export function ContextPicker({
   const { state } = useHeimdall();
   // Documents from every project: a plan made for one project often guides work in another.
   const docs = decidedDocuments(scopeOf(state, "all").deliveries);
+  const files: R[] = state?.sindri?.contextFiles ?? [];
   const full = value.length >= MAX_CONTEXT_DOCUMENTS;
   return (
     <fieldset
@@ -38,12 +39,44 @@ export function ContextPicker({
       <legend className="mb-1 text-sm font-medium text-fg">
         Context documents (optional)
       </legend>
-      {docs.length === 0 ? (
+      {files.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {files.map((f: R) => {
+            const key = `file:${f.id}`;
+            const checked = value.includes(key);
+            return (
+              <li key={key}>
+                <Checkbox
+                  id={`${id}-${f.id}`}
+                  checked={checked}
+                  disabled={!checked && full}
+                  onChange={(e) =>
+                    onChange(
+                      e.target.checked
+                        ? [...value, key]
+                        : value.filter((x) => x !== key),
+                    )
+                  }
+                  label={
+                    <span className="[overflow-wrap:anywhere]">
+                      {String(f.name)}
+                    </span>
+                  }
+                  description={
+                    f.kind === "image" ? "Uploaded image" : "Uploaded Markdown"
+                  }
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {docs.length === 0 && files.length === 0 ? (
         <p className="text-sm text-muted">
-          No accepted plans or research yet. Accepted ones appear here and on
-          the Documents page.
+          No accepted plans, research or uploaded files yet. Upload Markdown or
+          images on the Documents page.
         </p>
-      ) : (
+      ) : docs.length === 0 ? null : (
         <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
           {docs.map((d: R) => {
             const runId = String(d.executionId ?? d.id);
@@ -83,9 +116,9 @@ export function ContextPicker({
         </ul>
       )}
       <p id={`${id}-hint`} className="text-xs text-muted">
-        Every agent on this request reads the chosen documents as background
-        (at most {MAX_CONTEXT_DOCUMENTS}). The code still wins where they
-        disagree.
+        Every agent on this request reads the chosen documents and images as
+        background (at most {MAX_CONTEXT_DOCUMENTS}). The code still wins where
+        they disagree.
       </p>
     </fieldset>
   );

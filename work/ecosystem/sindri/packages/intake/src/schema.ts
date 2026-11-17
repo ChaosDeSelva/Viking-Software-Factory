@@ -63,6 +63,8 @@ export const INTAKE_MIGRATIONS: readonly string[] = [
   `ALTER TABLE intakes ADD COLUMN proposal_json TEXT`,
   // v6: accepted documents (plans, research) the operator gave the request as context.
   `ALTER TABLE intakes ADD COLUMN context_json TEXT`,
+  // v7: uploaded files (Markdown, images) the operator gave the request as context.
+  `ALTER TABLE intakes ADD COLUMN context_files_json TEXT`,
 ];
 
 const SOURCES_BEFORE_GITHUB = "'manual', 'jira', 'linear')";

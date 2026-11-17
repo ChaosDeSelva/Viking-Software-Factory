@@ -118,6 +118,8 @@ export interface IntakeRecord {
   linkedExecutionId: string | null;
   /** Runs whose accepted documents the operator gave this request as context. */
   contextExecutionIds: string[];
+  /** Uploaded files (Markdown, images) the operator gave this request as context. */
+  contextFileIds: string[];
 }
 
 /** Work kind and operator guidance a new intake may carry. */
@@ -135,6 +137,8 @@ export interface WorkInput {
   linkedExecutionId?: string | undefined;
   /** Runs whose accepted documents are context for this request (checked by the caller). */
   contextExecutionIds?: readonly string[] | undefined;
+  /** Uploaded context files (checked by the caller). */
+  contextFileIds?: readonly string[] | undefined;
   /** Plan intakes only; missing fields take `DEFAULT_PROPOSAL`. */
   proposal?:
     | {
@@ -216,6 +220,7 @@ interface IntakeRow {
   proposal_json?: string | null;
   linked_execution_id: string | null;
   context_json?: string | null;
+  context_files_json?: string | null;
 }
 
 /**
@@ -240,7 +245,8 @@ function workColumns(input: WorkInput) {
   const notes = input.notes ?? "";
   assertUtf8Capped(notes, MAX_REQUEST_NOTES_BYTES, "request notes");
   const contextIds = [...new Set(input.contextExecutionIds ?? [])];
-  if (contextIds.length > MAX_CONTEXT_DOCUMENTS)
+  const fileIds = [...new Set(input.contextFileIds ?? [])];
+  if (contextIds.length + fileIds.length > MAX_CONTEXT_DOCUMENTS)
     throw new SindriError(
       "validation_failed",
       `at most ${MAX_CONTEXT_DOCUMENTS} context documents per request`,
@@ -294,17 +300,18 @@ function workColumns(input: WorkInput) {
     proposal_json: proposal ? JSON.stringify(proposal) : null,
     linked_execution_id: input.linkedExecutionId ?? null,
     context_json: contextIds.length ? JSON.stringify(contextIds) : null,
+    context_files_json: fileIds.length ? JSON.stringify(fileIds) : null,
   };
 }
 
 const INSERT_INTAKE = `INSERT INTO intakes (id, project_id, source, external_id, external_url, title,
     raw_snapshot_json, imported_at, sync_state, permissions_json, created_at, pending_snapshot_json,
     display_title, display_body, work_kind, notes, skill_ids_json, research_json, proposal_json,
-    linked_execution_id, context_json)
+    linked_execution_id, context_json, context_files_json)
   VALUES (@id, @project_id, @source, @external_id, @external_url, @title,
     @raw_snapshot_json, @imported_at, @sync_state, @permissions_json, @created_at, @pending_snapshot_json,
     @display_title, @display_body, @work_kind, @notes, @skill_ids_json, @research_json,
-    @proposal_json, @linked_execution_id, @context_json)`;
+    @proposal_json, @linked_execution_id, @context_json, @context_files_json)`;
 
 const toRecord = (r: IntakeRow): IntakeRecord => {
   const snapshot = JSON.parse(r.raw_snapshot_json) as StoredSnapshot;
@@ -336,6 +343,7 @@ const toRecord = (r: IntakeRow): IntakeRecord => {
     proposal: r.proposal_json ? (JSON.parse(r.proposal_json) as ProposalOptions) : null,
     linkedExecutionId: r.linked_execution_id ?? null,
     contextExecutionIds: r.context_json ? (JSON.parse(r.context_json) as string[]) : [],
+    contextFileIds: r.context_files_json ? (JSON.parse(r.context_files_json) as string[]) : [],
   };
 };
 

@@ -464,6 +464,7 @@ export function deliveryRoutes(
           ...(earlier?.contextExecutionIds.length
             ? { contextExecutionIds: earlier.contextExecutionIds }
             : {}),
+          ...(earlier?.contextFileIds.length ? { contextFileIds: earlier.contextFileIds } : {}),
         });
         req.log.info({ executionId: execution.id, intakeId: revision.id }, "plan revision created");
         return reply.code(201).send({ intake: intakeView(revision) });
@@ -487,6 +488,7 @@ export function deliveryRoutes(
         ...(earlier?.contextExecutionIds.length
           ? { contextExecutionIds: earlier.contextExecutionIds }
           : {}),
+        ...(earlier?.contextFileIds.length ? { contextFileIds: earlier.contextFileIds } : {}),
       });
       req.log.info(
         { executionId: execution.id, intakeId: intake.id },
