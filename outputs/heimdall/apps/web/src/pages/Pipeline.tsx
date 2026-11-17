@@ -21,6 +21,7 @@ import { navigate } from "../lib/router";
 import { isFinalExecution } from "../features/profileForm";
 import { blockedText, liveAgentOf } from "../features/scope";
 import { WorkKindBadge } from "../features/WorkForms";
+import { RunStatus } from "../features/RunStatus";
 import { kindOf } from "../features/workKinds";
 import {
   deliveryTitle,
@@ -132,7 +133,9 @@ export function PipelinePage() {
     {
       key: "status",
       header: "Status",
-      cell: (e) => <Status value={e.execution.status} domain="run" />,
+      cell: (e) => (
+        <RunStatus execution={e.execution} deliveries={scope.deliveries} />
+      ),
     },
     {
       key: "id",

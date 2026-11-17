@@ -31,6 +31,7 @@ import {
   runTitle,
 } from "../features/workflowState";
 import { WorkKindBadge } from "../features/WorkForms";
+import { RunStatus } from "../features/RunStatus";
 import {
   documentWaiting,
   gateResult,
@@ -347,7 +348,10 @@ export function QualityPage() {
                   flush
                   actions={
                     <>
-                      <Status value={e.execution.status} domain="run" />
+                      <RunStatus
+                        execution={e.execution}
+                        deliveries={scope.deliveries}
+                      />
                       <Button
                         size="sm"
                         variant="ghost"
