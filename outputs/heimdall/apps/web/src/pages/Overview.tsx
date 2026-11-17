@@ -440,9 +440,19 @@ export function OverviewPage({ onAsk }: { onAsk: () => void }) {
         </GridItem>
         <GridItem span={4}>
           <Stack gap={4}>
-            <Card title="Ask the factory" term="Guide">
+            <Card
+              title="Ask the factory"
+              term="Guide"
+              description="Answers from the docs and this project's state. It never changes anything."
+              actions={
+                <Button variant="link" size="sm" onClick={onAsk}>
+                  Open beside any page
+                </Button>
+              }
+            >
               <GuideChat
-                title="Guide"
+                title="Ask the factory"
+                showHeader={false}
                 ask={askGuide}
                 context={{
                   app: "heimdall",
@@ -451,9 +461,6 @@ export function OverviewPage({ onAsk }: { onAsk: () => void }) {
                 }}
                 suggestions={guideSuggestions(scope)}
               />
-              <Button variant="link" className="mt-3" onClick={onAsk}>
-                Open the guide beside any page
-              </Button>
             </Card>
             <Card title="Usage reported by Mimir" term="Usage source" dense>
               <p className="text-xl font-semibold tabular-nums">

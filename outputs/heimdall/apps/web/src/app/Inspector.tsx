@@ -57,8 +57,10 @@ import {
   orderedQuestions,
   projectKey,
   runTitle,
+  restartBlock,
   sameRepo,
   statusBadge,
+  stopReasons,
 } from "../features/workflowState";
 
 const KIND_LABEL: Record<string, string> = {
@@ -738,6 +740,11 @@ export function Inspector({
               value: row.agentKind ?? "Not reported",
               term: "Agent kind",
             },
+            {
+              // Reported by the agent CLI itself once its session starts.
+              label: "Model",
+              value: row.model ?? "Not reported yet",
+            },
             { label: "Role", value: row.role ?? "Not reported", term: "Role" },
             {
               label: "Last source update",
@@ -1338,6 +1345,20 @@ export function Inspector({
             ))}
           </Cluster>
           <Reasons reasons={[resolveWhy]} />
+          <p className="text-xs text-muted">
+            Retry works while the run's mission is still going. If it is refused
+            because the mission ended, restart the run instead: completed tasks
+            are kept and the rest run again.
+          </p>
+          <div>
+            <Button
+              variant="secondary"
+              disabledReason={sindriWhy("execution.restart") || undefined}
+              onClick={() => propose("execution.restart", row.executionId)}
+            >
+              Restart run
+            </Button>
+          </div>
         </DrawerActions>
       </Block>,
     );
@@ -1391,14 +1412,42 @@ export function Inspector({
           </ul>
         </Callout>,
       );
+    const reasons = stopReasons(view);
+    // Offered whenever the run stopped; locked controls disable it with their reason.
+    const stopped = !restartBlock(view?.execution?.status ?? row.status);
+    const restartWhy = sindriWhy("execution.restart");
+    if (reasons.length)
+      add(
+        "why",
+        <Block title={stopped ? "Why it stopped" : "What it is waiting for"}>
+          <ul className="flex flex-col gap-2 text-sm">
+            {reasons.map((r) => (
+              <li key={r.task} className="[overflow-wrap:anywhere]">
+                <strong className="font-medium">{r.task}</strong>: {r.text}
+              </li>
+            ))}
+          </ul>
+        </Block>,
+      );
     add(
       "cancel",
       <Block title="Run">
         <p className="text-sm text-muted">
-          {cancelWhy ||
-            "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
+          {stopped
+            ? "Restart runs it again from where it stopped: completed tasks are kept, the rest get fresh attempts."
+            : cancelWhy ||
+              "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
         </p>
         <DrawerActions>
+          {stopped && (
+            <Button
+              variant="primary"
+              disabledReason={restartWhy || undefined}
+              onClick={() => propose("execution.restart", id)}
+            >
+              Restart run
+            </Button>
+          )}
           <Button
             variant="danger"
             disabledReason={cancelWhy || undefined}

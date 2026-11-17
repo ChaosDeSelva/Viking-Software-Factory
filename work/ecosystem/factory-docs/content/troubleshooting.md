@@ -55,6 +55,22 @@ Find the crew id in Mimir's {{screen:mimir.crews}} or the mission's _Agents_ tab
 
 _Budget unknown_ means Mimir cannot measure usage and the budget is set to block when unknown. Either raise the limit or set `"onUnknown": "allow"` in the same API request.
 
+## An agent hit its usage limit
+
+Claude Code and Codex run on your subscriptions, which have usage limits. When an agent says it hit its limit, or that it is not logged in or its key failed, Mimir does not count that as a failed attempt:
+
+- The task waits, and the run keeps going. Heimdall's run drawer lists it under _What it is waiting for_ with the time the limit resets.
+- If the task's crew has a fallback agent, the task runs on it at once. Sindri gives every crew the other of Claude Code and Codex as a fallback, unless `fallbackAgent` is set to `false` in Sindri's settings.
+- Otherwise Mimir runs the task again by itself once the limit resets.
+
+Each agent's model is recorded with its session: Heimdall shows it next to the agent, for example `codex (gpt-6.1-sol)`.
+
+## Restart a run that stopped
+
+A run stops when a task runs out of attempts (its mission fails) or when you cancel it. **Retry** on an escalation only works while the mission is still going; once it ended, Retry is refused.
+
+**Restart run**, in Heimdall's run drawer or on the escalation, runs it again from where it stopped: completed tasks are kept, and every failed or cancelled task gets fresh attempts and runs again (after the tasks it waits on). Nothing that already finished runs twice. Write why in the dialog; Sindri keeps it with the run. A run that finished is not restarted; start its plan again instead.
+
 ## Merge conflict
 
 There are two different conflicts.

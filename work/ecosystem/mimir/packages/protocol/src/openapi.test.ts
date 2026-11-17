@@ -195,11 +195,11 @@ describe("generateEventEnvelopeJsonSchema", () => {
 });
 
 describe("versioning (T12b)", () => {
-  it("info.version is the protocol package version, which is 0.4.0", () => {
+  it("info.version is the protocol package version, which is 0.4.1", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
       version: string;
     };
-    expect(pkg.version).toBe("0.4.0");
+    expect(pkg.version).toBe("0.4.1");
     expect(PROTOCOL_PACKAGE_VERSION).toBe(pkg.version);
     expect(generateOpenApi().info.version).toBe(pkg.version);
   });

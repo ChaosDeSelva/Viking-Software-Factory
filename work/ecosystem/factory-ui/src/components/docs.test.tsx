@@ -109,6 +109,21 @@ describe("GuideChat", () => {
     expect(screen.queryByRole("list", { name: "Suggested questions" })).toBeNull();
   });
 
+  it("drops its own header inside a card that has one, keeping its name", () => {
+    setup(
+      <GuideChat
+        ask={vi.fn()}
+        context={{}}
+        title="Ask the factory"
+        showHeader={false}
+        suggestions={["What next?"]}
+      />,
+    );
+    expect(screen.queryByRole("heading", { name: "Ask the factory" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Ask the factory" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "What next?" })).toBeTruthy();
+  });
+
   it("sends on Enter, keeps Shift+Enter for new lines, and offers Retry on failure", async () => {
     const ask = vi
       .fn<(q: string, c: null) => Promise<GuideAnswer>>()

@@ -290,12 +290,58 @@ test("the next step names the one thing to do now, furthest along first", async 
   );
   // A plan that already ran (its delivery is listed, its run is not) is never offered again.
   const delivered = { id: "e1", executionId: "e1", planId: "p1" };
-  assert.equal(nextStep({ ...none, plans: [started], deliveries: [delivered] }), null);
+  assert.equal(
+    nextStep({ ...none, plans: [started], deliveries: [delivered] }),
+    null,
+  );
 });
 
 test("a plan is named after its specification", async () => {
-  const { planTitle } = await import("../apps/web/src/features/workflowState.ts");
+  const { planTitle } =
+    await import("../apps/web/src/features/workflowState.ts");
   const specs = [{ id: "s1", title: "Export totals" }];
-  assert.equal(planTitle({ id: "p1", specId: "s1", version: 2 }, specs), "Plan v2: Export totals");
-  assert.equal(planTitle({ id: "p1", specId: "gone", version: 1 }, specs), "Plan v1");
+  assert.equal(
+    planTitle({ id: "p1", specId: "s1", version: 2 }, specs),
+    "Plan v2: Export totals",
+  );
+  assert.equal(
+    planTitle({ id: "p1", specId: "gone", version: 1 }, specs),
+    "Plan v1",
+  );
+});
+
+test("a stopped run says why, task by task, and can be restarted; a finished or running one cannot", async () => {
+  const { stopReasons, restartBlock } =
+    await import("../apps/web/src/features/workflowState.ts");
+  const view = {
+    tasks: [
+      { planTaskId: "research", status: "completed" },
+      {
+        planTaskId: "proposal",
+        status: "failed",
+        escalation: "ask",
+        escalationReason: "failed after 3 attempt(s): session_failed",
+      },
+      {
+        planTaskId: "fact-check",
+        status: "blocked",
+        blockedReason: "agent_unavailable: until 2026-11-16T23:00:00.000Z",
+      },
+    ],
+  };
+  const why = stopReasons(view);
+  assert.deepEqual(
+    why.map((w) => w.task),
+    ["proposal", "fact-check"],
+  );
+  assert.match(why[0].text, /failed after 3 attempt/);
+  assert.match(
+    why[1].text,
+    /usage limit or a login problem.*runs again at .*fallback agent/,
+  );
+  assert.deepEqual(stopReasons(undefined), []);
+  for (const s of ["failed", "cancelled", "awaiting_human"])
+    assert.equal(restartBlock(s), "");
+  assert.match(restartBlock("verified_pending_review"), /finished/);
+  assert.match(restartBlock("running"), /Only a run that stopped/);
 });

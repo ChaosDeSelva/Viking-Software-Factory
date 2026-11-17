@@ -536,6 +536,7 @@ export function GuideChat<C>({
   title = "Ask the guide",
   intro = "Ask what something means or what to do next. The guide reads the docs and this project's state; it cannot make changes.",
   maxLength = 2000,
+  showHeader = true,
   className,
 }: {
   ask: (question: string, context: C) => Promise<GuideAnswer>;
@@ -543,6 +544,8 @@ export function GuideChat<C>({
   suggestions?: readonly string[] | undefined;
   title?: string | undefined;
   intro?: ReactNode | undefined;
+  /** False inside a card that already has the title and description: no second header. */
+  showHeader?: boolean | undefined;
   maxLength?: number | undefined;
   className?: string | undefined;
 }) {
@@ -592,29 +595,33 @@ export function GuideChat<C>({
 
   return (
     <section aria-label={title} className={cn("flex min-h-0 min-w-0 flex-col gap-4", className)}>
-      <div className="flex items-start gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-forest-soft text-forest">
-          <Icon name="guide" size={18} />
-        </span>
-        <div className="min-w-0">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-muted">{intro}</p>
+      {showHeader && (
+        <div className="flex items-start gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-forest-soft text-forest">
+            <Icon name="guide" size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold">{title}</h2>
+            <p className="text-sm text-muted">{intro}</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {messages.length === 0 && suggestions.length > 0 && (
-        <ul aria-label="Suggested questions" className="flex flex-wrap gap-2">
+        // One question per row, the whole row clickable: wrapped pills read as a cloud of blobs.
+        <ul aria-label="Suggested questions" className="flex flex-col gap-1.5">
           {suggestions.map((s) => (
             <li key={s}>
               <button
                 type="button"
                 onClick={() => void send(s)}
                 className={cn(
-                  "rounded-full border border-line bg-surface px-3 py-1.5 text-left text-sm text-fg transition-colors hover:border-line-strong hover:bg-hover",
+                  "flex w-full items-center justify-between gap-3 rounded-md border border-line bg-surface px-3 py-2 text-left text-sm text-fg transition-colors hover:border-line-strong hover:bg-hover",
                   focusRing,
                 )}
               >
-                {s}
+                <span className="min-w-0">{s}</span>
+                <Icon name="chevronRight" size={14} className="shrink-0 text-muted" />
               </button>
             </li>
           ))}

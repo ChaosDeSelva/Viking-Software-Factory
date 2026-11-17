@@ -90,7 +90,7 @@ export function CrewsPage() {
       header: "Agent",
       primary: true,
       cell: (a) =>
-        `${a.agentKind ?? "agent"} · ${a.role ?? "role not reported"}`,
+        `${a.agentKind ?? "agent"}${a.model ? ` (${a.model})` : ""} · ${a.role ?? "role not reported"}`,
     },
     {
       key: "status",

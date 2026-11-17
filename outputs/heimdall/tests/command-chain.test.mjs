@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setup, stub, send } from "./support.mjs";
+import { commandRoute } from "../apps/server/commands.mjs";
 
 async function chained(
   t,
@@ -87,4 +88,15 @@ test("a failed follow-on keeps the approval confirmed and says what is left", as
     action: "plan.propose",
     message: "planner refused",
   });
+});
+
+test("a restart goes to Sindri's restart with the dialog's reason, nothing else", () => {
+  const route = commandRoute({
+    action: "execution.restart",
+    id: "exe_1",
+    reason: "Claude's limit reset",
+    body: { stray: 1 },
+  });
+  assert.equal(route.path, "/v1/executions/exe_1/restart");
+  assert.deepEqual(route.body, { reason: "Claude's limit reset" });
 });

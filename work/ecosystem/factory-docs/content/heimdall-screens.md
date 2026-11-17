@@ -16,7 +16,7 @@ The project's health in one page. Choose **All projects** in the picker for the 
 - _Needs you_: approvals, escalations, reviews, failed and blocked tasks. Click one to open its inspector. A task blocked on its budget has a **Raise budget** button right there.
 - _Work in motion_: unfinished tasks of a mission, with status and attempt. A task with a working agent has **Watch live**, which opens the agent's live session.
 - _Latest activity_, _Usage reported by Mimir_, and for all projects a searchable _Projects_ list.
-- _Ask the factory_: the Guide, inline. **Open the guide beside any page** opens the same Guide as **Ask** in the bottom bar.
+- _Ask the factory_: the Guide, inline. **Open beside any page** opens the same Guide as **Ask** in the bottom bar.
 
 ## {{label:heimdall.new-work}}
 

@@ -232,6 +232,12 @@ export function commandRoute(c) {
   } else if (c.action === "execution.cancel") {
     source = "sindri";
     path = `/v1/executions/${id}/cancel`;
+  } else if (c.action === "execution.restart") {
+    // Sindri records why with the restart: the dialog's audit reason.
+    source = "sindri";
+    path = `/v1/executions/${id}/restart`;
+    for (const key of Object.keys(body)) delete body[key];
+    body.reason = text(c.reason, "A restart reason", 2000);
   } else if (c.action === "project.profile") {
     // The body is the whole profile; Sindri replaces the stored one with it.
     source = "sindri";

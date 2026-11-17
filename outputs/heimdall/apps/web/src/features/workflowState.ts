@@ -159,7 +159,9 @@ export const recordLabel = (r: R) =>
   r.name ??
   r.template ??
   r.action ??
-  (r.agentKind ? `${r.agentKind} · ${r.role}` : null) ??
+  (r.agentKind
+    ? `${r.agentKind}${r.model ? ` (${r.model})` : ""} · ${r.role}`
+    : null) ??
   r.type ??
   r.id;
 
@@ -275,4 +277,52 @@ export function planTitle(plan: R, specs: R[]): string {
   return name
     ? `Plan v${plan.version ?? 1}: ${name}`
     : `Plan v${plan.version ?? 1}`;
+}
+
+/** Statuses of a run that stopped and can be restarted from where it stopped. */
+const STOPPED = [
+  "failed",
+  "cancelled",
+  "awaiting_human",
+  "blocked",
+  "replan_requested",
+];
+
+/** Why a run waits or stopped, task by task, in words (empty when nothing is wrong). */
+export function stopReasons(
+  view: R | undefined,
+): { task: string; text: string }[] {
+  const out: { task: string; text: string }[] = [];
+  for (const t of view?.tasks ?? []) {
+    const blocked = String(t.blockedReason ?? "");
+    if (blocked.startsWith("agent_unavailable")) {
+      const until = /until (\S+)/.exec(blocked)?.[1];
+      const at = until ? new Date(until) : null;
+      out.push({
+        task: t.planTaskId,
+        text: `Waiting for its agent, which reported a usage limit or a login problem. It runs again${
+          at && !Number.isNaN(at.getTime())
+            ? ` at ${at.toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}`
+            : " once the agent can work"
+        }, or sooner on the fallback agent.`,
+      });
+    } else if (t.escalation) {
+      out.push({
+        task: t.planTaskId,
+        text: `Stopped: ${t.escalationReason ?? "it needs a decision"}.`,
+      });
+    } else if (t.status === "failed") {
+      out.push({ task: t.planTaskId, text: "Failed." });
+    }
+  }
+  return out;
+}
+
+/** Why the run cannot be restarted now; "" when it can. */
+export function restartBlock(status: unknown): string {
+  return STOPPED.includes(String(status ?? ""))
+    ? ""
+    : status === "verified_pending_review"
+      ? "This run finished. Start the plan again to run it anew."
+      : "Only a run that stopped can be restarted.";
 }
