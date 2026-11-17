@@ -31,6 +31,8 @@ export interface SessionView {
   crewId: string | null;
   taskId: string | null;
   agentKind: string | null;
+  /** The model the agent reported running; null until it does. */
+  model: string | null;
   runtime: string | null;
   runtimeRef: RuntimeRef;
   state: RuntimeSessionState;
@@ -129,6 +131,11 @@ export function totalsOf(samples: Iterable<UsageSample>): UsageTotals {
  * Projects, crews and usage are folded from `project.created`, `crew.created` and `usage.recorded`.
  */
 export class ReadModel {
+  /**
+   * How often each task was parked because its agent could not work. The next session of the
+   * same attempt needs its own runtime idempotency key, and this count is stable across restarts.
+   */
+  readonly agentParks = new Map<string, number>();
   readonly projects = new Map<string, Project>();
   readonly missions = new Map<string, Mission>();
   readonly crews = new Map<string, Crew>();
@@ -414,7 +421,8 @@ export class ReadModel {
       case "task.leased":
       case "task.started":
       case "task.failed":
-      case "task.retried": {
+      case "task.retried":
+      case "task.reopened": {
         // A new verification (or a pass) replaces what the previous one reported.
         if ((type === "task.verifying" || type === "task.completed") && event.taskId) {
           this.failedChecks.delete(event.taskId);
@@ -434,6 +442,7 @@ export class ReadModel {
           crewId: pl.crewId,
           taskId: pl.taskId,
           agentKind: pl.agentKind,
+          model: null,
           runtime: null,
           runtimeRef: {},
           state: "requested",
@@ -459,6 +468,11 @@ export class ReadModel {
       case "session.state_changed": {
         const pl = p as EventPayloadMap["session.state_changed"];
         this.updateSession(event, { state: pl.to, runtimeStatus: pl.runtimeStatus ?? null });
+        return;
+      }
+      case "session.model_reported": {
+        const pl = p as EventPayloadMap["session.model_reported"];
+        this.updateSession(event, { model: pl.model });
         return;
       }
       case "session.exited": {
@@ -584,6 +598,14 @@ export class ReadModel {
       patch.attempt = pl.attempt;
       // Not retryable: no attempts left (also when the attempt failed permanently).
       if (!pl.retryable) patch.maxAttempts = Math.min(t.maxAttempts, pl.attempt + 1);
+    } else if (type === "task.reopened") {
+      const pl = p as EventPayloadMap["task.reopened"];
+      Object.assign(patch, {
+        attempt: pl.attempt,
+        maxAttempts: pl.maxAttempts,
+        agentId: null,
+        leaseExpiresAt: null,
+      });
     } else if (type === "task.retried") {
       Object.assign(patch, {
         attempt: (p as EventPayloadMap["task.retried"]).attempt,
@@ -596,10 +618,19 @@ export class ReadModel {
     }
     // A lease given back (`launch_deferred`) leaves no agent on the task, as in the task machine.
     if (type === "task.ready") patch.agentId = null;
-    if (type === "task.blocked")
-      patch.blockedReason = (p as EventPayloadMap["task.blocked"]).reason;
+    if (type === "task.blocked") {
+      const pl = p as EventPayloadMap["task.blocked"];
+      patch.blockedReason = pl.reason;
+      if (pl.until) patch.blockedUntil = pl.until;
+      // An unavailable agent never worked on the task: it is parked without one.
+      if (pl.reason === "agent_unavailable") {
+        patch.agentId = null;
+        this.agentParks.set(id, (this.agentParks.get(id) ?? 0) + 1);
+      }
+    }
     const next = bump(t, at, patch);
     if (to !== "blocked") delete next.blockedReason;
+    if (to !== "blocked" || !("blockedUntil" in patch)) delete next.blockedUntil;
     this.tasks.set(id, next);
   }
 
@@ -616,6 +647,7 @@ export class ReadModel {
       crewId,
       role: member?.role ?? prev?.role ?? DEFAULT_ROLE,
       agentKind,
+      ...(session?.model ? { model: session.model } : {}),
       runtimeSessionId: sessionId as Agent["runtimeSessionId"],
       status: session?.state ?? "starting",
       taskId: task.id,
@@ -634,9 +666,10 @@ export class ReadModel {
     const next = { ...s, ...patch, updatedAt: event.occurredAt };
     this.sessions.set(id, next);
     for (const agent of this.agents.values()) {
-      if (agent.runtimeSessionId === id && agent.status !== next.state) {
-        this.agents.set(agent.id, bump(agent, event.occurredAt, { status: next.state }));
-      }
+      if (agent.runtimeSessionId !== id) continue;
+      const model = next.model && agent.model !== next.model ? { model: next.model } : {};
+      if (agent.status !== next.state || "model" in model)
+        this.agents.set(agent.id, bump(agent, event.occurredAt, { status: next.state, ...model }));
     }
   }
 

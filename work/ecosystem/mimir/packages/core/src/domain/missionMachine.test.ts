@@ -13,6 +13,7 @@ const EVENTS: Record<MissionEvent["type"], MissionEvent> = {
   complete: { type: "complete", tasks: done },
   cancel: { type: "cancel" },
   fail: { type: "fail", reason: "task exhausted" },
+  reopen: { type: "reopen", reason: "restart" },
 };
 
 const ALLOWED: ReadonlyArray<[MissionStatus, MissionEvent["type"], MissionStatus]> = [
@@ -25,6 +26,9 @@ const ALLOWED: ReadonlyArray<[MissionStatus, MissionEvent["type"], MissionStatus
   ["paused", "cancel", "cancelled"],
   ["active", "fail", "failed"],
   ["paused", "fail", "failed"],
+  // an operator restarts an ended mission; a completed one has nothing to restart
+  ["failed", "reopen", "active"],
+  ["cancelled", "reopen", "active"],
 ];
 
 const allowedKey = new Set(ALLOWED.map(([f, e]) => `${f}|${e}`));

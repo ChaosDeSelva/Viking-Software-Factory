@@ -393,6 +393,10 @@
           "blockedReason": {
             "type": "string",
             "minLength": 1
+          },
+          "blockedUntil": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -516,6 +520,11 @@
           "agentKind": {
             "type": "string",
             "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
           },
           "runtimeSessionId": {
             "type": [
@@ -975,7 +984,9 @@
               "approval.consumed",
               "artifact.collection_skipped",
               "artifact.collection_truncated",
-              "budget.updated"
+              "budget.updated",
+              "session.model_reported",
+              "task.reopened"
             ]
           },
           "source": {
@@ -2033,6 +2044,75 @@
     "/v1/missions/{id}/cancel": {
       "post": {
         "summary": "Cancel a mission",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}/reopen": {
+      "post": {
+        "summary": "Restart a failed or cancelled mission: completed tasks stay done, the rest get fresh attempts",
         "parameters": [
           {
             "schema": {

@@ -270,7 +270,9 @@ export function AgentInspector() {
   const timeline = state.events.filter(
     (e) => e.sessionId === sessionId || (agent?.taskId != null && e.taskId === agent.taskId),
   );
-  const title = agent ? `Agent ${agent.role} (${agent.agentKind})` : "Agent";
+  const title = agent
+    ? `Agent ${agent.role} (${agent.agentKind}${agent.model ? ` · ${agent.model}` : ""})`
+    : "Agent";
   const live = agent ? LIVE.has(agent.status) : false;
 
   // Keyed so it keeps what it read when it moves below the state card as the session ends.

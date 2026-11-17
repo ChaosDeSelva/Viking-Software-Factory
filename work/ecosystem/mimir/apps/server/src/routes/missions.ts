@@ -266,7 +266,7 @@ export function missionRoutes(app: FastifyInstance): void {
   );
 
   const transition = (
-    action: "start" | "pause" | "resume" | "cancel",
+    action: "start" | "pause" | "resume" | "cancel" | "reopen",
     run: (id: string, body: { reason?: string | undefined }) => Promise<Mission>,
   ) =>
     app.post(
@@ -274,12 +274,17 @@ export function missionRoutes(app: FastifyInstance): void {
       idempotent(ctx, `mission.${action}`, async (request, command) => {
         const { id } = parseWith(MissionIdParamsSchema, request.params);
         const body =
-          action === "cancel"
+          action === "cancel" || action === "reopen"
             ? parseWith(CancelMissionRequestSchema, request.body ?? {})
             : parseWith(StartMissionRequestSchema, request.body ?? {});
         const mission = missionOr404(ctx, id);
         checkVersion(mission, body.expectedVersion);
-        if (MISSION_TERMINAL_STATUSES.has(mission.status) && action !== "cancel") {
+        // Reopen is the one way out of an ended mission (the mission machine checks which).
+        if (
+          MISSION_TERMINAL_STATUSES.has(mission.status) &&
+          action !== "cancel" &&
+          action !== "reopen"
+        ) {
           throw new MimirError("invalid_transition", `mission is ${mission.status}`, {
             missionId: id,
             status: mission.status,
@@ -296,4 +301,5 @@ export function missionRoutes(app: FastifyInstance): void {
   transition("pause", (id) => orch().pauseMission(id));
   transition("resume", (id) => orch().resumeMission(id));
   transition("cancel", (id, body) => orch().cancelMission(id, body.reason));
+  transition("reopen", (id, body) => orch().reopenMission(id, body.reason));
 }

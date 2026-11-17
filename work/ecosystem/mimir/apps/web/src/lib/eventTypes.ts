@@ -26,6 +26,8 @@ const ALL: Record<EventType, true> = {
   "session.started": true,
   "session.state_changed": true,
   "session.output": true,
+  "session.model_reported": true,
+  "task.reopened": true,
   "session.exited": true,
   "session.lost": true,
   "session.input": true,

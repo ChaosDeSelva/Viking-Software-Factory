@@ -116,6 +116,12 @@ export interface MimirClient {
       body?: CancelMissionRequest,
       options?: MutationOptions,
     ): Promise<OperationAccepted>;
+    /** Restarts a failed or cancelled mission; completed tasks stay done. */
+    reopen(
+      id: MissionId,
+      body?: CancelMissionRequest,
+      options?: MutationOptions,
+    ): Promise<OperationAccepted>;
     /** `PATCH /v1/missions/:id/budget`: merges the given limits onto the mission's budget (creating one). */
     updateBudget(
       id: MissionId,
@@ -266,6 +272,7 @@ export function createMimirClient(options: MimirClientOptions): MimirClient {
       create: (body, o) => http.post(CreateMissionResponseSchema, "/v1/missions", body, o),
       start: (id, body, o) => accepted(`/v1/missions/${seg(id)}/start`, body ?? {}, o),
       cancel: (id, body, o) => accepted(`/v1/missions/${seg(id)}/cancel`, body ?? {}, o),
+      reopen: (id, body, o) => accepted(`/v1/missions/${seg(id)}/reopen`, body ?? {}, o),
       updateBudget: (id, body, o) =>
         http.patch(UpdateBudgetResponseSchema, `/v1/missions/${seg(id)}/budget`, body, o),
     },

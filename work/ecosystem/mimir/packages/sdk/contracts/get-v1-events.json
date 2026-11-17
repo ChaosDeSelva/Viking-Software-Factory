@@ -18,7 +18,7 @@
     "body": {
       "events": [
         {
-          "id": "evt_00000000000000000000000034",
+          "id": "evt_00000000000000000000000036",
           "schemaVersion": 1,
           "streamId": "mission:msn_00000000000000000000000002",
           "sequence": 1,
@@ -34,7 +34,7 @@
           }
         },
         {
-          "id": "evt_00000000000000000000000035",
+          "id": "evt_00000000000000000000000037",
           "schemaVersion": 1,
           "streamId": "mission:msn_00000000000000000000000003",
           "sequence": 1,
@@ -168,7 +168,9 @@
                 "approval.consumed",
                 "artifact.collection_skipped",
                 "artifact.collection_truncated",
-                "budget.updated"
+                "budget.updated",
+                "session.model_reported",
+                "task.reopened"
               ]
             },
             "source": {

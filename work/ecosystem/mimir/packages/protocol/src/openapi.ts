@@ -203,6 +203,16 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: "post",
+    path: "/v1/missions/{id}/reopen",
+    summary:
+      "Restart a failed or cancelled mission: completed tasks stay done, the rest get fresh attempts",
+    params: MissionIdParamsSchema,
+    body: CancelMissionRequestSchema,
+    status: 202,
+    response: OperationAcceptedSchema,
+  },
+  {
+    method: "post",
     path: "/v1/crews",
     summary: "Create a crew",
     body: CreateCrewRequestSchema,

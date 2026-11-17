@@ -209,6 +209,11 @@ export const TaskSchema = entity(TaskIdSchema, {
   leaseExpiresAt: TimestampSchema.nullable(),
   /** Why a `blocked` task is blocked (e.g. `budget_exceeded`, or the runtime/approval reason). Absent otherwise. */
   blockedReason: z.string().min(1).optional(),
+  /**
+   * A task parked because its agent is unavailable (`agent_unavailable`): when Mimir releases it
+   * on its own, e.g. a usage limit's reset. Absent when only a fallback agent or a human can.
+   */
+  blockedUntil: TimestampSchema.optional(),
 }).meta({ id: "Task" });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -222,6 +227,8 @@ export const AgentSchema = entity(AgentIdSchema, {
   crewId: CrewIdSchema,
   role: CrewRoleSchema,
   agentKind: z.string().min(1),
+  /** The model the agent reported running, once it has (absent before, or when it never says). */
+  model: z.string().min(1).max(200).optional(),
   runtimeSessionId: SessionIdSchema.nullable(),
   status: RuntimeSessionStateSchema,
   taskId: TaskIdSchema.nullable(),

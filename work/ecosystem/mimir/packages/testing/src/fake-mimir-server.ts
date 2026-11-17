@@ -549,7 +549,12 @@ export async function fakeMimirServer(
     }
     state.missions.set(id, bump(mission, { status: to }));
     appendEvent({
-      type: to === "active" ? "mission.started" : "mission.cancelled",
+      type:
+        to !== "active"
+          ? "mission.cancelled"
+          : mission.status === "failed" || mission.status === "cancelled"
+            ? "mission.resumed"
+            : "mission.started",
       missionId: mission.id,
       payload: { from: mission.status, to, ...(reason !== undefined ? { reason } : {}) },
     });
@@ -568,6 +573,19 @@ export async function fakeMimirServer(
       id,
       ["draft", "active", "paused"],
       "cancelled",
+      req.expectedVersion,
+      req.reason,
+    );
+  });
+
+  // The fake reopens the mission only; it does not model task attempts.
+  route("POST", "/v1/missions/:id/reopen", ({ params, body }) => {
+    const { id } = parse(MissionIdParamsSchema, params);
+    const req = parse(CancelMissionRequestSchema, body ?? {});
+    return transitionMission(
+      id,
+      ["failed", "cancelled"],
+      "active",
       req.expectedVersion,
       req.reason,
     );

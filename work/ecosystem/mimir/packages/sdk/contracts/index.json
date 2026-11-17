@@ -54,6 +54,11 @@
       "status": 202
     },
     {
+      "operation": "POST /v1/missions/{id}/reopen",
+      "file": "post-v1-missions-id-reopen.json",
+      "status": 202
+    },
+    {
       "operation": "POST /v1/crews",
       "file": "post-v1-crews.json",
       "status": 201

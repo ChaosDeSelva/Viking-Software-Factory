@@ -51,6 +51,8 @@ const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
   "session.started": { runtime: "herdr", runtimeRef: { paneId: "p1" } },
   "session.state_changed": { from: "starting", to: "running", runtimeStatus: "busy" },
   "session.output": { text: "hello\n", redacted: false, lines: 1 },
+  "session.model_reported": { model: "claude-opus-5-5", source: "agent-output" },
+  "task.reopened": { from: "failed", to: "ready", attempt: 3, maxAttempts: 6 },
   "session.exited": { exitCode: 0 },
   "session.lost": { reason: "pane disappeared" },
   "tool.invoked": { tool: "bash", toolCallId: "tc1", input: { cmd: "ls" } },
@@ -247,6 +249,8 @@ describe("event types", () => {
       "artifact.collection_skipped",
       "artifact.collection_truncated",
       "budget.updated",
+      "session.model_reported",
+      "task.reopened",
     ]);
     expect(EventTypeSchema.safeParse("mission.exploded").success).toBe(false);
   });

@@ -8,7 +8,7 @@ import { join } from "node:path";
  */
 export const CREDENTIAL_SAMPLES: readonly string[] = [
   "sk-chaosLEAK0123456789abcdefghijklmnop",
-  ("gh" + "p_chaosLEAK0123456789abcdefghijklmnopqr"),
+  "gh" + "p_chaosLEAK0123456789abcdefghijklmnopqr",
   "AKIACHAOSLEAK0123456",
   "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjaGFvc0xFQUsifQ.c2lnbmF0dXJlY2hhb3NMRUFL",
   "Bearer chaosLEAKbearer0123456789abcdef",

@@ -23,6 +23,7 @@ const ENDPOINTS = [
   "GET /v1/missions/:id",
   "POST /v1/missions/:id/start",
   "POST /v1/missions/:id/cancel",
+  "POST /v1/missions/:id/reopen",
   "POST /v1/crews",
   "GET /v1/crews",
   "POST /v1/crews/:id/pause",

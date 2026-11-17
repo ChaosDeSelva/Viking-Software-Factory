@@ -83,6 +83,8 @@ export const EVENT_TYPES = [
   "artifact.collection_skipped",
   "artifact.collection_truncated",
   "budget.updated",
+  "session.model_reported",
+  "task.reopened",
 ] as const;
 
 export const EventTypeSchema = z.enum(EVENT_TYPES);
@@ -178,7 +180,19 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     leaseExpiresAt: TimestampSchema,
   }),
   "task.started": taskTransition("running", { agentId: AgentIdSchema, sessionId: SessionIdSchema }),
-  "task.blocked": taskTransition("blocked", { reason: z.string() }),
+  /** An operator restarted the task's ended mission: fresh attempts, then pending or ready. */
+  "task.reopened": z.object({
+    from: TaskStatusSchema,
+    to: z.enum(["ready", "pending"]),
+    attempt: z.number().int().min(0),
+    maxAttempts: z.number().int().min(1),
+    reason: z.string().optional(),
+  }),
+  "task.blocked": taskTransition("blocked", {
+    reason: z.string(),
+    /** `agent_unavailable` only: when Mimir releases the task on its own (a limit's reset). */
+    until: TimestampSchema.optional(),
+  }),
   "task.verifying": taskTransition("verifying", {}),
   "task.completed": taskTransition("completed", {
     resultCommit: GitShaSchema.optional(),
@@ -228,6 +242,11 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     text: z.string(),
     redacted: z.boolean(),
     lines: z.number().int().min(0),
+  }),
+  /** The model the agent CLI says it ran (its stream, or for Codex its own session log). */
+  "session.model_reported": z.object({
+    model: z.string().min(1).max(200),
+    source: z.enum(["agent-output", "agent-log"]),
   }),
   "session.exited": z.object({ exitCode: z.number().int().optional() }),
   "session.lost": z.object({ reason: z.string() }),

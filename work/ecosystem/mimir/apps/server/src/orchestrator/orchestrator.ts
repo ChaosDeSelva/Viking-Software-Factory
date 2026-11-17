@@ -4,6 +4,7 @@ import {
   ApprovalService,
   POLICY_DENIED,
   UNKNOWN_AFTER_RESTART,
+  AGENT_UNAVAILABLE,
   attemptsLeft,
   budgetGuard,
   budgetScope,
@@ -65,6 +66,15 @@ import type { PrRunner } from "./pr.js";
 import { missionTransition, taskTransition, type TaskEventContext } from "./transitions.js";
 import { collectArtifactFiles, recordCollection } from "./collect.js";
 import {
+  agentUnavailableFromOutput,
+  codexThreadModel,
+  modelFromOutput,
+  type AgentUnavailable,
+} from "./model-detect.js";
+
+/** How long an agent that refused without saying when it resets is left alone before a retry. */
+const UNAVAILABLE_RECHECK_MS = 30 * 60_000;
+import {
   headAndTail,
   type VerificationResult,
   type Verifier,
@@ -75,6 +85,7 @@ import {
   classifiedArgv,
   classifyOptions,
   memberOf,
+  membersOf,
   projectEnv,
   projectSettings,
   testCommandOf,
@@ -264,6 +275,12 @@ export function localDeliveryInstructions(result: { followUp?: unknown; followUp
  * All mutations run on one serial queue, so decisions never interleave.
  */
 export class Orchestrator {
+  /** Sessions whose agent said it cannot work (usage limit, login): their exit parks the task. */
+  private readonly unavailableSessions = new Map<string, AgentUnavailable>();
+  /** Agent kinds that cannot work right now, until when (ms). In memory: a restart retries them. */
+  private readonly unavailableKinds = new Map<string, { until: number; message: string }>();
+  /** Sessions whose model is not reported yet: a Codex thread whose log may name it later. */
+  private readonly modelPending = new Map<string, { codexThread?: string; tries: number }>();
   private readonly store: EventStore;
   private readonly rm: ReadModel;
   private readonly runtime: RuntimeAdapter | null;
@@ -426,6 +443,7 @@ export class Orchestrator {
     }
     const now = this.now();
     this.pruneCapacityWaits();
+    this.releaseUnavailable(now);
     this.expireApprovals(now);
     this.promoteReady(now);
     const decisions = schedule({
@@ -612,10 +630,20 @@ export class Orchestrator {
   // ---------------------------------------------------------------------------------------------
   // Dispatch
 
+  /** The crew's member for the next session: the first whose agent can work now (fallback). */
   private memberFor(crew: Crew): CrewMember {
     const member = memberOf(this.rm, crew.id);
     if (!member) throw new MimirError("conflict", `crew ${crew.id} has no members`);
-    return member;
+    if (this.agentAvailable(member.agentKind, this.now())) return member;
+    const fallback = membersOf(this.rm, crew.id).find(
+      (m) => m.role === member.role && this.agentAvailable(m.agentKind, this.now()),
+    );
+    if (fallback)
+      this.log.info(
+        { crewId: crew.id, from: member.agentKind, to: fallback.agentKind },
+        "agent unavailable; using the crew's fallback agent",
+      );
+    return fallback ?? member;
   }
 
   /**
@@ -968,7 +996,12 @@ export class Orchestrator {
         try {
           session = await runtime.createSession({
             sessionId,
-            idempotencyKey: `${input.taskId}:${input.attemptNumber}`,
+            // A session after an unavailable agent is a new launch of the same attempt.
+            idempotencyKey: `${input.taskId}:${input.attemptNumber}${
+              this.rm.agentParks.get(input.taskId)
+                ? `:p${this.rm.agentParks.get(input.taskId)}`
+                : ""
+            }`,
             crewId: input.crew.id,
             taskId: input.taskId,
             agentKind: input.member.agentKind,
@@ -1075,6 +1108,22 @@ export class Orchestrator {
           type: "session.output",
           payload: { text: r.text, redacted: r.redacted, lines: r.text.split("\n").length },
         });
+        this.reportModel(view, base, now, r.text);
+        const unavailable = agentUnavailableFromOutput(e.text);
+        if (unavailable) {
+          this.unavailableSessions.set(e.sessionId, unavailable);
+          if (view.agentKind)
+            this.unavailableKinds.set(view.agentKind, {
+              until: unavailable.until
+                ? Date.parse(unavailable.until)
+                : now.getTime() + UNAVAILABLE_RECHECK_MS,
+              message: unavailable.message,
+            });
+          this.log.warn(
+            { sessionId: e.sessionId, agentKind: view.agentKind, ...unavailable },
+            "agent unavailable",
+          );
+        }
         return;
       }
       case "session.exited":
@@ -1092,6 +1141,44 @@ export class Orchestrator {
         return;
       }
     }
+  }
+
+  /**
+   * Records once which model the session's agent ran: from its own stream (Claude Code), or from
+   * Codex's session log once the stream names the thread. Never fails the session: a model it
+   * cannot find is simply not reported.
+   */
+  private reportModel(
+    view: { id: string; model: string | null },
+    base: Omit<EmitInput<"session.model_reported">, "type" | "payload">,
+    now: Date,
+    text: string,
+  ): void {
+    if (view.model) return;
+    const pending = this.modelPending.get(view.id) ?? { tries: 0 };
+    const found = modelFromOutput(text);
+    let model = found.model ?? null;
+    let source: "agent-output" | "agent-log" = "agent-output";
+    if (!model && found.codexThread && !pending.codexThread)
+      pending.codexThread = found.codexThread;
+    if (!model && pending.codexThread) {
+      // Only local CLI sessions write Codex's log on this machine.
+      if (this.runtimeName === "cli" || this.runtimeName === "fleet")
+        try {
+          model = codexThreadModel(pending.codexThread!);
+          source = "agent-log";
+        } catch {
+          model = null;
+        }
+    }
+    if (!model) {
+      // A session that never names its model stops being checked after a while.
+      if (++pending.tries < 200) this.modelPending.set(view.id, pending);
+      else this.modelPending.delete(view.id);
+      return;
+    }
+    this.modelPending.delete(view.id);
+    this.emit(now, { ...base, type: "session.model_reported", payload: { model, source } });
   }
 
   /** Task reaction to a session state, for the task's current session only. */
@@ -1143,6 +1230,7 @@ export class Orchestrator {
         return;
       case "completed":
         resume();
+        if (this.parkUnavailable(sessionId, task, now)) return;
         if (task.status === "running") {
           this.taskEvent(now, task, { type: "runtime_completed" });
           this.startVerification(task.id);
@@ -1151,6 +1239,7 @@ export class Orchestrator {
       case "failed":
       case "stopped":
         resume();
+        if (this.parkUnavailable(sessionId, task, now)) return;
         if (task.status === "running" || task.status === "leased") {
           const reason = state === "stopped" ? "session_stopped" : "session_failed";
           this.taskEvent(
@@ -1165,6 +1254,46 @@ export class Orchestrator {
         return;
       default:
         return;
+    }
+  }
+
+  /**
+   * A session whose agent said it cannot work (a usage limit, a failed login or key) did not fail
+   * the task: the task is parked without using an attempt, and released when the agent resets or
+   * another agent of its crew can take it (`releaseUnavailable`).
+   */
+  private parkUnavailable(sessionId: string, task: Task, now: Date): boolean {
+    const unavailable = this.unavailableSessions.get(sessionId);
+    if (!unavailable) return false;
+    this.unavailableSessions.delete(sessionId);
+    if (!taskMachine.can(task, "agent_unavailable")) return false;
+    const kind = this.rm.sessions.get(sessionId)?.agentKind;
+    const until =
+      (kind ? this.unavailableKinds.get(kind)?.until : undefined) ??
+      now.getTime() + UNAVAILABLE_RECHECK_MS;
+    this.taskEvent(now, task, { type: "agent_unavailable", until: new Date(until).toISOString() });
+    return true;
+  }
+
+  /** Whether an agent kind can work now (its limit, if any, has reset). */
+  private agentAvailable(kind: string, now: Date): boolean {
+    const u = this.unavailableKinds.get(kind);
+    if (!u) return true;
+    if (u.until > now.getTime()) return false;
+    this.unavailableKinds.delete(kind);
+    return true;
+  }
+
+  /** Parked tasks whose agent reset, or whose crew has another agent that can work, run again. */
+  private releaseUnavailable(now: Date): void {
+    for (const task of this.rm.tasks.values()) {
+      if (task.status !== "blocked" || task.blockedReason !== AGENT_UNAVAILABLE) continue;
+      const due = task.blockedUntil !== undefined && Date.parse(task.blockedUntil) <= now.getTime();
+      const crew = task.crewId ? this.rm.crews.get(task.crewId) : undefined;
+      const fallback =
+        crew !== undefined &&
+        membersOf(this.rm, crew.id).some((m) => this.agentAvailable(m.agentKind, now));
+      if (due || fallback) this.taskEvent(now, task, { type: "agent_available" });
     }
   }
 
@@ -2082,6 +2211,38 @@ export class Orchestrator {
     return this.enqueue(() =>
       this.missionEvent(this.now(), this.mission(missionId), { type: "resume" }),
     );
+  }
+
+  /**
+   * Restarts a failed or cancelled mission from where it stopped: completed tasks stay completed,
+   * and every failed or cancelled task gets its crew's attempts again, ready when its
+   * dependencies are done, pending otherwise. Nothing that already ran is run again.
+   */
+  reopenMission(missionId: string, reason?: string): Promise<Mission> {
+    return this.enqueue(() => {
+      const now = this.now();
+      const next = this.missionEvent(now, this.mission(missionId), {
+        type: "reopen",
+        ...(reason !== undefined ? { reason } : {}),
+      });
+      const tasks = [...this.rm.tasks.values()].filter((t) => t.missionId === missionId);
+      const deps = [...this.rm.taskDependencies.values()];
+      for (const task of tasks) {
+        if (!taskMachine.can(task, "reopen")) continue;
+        const crew = task.crewId ? this.rm.crews.get(task.crewId) : undefined;
+        const attempts = crew?.limits.maxAttemptsPerTask ?? task.maxAttempts;
+        const waiting = deps.some(
+          (d) => d.taskId === task.id && this.rm.tasks.get(d.dependsOnId)?.status !== "completed",
+        );
+        this.taskEvent(
+          now,
+          task,
+          { type: "reopen", attempts, waiting },
+          reason !== undefined ? { reason } : {},
+        );
+      }
+      return next;
+    });
   }
 
   /** Cancels the mission, its unfinished tasks, and asks their live sessions to stop. */

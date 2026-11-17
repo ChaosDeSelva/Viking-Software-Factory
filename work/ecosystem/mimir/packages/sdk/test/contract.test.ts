@@ -102,6 +102,7 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "POST /v1/missions": CreateMissionRequestSchema,
       "POST /v1/missions/{id}/start": StartMissionRequestSchema,
       "POST /v1/missions/{id}/cancel": CancelMissionRequestSchema,
+      "POST /v1/missions/{id}/reopen": CancelMissionRequestSchema,
       "POST /v1/crews": CreateCrewRequestSchema,
       "POST /v1/tasks/{id}/retry": RetryTaskRequestSchema,
       "POST /v1/tasks/{id}/pr": RequestPrRequestSchema,
@@ -142,6 +143,8 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "GET /v1/missions/{id}": () => client.missions.get(mission.id),
       "POST /v1/missions/{id}/start": () => client.missions.start(mission.id),
       "POST /v1/missions/{id}/cancel": () => client.missions.cancel(mission.id, { reason: "done" }),
+      "POST /v1/missions/{id}/reopen": () =>
+        client.missions.reopen(mission.id, { reason: "restart" }),
       "POST /v1/crews": () =>
         // `mission` is cancelled by an earlier call; a terminal mission takes no new crews (409).
         client.crews.create({
@@ -195,6 +198,7 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "GET /v1/missions/{id}": GetMissionResponseSchema,
       "POST /v1/missions/{id}/start": OperationAcceptedSchema,
       "POST /v1/missions/{id}/cancel": OperationAcceptedSchema,
+      "POST /v1/missions/{id}/reopen": OperationAcceptedSchema,
       "POST /v1/crews": CreateCrewResponseSchema,
       "GET /v1/crews": ListCrewsResponseSchema,
       "GET /v1/tasks": ListTasksResponseSchema,

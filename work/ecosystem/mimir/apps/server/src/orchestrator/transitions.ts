@@ -33,6 +33,7 @@ type TaskEmit = EmitInput<
   | "task.failed"
   | "task.cancelled"
   | "task.retried"
+  | "task.reopened"
 >;
 
 /** `task.retried.deferred` of a next attempt queued because the runtime was full. */
@@ -58,6 +59,20 @@ export function taskTransition(
   const crew = next.crewId === null ? {} : { crewId: next.crewId };
   const emitOf = (e: Omit<TaskEmit, "streamId" | "taskId" | "missionId">): TaskEmit =>
     ({ ...base, ...crew, ...e }) as TaskEmit;
+  if (event.type === "reopen")
+    return {
+      next,
+      emit: emitOf({
+        type: "task.reopened",
+        payload: {
+          from,
+          to: next.status as "ready" | "pending",
+          attempt: next.attempt,
+          maxAttempts: next.maxAttempts,
+          ...(ctx.reason ? { reason: ctx.reason } : {}),
+        },
+      }),
+    };
   switch (next.status) {
     case "ready":
       if (event.type === "retry" || event.type === "verification_deferred") {
@@ -113,7 +128,12 @@ export function taskTransition(
         next,
         emit: emitOf({
           type: "task.blocked",
-          payload: { from, to: "blocked", reason: next.blockedReason ?? event.type },
+          payload: {
+            from,
+            to: "blocked",
+            reason: next.blockedReason ?? event.type,
+            ...(next.blockedUntil ? { until: next.blockedUntil } : {}),
+          },
         }),
       };
     case "verifying":
@@ -184,7 +204,7 @@ export function missionTransition(
   const base = { streamId: `mission:${mission.id}`, missionId: mission.id };
   const type: MissionEmit["type"] =
     next.status === "active"
-      ? from === "paused"
+      ? from === "paused" || from === "failed" || from === "cancelled"
         ? "mission.resumed"
         : "mission.started"
       : next.status === "paused"

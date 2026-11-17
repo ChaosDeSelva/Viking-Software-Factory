@@ -2,6 +2,7 @@ import { MimirError, TaskStatusSchema, type TaskStatus } from "@mimir/protocol";
 import { describe, expect, it } from "vitest";
 import { makeTask } from "./testing/fixtures.js";
 import {
+  AGENT_UNAVAILABLE,
   APPROVAL_REQUIRED,
   BUDGET_EXCEEDED,
   BUDGET_UNCERTAIN,
@@ -46,6 +47,9 @@ const EVENTS: Record<TaskEvent["type"], TaskEvent> = {
   dispatch_approved: { type: "dispatch_approved" },
   dispatch_denied: { type: "dispatch_denied" },
   recovery_unknown: { type: "recovery_unknown" },
+  agent_unavailable: { type: "agent_unavailable", until: LEASE_AT },
+  agent_available: { type: "agent_available" },
+  reopen: { type: "reopen", attempts: 3, waiting: false },
 };
 
 /**
@@ -58,13 +62,15 @@ type State =
   | "blocked:uncertain"
   | "blocked:approval"
   | "blocked:denied"
-  | "blocked:unknown";
+  | "blocked:unknown"
+  | "blocked:agent";
 const PARKED: Record<string, string> = {
   "blocked:budget": BUDGET_EXCEEDED,
   "blocked:uncertain": BUDGET_UNCERTAIN,
   "blocked:approval": APPROVAL_REQUIRED,
   "blocked:denied": POLICY_DENIED,
   "blocked:unknown": UNKNOWN_AFTER_RESTART,
+  "blocked:agent": AGENT_UNAVAILABLE,
 };
 const STATES: readonly State[] = [
   ...ALL,
@@ -73,6 +79,7 @@ const STATES: readonly State[] = [
   "blocked:approval",
   "blocked:denied",
   "blocked:unknown",
+  "blocked:agent",
 ];
 function taskIn(state: State, over: Parameters<typeof makeTask>[0] = {}) {
   const parked = PARKED[state];
@@ -142,7 +149,50 @@ const ALLOWED: ReadonlyArray<[State, TaskEvent["type"], TaskStatus]> = [
   ["leased", "failed_permanently", "failed"],
   ["running", "failed_permanently", "failed"],
   ["verifying", "failed_permanently", "failed"],
+  // an agent that cannot work (usage limit, login) parks the task without using an attempt
+  ["running", "agent_unavailable", "blocked"],
+  ["leased", "agent_unavailable", "blocked"],
+  ["blocked:agent", "agent_available", "ready"],
+  ["blocked:agent", "retry", "ready"],
+  ["blocked:agent", "cancel", "cancelled"],
+  // restarting an ended mission gives failed and cancelled tasks fresh attempts
+  ["failed", "reopen", "ready"],
+  ["cancelled", "reopen", "ready"],
 ];
+
+it("reopen grants fresh attempts and waits for dependencies when asked", () => {
+  const failed = makeTask({ status: "failed", attempt: 2, maxAttempts: 3 });
+  expect(
+    taskMachine.transition(failed, { type: "reopen", attempts: 3, waiting: false }),
+  ).toMatchObject({ status: "ready", attempt: 3, maxAttempts: 6, agentId: null });
+  const cancelled = makeTask({ status: "cancelled", attempt: 0, maxAttempts: 3 });
+  expect(
+    taskMachine.transition(cancelled, { type: "reopen", attempts: 3, waiting: true }),
+  ).toMatchObject({ status: "pending", attempt: 1, maxAttempts: 4 });
+  expect(taskMachine.can(makeTask({ status: "completed" }), "reopen")).toBe(false);
+});
+
+it("agent_unavailable parks without an attempt and agent_available returns it as it was", () => {
+  const running = makeTask({
+    status: "running",
+    attempt: 1,
+    agentId: "agt_01HZZZZZZZZZZZZZZZZZZZZZZZ" as never,
+    leaseExpiresAt: LEASE_AT,
+  });
+  const parked = taskMachine.transition(running, { type: "agent_unavailable", until: LEASE_AT });
+  expect(parked).toMatchObject({
+    status: "blocked",
+    blockedReason: AGENT_UNAVAILABLE,
+    blockedUntil: LEASE_AT,
+    attempt: 1,
+    agentId: null,
+  });
+  expect(isParked(parked)).toBe(true);
+  const back = taskMachine.transition(parked, { type: "agent_available" });
+  expect(back).toMatchObject({ status: "ready", attempt: 1, leaseExpiresAt: null });
+  expect(back.blockedReason).toBeUndefined();
+  expect(back.blockedUntil).toBeUndefined();
+});
 
 it("launch_deferred gives the lease back without using an attempt", () => {
   const leased = makeTask({

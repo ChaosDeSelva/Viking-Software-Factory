@@ -121,9 +121,14 @@ export function argvDigest(argv: readonly string[]): string {
 }
 
 /** The member that runs a crew's tasks: the implementer, else the first member. */
-export function memberOf(rm: ReadModel, crewId: string): CrewMember | undefined {
-  const members = [...rm.crewMembers.values()]
+/** A crew's members in the order they were added (the first is its main agent). */
+export function membersOf(rm: ReadModel, crewId: string): CrewMember[] {
+  return [...rm.crewMembers.values()]
     .filter((m) => m.crewId === crewId)
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+}
+
+export function memberOf(rm: ReadModel, crewId: string): CrewMember | undefined {
+  const members = membersOf(rm, crewId);
   return members.find((m) => m.role === "implementer") ?? members[0];
 }

@@ -10,7 +10,9 @@ export type MissionEvent =
   /** `tasks` are all of the mission's tasks; the guard needs them. */
   | { type: "complete"; tasks: readonly TaskLike[] }
   | { type: "cancel"; reason?: string }
-  | { type: "fail"; reason: string };
+  | { type: "fail"; reason: string }
+  /** An operator restarts an ended mission; its completed tasks stay completed. */
+  | { type: "reopen"; reason?: string };
 
 export type MissionEventType = MissionEvent["type"];
 
@@ -39,6 +41,7 @@ const EDGES: Record<MissionEventType, { from: readonly MissionStatus[]; to: Miss
   complete: { from: ["active"], to: "completed" },
   cancel: { from: ["draft", "active", "paused"], to: "cancelled" },
   fail: { from: ["active", "paused"], to: "failed" },
+  reopen: { from: ["failed", "cancelled"], to: "active" },
 };
 
 function transition(mission: Mission, event: MissionEvent): Mission {

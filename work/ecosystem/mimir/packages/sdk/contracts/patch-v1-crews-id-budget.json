@@ -19,7 +19,7 @@
     "contentType": "application/json",
     "body": {
       "budget": {
-        "id": "bgt_00000000000000000000000019",
+        "id": "bgt_00000000000000000000000021",
         "createdAt": "2026-01-01T00:00:00.000Z",
         "updatedAt": "2026-01-01T00:00:00.000Z",
         "version": 0,

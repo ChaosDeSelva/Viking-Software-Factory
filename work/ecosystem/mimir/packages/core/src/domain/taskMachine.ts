@@ -51,6 +51,18 @@ export type TaskEvent =
   /** Budget has room again; a budget-blocked task returns to ready. */
   | { type: "budget_restored" }
   /**
+   * The agent CLI could not work (a usage limit, a failed login or key): the attempt is not
+   * counted and the task is parked until `until`, or until another agent can take it.
+   */
+  | { type: "agent_unavailable"; until?: string }
+  /** The parked task may run again (its agent's limit reset, or another agent can take it). */
+  | { type: "agent_available" }
+  /**
+   * An operator restarts the task's ended mission: a failed or cancelled task gets `attempts`
+   * fresh attempts and waits for its dependencies again (`pending`) or runs (`ready`).
+   */
+  | { type: "reopen"; attempts: number; waiting: boolean }
+  /**
    * Policy gates a dispatch (the task's command needs an approval, or is denied): the ready task
    * is parked before any lease, worktree or session exists.
    */
@@ -102,6 +114,8 @@ export const APPROVAL_REQUIRED = "approval_required";
 export const POLICY_DENIED = "policy_denied";
 /** `blockedReason` of a leased/running task whose session was missing after a restart. */
 export const UNKNOWN_AFTER_RESTART = "unknown_after_restart";
+/** `blockedReason` of a task whose agent could not work (usage limit, login or key failure). */
+export const AGENT_UNAVAILABLE = "agent_unavailable";
 
 /** Blocked reasons that only their own dedicated events may release. */
 const PARKED_REASONS: ReadonlySet<string> = new Set([
@@ -110,6 +124,7 @@ const PARKED_REASONS: ReadonlySet<string> = new Set([
   APPROVAL_REQUIRED,
   POLICY_DENIED,
   UNKNOWN_AFTER_RESTART,
+  AGENT_UNAVAILABLE,
 ]);
 
 /** Whether a blocked task was parked by Mimir (budget, policy gate, restart) rather than by its runtime. */
@@ -151,13 +166,16 @@ const notParked = (task: Task) =>
     : isParked(task)
       ? `task is parked (${task.blockedReason})`
       : null;
+const agentParked = (task: Task) =>
+  task.blockedReason === AGENT_UNAVAILABLE ? null : "task is not waiting for an agent";
 const awaitingApproval = (task: Task) =>
   task.blockedReason === APPROVAL_REQUIRED ? null : "task is not awaiting a dispatch approval";
 const retryable = (task: Task) =>
   task.status === "blocked" &&
   task.blockedReason !== UNKNOWN_AFTER_RESTART &&
-  task.blockedReason !== POLICY_DENIED
-    ? "only failed, unknown_after_restart or policy_denied tasks can be retried"
+  task.blockedReason !== POLICY_DENIED &&
+  task.blockedReason !== AGENT_UNAVAILABLE
+    ? "only failed, unknown_after_restart, policy_denied or agent_unavailable tasks can be retried"
     : needsAttempt(task);
 /** A runtime-blocked task (not parked by Mimir) may be marked unknown at recovery. */
 const recoverable = (task: Task) =>
@@ -194,6 +212,9 @@ const EDGES: Record<TaskEventType, Edge> = {
   retry: { from: ["failed", "blocked"], to: "ready", guard: retryable },
   budget_exceeded: { from: ["ready"], to: "blocked" },
   budget_restored: { from: ["blocked"], to: "ready", guard: budgetBlocked },
+  agent_unavailable: { from: ["running", "leased"], to: "blocked" },
+  agent_available: { from: ["blocked"], to: "ready", guard: agentParked },
+  reopen: { from: ["failed", "cancelled"], to: "ready" },
   dispatch_gated: { from: ["ready"], to: "blocked" },
   dispatch_approved: { from: ["blocked"], to: "ready", guard: awaitingApproval },
   dispatch_denied: { from: ["blocked"], to: "blocked", guard: awaitingApproval },
@@ -230,6 +251,7 @@ function transition(task: Task, event: TaskEvent): Task {
 
   const next: Task = { ...task, status: to };
   delete next.blockedReason;
+  delete next.blockedUntil;
   switch (event.type) {
     case "lease_granted":
       next.leaseExpiresAt = event.leaseExpiresAt;
@@ -268,6 +290,21 @@ function transition(task: Task, event: TaskEvent): Task {
       break;
     case "recovery_unknown":
       next.blockedReason = UNKNOWN_AFTER_RESTART;
+      break;
+    case "agent_unavailable":
+      // Not an attempt: the agent never got to work on the task.
+      next.blockedReason = AGENT_UNAVAILABLE;
+      if (event.until) next.blockedUntil = event.until;
+      next.agentId = null;
+      break;
+    case "agent_available":
+      next.agentId = null;
+      break;
+    case "reopen":
+      if (event.waiting) next.status = "pending";
+      next.attempt = task.attempt + 1;
+      next.maxAttempts = next.attempt + Math.max(1, event.attempts);
+      next.agentId = null;
       break;
     default:
       break;

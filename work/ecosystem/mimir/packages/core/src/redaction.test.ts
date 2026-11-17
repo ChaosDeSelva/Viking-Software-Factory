@@ -8,7 +8,7 @@ const JWT =
 describe("redact", () => {
   it.each([
     ["aws_key", "key AKIAIOSFODNN7EXAMPLE here", "key [REDACTED:aws_key] here"],
-    ["github_token", ("gh" + "p_abcdefghijklmnopqrstuvwxyz0123"), "[REDACTED:github_token]"],
+    ["github_token", "gh" + "p_abcdefghijklmnopqrstuvwxyz0123", "[REDACTED:github_token]"],
     ["github_token (server)", "use ghs_ABCDEFGHIJKLMNOPQRSTUV", "use [REDACTED:github_token]"],
     ["api_key", "ANTHROPIC sk-ant-api03-abcdefghijklmnop_-xyz", "ANTHROPIC [REDACTED:api_key]"],
     ["bearer", "Authorization: Bearer abc.def-123", "Authorization: Bearer [REDACTED:bearer]"],
@@ -40,7 +40,7 @@ describe("redact", () => {
   });
 
   it("counts multiple hits and does not re-redact markers", () => {
-    const out = redact(("token: gh" + "p_abcdefghijklmnopqrstuvwxyz AKIAIOSFODNN7EXAMPLE"));
+    const out = redact("token: gh" + "p_abcdefghijklmnopqrstuvwxyz AKIAIOSFODNN7EXAMPLE");
     expect(out.text).toBe("token: [REDACTED:github_token] [REDACTED:aws_key]");
     expect(out.hits).toBe(2);
   });
@@ -139,7 +139,7 @@ describe("redactPayload (fix round 1: I3 key-based, M3 JSON normalisation)", () 
       ghp_ZZZZZZZZZZZZZZZZZZZZZZZZZZZZ: 2,
       plain: 3,
     }) as Record<string, number>;
-    expect(JSON.stringify(out)).not.toContain(("gh" + "p_"));
+    expect(JSON.stringify(out)).not.toContain("gh" + "p_");
     expect(Object.values(out).sort()).toEqual([1, 2, 3]);
     expect(out["[REDACTED:github_token]"]).toBe(1);
     expect(out["[REDACTED:github_token]#2"]).toBe(2);
@@ -170,8 +170,8 @@ describe("redactPayload (fix round 1: I3 key-based, M3 JSON normalisation)", () 
 describe("findCredentialShapes (T14a fix I2: value shapes only, no key-name rule)", () => {
   it.each([
     ["aws_key", "id AKIAIOSFODNN7EXAMPLE here"],
-    ["github_token", ("gh" + "p_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")],
-    ["github_token", ("gi" + "thub_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")],
+    ["github_token", "gh" + "p_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"],
+    ["github_token", "gi" + "thub_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz"],
     ["api_key", "sk-proj-AbCdEfGhIjKlMnOpQrStUvWx0123456789"],
     ["api_key", "sk-chaosLEAK0123456789abcdefghijklmnop"],
     ["jwt", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjaGFvcyJ9.c2lnbmF0dXJlY2hhb3M"],
@@ -195,7 +195,7 @@ describe("findCredentialShapes (T14a fix I2: value shapes only, no key-name rule
     "secretsProvider=vault",
     "cookieDomain localhost",
     "AKIA-not-a-key",
-    ("gh" + "p_short"),
+    "gh" + "p_short",
     "eyJ alone",
     "https://host/path",
     "https://user@host/path",

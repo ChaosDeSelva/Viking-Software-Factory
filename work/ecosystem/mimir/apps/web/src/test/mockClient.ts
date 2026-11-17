@@ -110,6 +110,7 @@ export function mockClient(over: Partial<MimirClient> = {}): MockClient {
       create: vi.fn(),
       start: vi.fn(async () => accepted()),
       cancel: vi.fn(async () => accepted()),
+      reopen: vi.fn(async () => accepted()),
       updateBudget: vi.fn(),
     },
     crews: {
