@@ -178,11 +178,26 @@ export type CrewMember = z.infer<typeof CrewMemberSchema>;
  * deliver a Markdown report or `review.json` under `.mimir/artifacts/` instead of a diff and
  * skip verification; their worktree edits are never committed. `read` implies `document`.
  */
+/** Absolute directories outside its worktree a task may read (e.g. another project's snapshot). */
+export const ReadDirsSchema = z
+  .array(
+    z
+      .string()
+      .regex(/^\/[^\0]*$/)
+      .max(1024),
+  )
+  .max(16);
+
 export const TaskModeSchema = z
   .object({
     deliverable: z.enum(["diff", "document"]),
     access: z.enum(["write", "read"]),
     network: z.enum(["none", "web"]),
+    /**
+     * Absolute directories outside the worktree the agent may read (e.g. another project's
+     * read-only snapshot). Agents limited to their working directory get them added.
+     */
+    readDirs: ReadDirsSchema.optional(),
   })
   .meta({
     id: "TaskMode",

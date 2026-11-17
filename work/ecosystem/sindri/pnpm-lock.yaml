@@ -1082,11 +1082,11 @@ packages:
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
 
   '@mimir/protocol@file:vendor/mimir/mimir-protocol-0.4.1.tgz':
-    resolution: {integrity: sha512-36C+7EmRFuegSU887/WEP7LepyBP5hMlCn6NaExn3GbtrySEYEYETObetEwwi7CCTXmAlGSh9kO5K7bKXEwDaA==, tarball: file:vendor/mimir/mimir-protocol-0.4.1.tgz}
+    resolution: {integrity: sha512-BKqLI3PXN9uepbSTGg2D+P9DhV5S7wf1henHnOs7UYhrTO2Y0OrPECwkBvw0CqYqKdDz2WZvTzn/9kVHJTVFcQ==, tarball: file:vendor/mimir/mimir-protocol-0.4.1.tgz}
     version: 0.4.1
 
   '@mimir/sdk@file:vendor/mimir/mimir-sdk-0.4.1.tgz':
-    resolution: {integrity: sha512-nqsbuvQnCEReyC9jgeiMq4iMqF2XVcJazdGwLPcAm+gaNf4NQa6XZZDimd08+p76er3BcoZrTU+b6XhvSa8SOg==, tarball: file:vendor/mimir/mimir-sdk-0.4.1.tgz}
+    resolution: {integrity: sha512-KkdFP/VlFe/2QYPst2/w0r5shbFELfoOzNcg8AkJ/0VghHYiJxycVjs/vsoUKcc4W/3BX1seZnO1JTO2fSGh7A==, tarball: file:vendor/mimir/mimir-sdk-0.4.1.tgz}
     version: 0.4.1
 
   '@oxc-project/types@0.153.0':

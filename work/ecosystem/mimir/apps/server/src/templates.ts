@@ -118,12 +118,16 @@ function claudeArgv(
     tools.push(`Write(${dir})`, `Edit(${dir})`);
   }
   if (mode?.network === "web") tools.push(CLAUDE_WEB_TOOLS);
-  return template.map((word, i) => {
+  const words = template.map((word, i) => {
     if (word === "acceptEdits" && template[i - 1] === "--permission-mode")
       return read ? "default" : word;
     if (template[i - 1] === "--allowedTools") return tools.join(",");
     return word;
   });
+  // Claude reads only its working directory unless told otherwise. `--add-dir` takes several
+  // paths, so it goes right after the command, ended by the next flag (never the prompt).
+  const dirs = mode?.readDirs ?? [];
+  return dirs.length ? [words[0]!, "--add-dir", ...dirs, ...words.slice(1)] : words;
 }
 
 /** `settings.agent.codexSandbox` of the task's project. */

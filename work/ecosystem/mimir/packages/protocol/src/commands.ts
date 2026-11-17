@@ -8,6 +8,7 @@ import {
   CrewSchema,
   MissionSchema,
   ProjectSchema,
+  ReadDirsSchema,
   TaskDependencySchema,
   TaskSchema,
   UsageSampleSchema,
@@ -163,6 +164,8 @@ export const TaskModeInputSchema = z
     deliverable: z.enum(["diff", "document"]).default("diff"),
     access: z.enum(["write", "read"]).default("write"),
     network: z.enum(["none", "web"]).default("none"),
+    /** See `TaskMode.readDirs`. */
+    readDirs: ReadDirsSchema.optional(),
   })
   .refine((m) => m.access !== "read" || m.deliverable === "document", {
     message: 'read access needs deliverable "document" (a read task delivers no diff)',

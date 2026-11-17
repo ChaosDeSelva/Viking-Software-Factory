@@ -125,6 +125,7 @@ async function approvedProposalPlan(flow: MimirFlow) {
 
 async function run(flow: MimirFlow, planId: string, tasks: number) {
   const ex = await flow.h.call({ method: "POST", url: "/v1/executions", payload: { planId } });
+  expect(JSON.stringify(ex.json().error ?? null)).toBe("null");
   expect(ex.statusCode).toBe(201);
   const execution = ex.json().execution as { id: string };
   const settled = await until(

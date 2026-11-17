@@ -162,7 +162,7 @@ export const needsWeb = (plan: Pick<Plan, "work">): boolean =>
 /** The mode a plan task runs in, or `undefined` for the default. */
 export function modeFor(
   plan: Pick<Plan, "work">,
-  task: Pick<PlanTask, "role">,
+  task: Pick<PlanTask, "role"> & { id?: string },
   { localOnly = false }: { localOnly?: boolean } = {},
 ): TaskMode | undefined {
   // A PR reviewer reads the mirror at the PR's head and writes review.json and review.md; the
@@ -170,12 +170,22 @@ export function modeFor(
   if (plan.work?.kind === "pr_review")
     return { deliverable: "document", access: "read", network: "none" };
   // Every proposal task reads and writes a document: findings, the proposal, its review.
-  if (plan.work?.kind === "proposal")
+  if (plan.work?.kind === "proposal") {
+    // Another project's snapshot lies outside the task's worktree: its researcher and the
+    // fact-check (which opens the cited files) may read it; agents that otherwise stay in their
+    // working directory are given it.
+    const refs = plan.work.proposal?.references ?? [];
+    const readDirs =
+      task.role === "reviewer"
+        ? refs.map((r) => r.path)
+        : refs.filter((r) => `research-${r.slug}` === task.id).map((r) => r.path);
     return {
       deliverable: "document",
       access: "read",
       network: needsWeb(plan) && !localOnly ? "web" : "none",
+      ...(readDirs.length ? { readDirs } : {}),
     };
+  }
   if (plan.work?.kind !== "research") return undefined;
   const network = needsWeb(plan) && !localOnly ? "web" : "none";
   // Both research tasks are read-only documents: the investigator's is research.md, the
@@ -402,7 +412,7 @@ function proposalBrief(plan: Plan, task: PlanTask): string[] {
           ]
         : []),
       `Write two documents. First .mimir/artifacts/${ENGINEERING_DOCUMENT}: the engineering appendix, merging the findings with these sections in order: ${ENGINEERING_SECTION_TITLES.map((t) => `## ${t}`).join(", ")}. Under Findings by project use one ### heading per project, keep exact names, routes, tables and file:line detail, and renumber citations into one list under ## Sources (\`[n] ref\`).`,
-      `Then .mimir/artifacts/${PROPOSAL_DOCUMENT}: the proposal people read and decide on. Start with \`# <title>\` and a short summary line, then these sections in order, each as \`## <title>\`: ${PROPOSAL_SECTION_TITLES.join(", ")}. Write in plain language, short paragraphs and tables, for the people on the call, not for an engineer reading code. Every claim must be supported by ${ENGINEERING_DOCUMENT}; cite sparingly as [n] using the same numbers as its Sources.`,
+      `Then .mimir/artifacts/${PROPOSAL_DOCUMENT}: the proposal people read and decide on. Start with \`# <title>\` and a short summary line, then these sections in order, each as \`## <title>\`: ${PROPOSAL_SECTION_TITLES.join(", ")}. Write in plain language, short paragraphs and tables, for the people on the call, not for an engineer reading code. Every claim must be supported by ${ENGINEERING_DOCUMENT}, but the proposal itself carries few citations: at most one or two per section, only where a reader might doubt the claim, numbered as in the appendix's Sources. File paths and line numbers belong in the appendix, not the proposal.`,
       "What goes where: Why (the problem, in the text's own terms); Goal (one paragraph and a short list of what done looks like); Out of scope (what is deferred); What exists today (a table: piece, where it is, what we use it for); What we're borrowing (per project: what to reuse or copy and why); Ground rules (constraints and safety rules for the work); Decisions to settle (a checklist of open decisions, who should decide, and a recommendation each).",
       'Tickets: a timeline and the tickets. Ticket 0 is a spike: one paragraph of purpose, then bullet-point objectives, and how it ends. Each following ticket (Ticket 1, Ticket 2, …) has Outcome, Demo (what is shown at the end of its week), Acceptance criteria and checkbox subtasks (`- [ ] …`), each subtask with its size (S, M or L) and the project it touches. Use the dates the text gives ("demo next Friday"); otherwise relative weeks.',
       "Demo plan: how each week's demo builds on the last (a table), the dummy data (a fixture table, and seed, reset and check scripts that refuse to run against anything but a local database), the rehearsal routine before each demo, and a short script per week.",

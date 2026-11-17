@@ -122,6 +122,15 @@
                 "none",
                 "web"
               ]
+            },
+            "readDirs": {
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^\\/[^\\0]*$"
+              }
             }
           },
           "additionalProperties": false
@@ -316,6 +325,15 @@
                 "none",
                 "web"
               ]
+            },
+            "readDirs": {
+              "maxItems": 16,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^\\/[^\\0]*$"
+              }
             }
           },
           "required": [

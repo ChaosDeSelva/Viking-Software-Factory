@@ -47,7 +47,7 @@ const briefOf = (plan: Plan, id: string) =>
 describe("proposal plans", () => {
   it("runs every task as a read-only document, on the web only when asked", () => {
     for (const task of proposal().tasks)
-      expect(modeFor(proposal(), task)).toEqual({
+      expect(modeFor(proposal(), task)).toMatchObject({
         deliverable: "document",
         access: "read",
         network: "none",
@@ -134,5 +134,18 @@ describe("proposal plans", () => {
     expect(writer.request.members.map((m) => m.agentKind)).toEqual(["claude", "codex"]);
     const none = mapPlan(proposal(), { agentKindFor: () => "claude" });
     expect(none.crews.every((c) => c.request.members.length === 1)).toBe(true);
+  });
+
+  it("lets each other project's researcher and the fact-check read the snapshots", () => {
+    const plan = proposal();
+    const mode = (id: string) =>
+      modeFor(
+        plan,
+        plan.tasks.find((t) => t.id === id)!,
+      );
+    expect(mode("research-docs-site")?.readDirs).toEqual(["/data/snapshots/prj-docs/abc"]);
+    expect(mode("fact-check")?.readDirs).toEqual(["/data/snapshots/prj-docs/abc"]);
+    expect(mode("research")?.readDirs).toBeUndefined();
+    expect(mode("proposal")?.readDirs).toBeUndefined();
   });
 });

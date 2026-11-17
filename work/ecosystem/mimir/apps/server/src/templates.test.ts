@@ -213,6 +213,29 @@ describe("argv per task mode", () => {
     );
   });
 
+  it("claude read with other directories: --add-dir before the next flag, never eating the prompt", () => {
+    const argv = argvFor("claude", "investigator", "Read the other project", {
+      mode: {
+        deliverable: "document",
+        access: "read",
+        network: "none",
+        readDirs: ["/data/snapshots/p1/abc", "/data/snapshots/p2/def"],
+      },
+    });
+    expect(argv.slice(0, 5)).toEqual([
+      "claude",
+      "--add-dir",
+      "/data/snapshots/p1/abc",
+      "/data/snapshots/p2/def",
+      "-p",
+    ]);
+    expect(argv.at(-1)).toMatch(/Read the other project/);
+    // Without other directories nothing is added.
+    expect(argvFor("claude", "investigator", "x", { mode: mode("read", "none") })).not.toContain(
+      "--add-dir",
+    );
+  });
+
   it("claude read + web: the read tools plus the web tools", () => {
     const argv = argvFor("claude", "investigator", "x", { mode: mode("read", "web") });
     expect(flag(argv, "--permission-mode")).toBe("default");
