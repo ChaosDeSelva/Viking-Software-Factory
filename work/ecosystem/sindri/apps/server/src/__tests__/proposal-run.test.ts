@@ -364,4 +364,114 @@ describe("proposal runs", () => {
     });
     expect(restartedTwice.statusCode).toBe(409);
   });
+
+  it("removes a finished run from every list and restores it unchanged", async () => {
+    const flow = (f = await startMimirFlow(
+      {
+        research: findingsStep("The app"),
+        "research-docs-site": findingsStep("The docs site"),
+        proposal: [
+          {
+            kind: "complete",
+            artifacts: ["report@proposal.md", "file@engineering.md", "file@sources.json"],
+            contents: {
+              "report@proposal.md": PROPOSAL,
+              "file@engineering.md": ENGINEERING,
+              "file@sources.json": SOURCES,
+            },
+          },
+        ],
+      },
+      TRUST_FAKE,
+    ));
+    const plan = await approvedProposalPlan(flow);
+    const { execution, settled } = await run(flow, plan.id, 3);
+    expect(settled.execution.status).toBe("verified_pending_review");
+    const listed = async () => {
+      const q = `projectId=${flow.projectId}`;
+      const ids = (rows: { id: string }[]) => rows.map((r) => r.id);
+      return {
+        executions: ids((await flow.h.call({ url: `/v1/executions?${q}` })).json().executions),
+        deliveries: ids((await flow.h.call({ url: `/v1/deliveries?${q}` })).json().deliveries),
+        removed: ids(
+          (await flow.h.call({ url: `/v1/executions?${q}&removed=1` })).json().executions,
+        ),
+      };
+    };
+    expect(await listed()).toEqual({
+      executions: [execution.id],
+      deliveries: [execution.id],
+      removed: [],
+    });
+
+    const noReason = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/remove`,
+      payload: {},
+    });
+    expect(noReason.statusCode).toBe(422);
+    const removed = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/remove`,
+      payload: { reason: "duplicate of a later run" },
+    });
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json().execution).toMatchObject({
+      status: "verified_pending_review",
+      removedReason: "duplicate of a later run",
+    });
+    expect(await listed()).toEqual({ executions: [], deliveries: [], removed: [execution.id] });
+    // Still readable by id, but not restartable while removed.
+    expect((await flow.h.call({ url: `/v1/deliveries/${execution.id}` })).statusCode).toBe(200);
+    const restart = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/restart`,
+      payload: { reason: "try" },
+    });
+    expect(restart.statusCode).toBe(409);
+
+    const restored = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/restore`,
+      payload: {},
+    });
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().execution.removedAt).toBeUndefined();
+    expect(await listed()).toEqual({
+      executions: [execution.id],
+      deliveries: [execution.id],
+      removed: [],
+    });
+  });
+
+  it("refuses to remove a run that has not finished", async () => {
+    const limit = { kind: "fail" as const, reason: "session_failed", retryable: false };
+    const flow = (f = await startMimirFlow(
+      {
+        research: findingsStep("The app"),
+        "research-docs-site": findingsStep("The docs site"),
+        proposal: Array.from({ length: 8 }, () => limit),
+      },
+      TRUST_FAKE,
+    ));
+    const plan = await approvedProposalPlan(flow);
+    const ex = await flow.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: plan.id },
+    });
+    const id = ex.json().execution.id as string;
+    await until(
+      async () => (await flow.h.call({ url: `/v1/executions/${id}` })).json(),
+      (v: { tasks: { planTaskId: string; escalation: string | null }[] }) =>
+        v.tasks.some((t) => t.planTaskId === "proposal" && t.escalation),
+    );
+    const r = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${id}/remove`,
+      payload: { reason: "duplicate" },
+    });
+    expect(r.statusCode).toBe(409);
+    expect(r.json().error.message).toContain("cancel it before removing it");
+  });
 });

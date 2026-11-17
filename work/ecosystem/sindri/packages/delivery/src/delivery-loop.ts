@@ -73,6 +73,9 @@ export interface Execution {
   createdAt: string;
   /** 1 for the first execution of a plan version, 2 for the next, ... */
   runNumber: number;
+  /** When an operator removed the run from lists (absent while it is listed). */
+  removedAt?: string;
+  removedReason?: string;
 }
 
 export interface ExecutionTask {
@@ -234,6 +237,8 @@ interface ExecutionRow {
   plan_json: string;
   created_at: string;
   run_number: number;
+  removed_at?: string | null;
+  removed_reason?: string | null;
 }
 
 interface TaskRow {
@@ -729,6 +734,18 @@ export class DeliveryLoop {
       createdAt: r.created_at,
       resolvedAt: r.resolved_at,
     }));
+  }
+
+  /**
+   * Hides a finished run from lists (or lists it again with `null`). Nothing else changes: its
+   * tasks, events and delivery stay, so a restore brings it back as it was.
+   */
+  setRemoved(executionId: string, removed: { at: string; reason: string } | null): Execution {
+    this.row(executionId);
+    this.db
+      .prepare("UPDATE executions SET removed_at = ?, removed_reason = ? WHERE id = ?")
+      .run(removed?.at ?? null, removed?.reason ?? null, executionId);
+    return this.get(executionId) as Execution;
   }
 
   get(executionId: string): Execution | undefined {
@@ -1574,6 +1591,8 @@ function toExecution(r: ExecutionRow): Execution {
     finishedAt: r.finished_at,
     createdAt: r.created_at,
     runNumber: r.run_number,
+    ...(r.removed_at ? { removedAt: r.removed_at } : {}),
+    ...(r.removed_at && r.removed_reason ? { removedReason: r.removed_reason } : {}),
   };
 }
 

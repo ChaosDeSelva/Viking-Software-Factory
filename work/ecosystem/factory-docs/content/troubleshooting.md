@@ -71,6 +71,10 @@ A run stops when a task runs out of attempts (its mission fails) or when you can
 
 **Restart run**, in Heimdall's run drawer or on the escalation, runs it again from where it stopped: completed tasks are kept, and every failed or cancelled task gets fresh attempts and runs again (after the tasks it waits on). Nothing that already finished runs twice. Write why in the dialog; Sindri keeps it with the run. A run that finished is not restarted; start its plan again instead.
 
+## Remove a duplicate run
+
+**Remove run**, in Heimdall's run drawer, hides a finished run (verified, failed or cancelled) and its documents from every list, for example the copy you no longer need when a plan ran twice. Write why in the dialog. Nothing is deleted: Sindri keeps the run, and `POST /v1/executions/<id>/restore` lists it again as it was (`GET /v1/executions?projectId=<id>&removed=1` lists removed runs). A run still going must be cancelled first, and a removed run is not restarted until it is restored.
+
 ## Merge conflict
 
 There are two different conflicts.

@@ -125,4 +125,9 @@ export const DELIVERY_MIGRATIONS: readonly string[] = [
   );
   CREATE INDEX executions_project ON executions(project_id);
   `,
+  // A removed run is hidden from lists but kept, so it can be restored.
+  `
+  ALTER TABLE executions ADD COLUMN removed_at TEXT;
+  ALTER TABLE executions ADD COLUMN removed_reason TEXT;
+  `,
 ];

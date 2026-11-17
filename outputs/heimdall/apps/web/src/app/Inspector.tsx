@@ -1416,6 +1416,7 @@ export function Inspector({
     // Offered whenever the run stopped; locked controls disable it with their reason.
     const stopped = !restartBlock(view?.execution?.status ?? row.status);
     const restartWhy = sindriWhy("execution.restart");
+    const ended = isFinalExecution(view?.execution?.status ?? row.status);
     if (reasons.length)
       add(
         "why",
@@ -1438,6 +1439,13 @@ export function Inspector({
             : cancelWhy ||
               "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
         </p>
+        {ended && (
+          <p className="text-sm text-muted">
+            Remove hides this run and its documents from every list, for example
+            a duplicate. Nothing is deleted: Sindri keeps the run and can list
+            it again.
+          </p>
+        )}
         <DrawerActions>
           {stopped && (
             <Button
@@ -1448,13 +1456,23 @@ export function Inspector({
               Restart run
             </Button>
           )}
-          <Button
-            variant="danger"
-            disabledReason={cancelWhy || undefined}
-            onClick={() => propose("execution.cancel", id, { reason: "" })}
-          >
-            Cancel run
-          </Button>
+          {ended ? (
+            <Button
+              variant="danger"
+              disabledReason={sindriWhy("execution.remove") || undefined}
+              onClick={() => propose("execution.remove", id)}
+            >
+              Remove run
+            </Button>
+          ) : (
+            <Button
+              variant="danger"
+              disabledReason={cancelWhy || undefined}
+              onClick={() => propose("execution.cancel", id, { reason: "" })}
+            >
+              Cancel run
+            </Button>
+          )}
         </DrawerActions>
       </Block>,
     );

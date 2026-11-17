@@ -238,6 +238,12 @@ export function commandRoute(c) {
     path = `/v1/executions/${id}/restart`;
     for (const key of Object.keys(body)) delete body[key];
     body.reason = text(c.reason, "A restart reason", 2000);
+  } else if (c.action === "execution.remove") {
+    // Hides a finished run from every list; Sindri keeps it, with the dialog's reason.
+    source = "sindri";
+    path = `/v1/executions/${id}/remove`;
+    for (const key of Object.keys(body)) delete body[key];
+    body.reason = text(c.reason, "A reason for removing the run", 2000);
   } else if (c.action === "project.profile") {
     // The body is the whole profile; Sindri replaces the stored one with it.
     source = "sindri";

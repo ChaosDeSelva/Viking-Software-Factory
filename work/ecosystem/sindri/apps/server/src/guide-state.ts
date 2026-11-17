@@ -62,7 +62,7 @@ function projectState(db: SqliteDatabase, p: { id: string; name: string }): Guid
     executions: countBy(
       db,
       `SELECT e.status, COUNT(*) AS n FROM executions e JOIN plans p ON p.id = e.plan_id
-       WHERE p.project_id = ? GROUP BY e.status`,
+       WHERE p.project_id = ? AND e.removed_at IS NULL GROUP BY e.status`,
       p.id,
     ),
     deliveries: countBy(

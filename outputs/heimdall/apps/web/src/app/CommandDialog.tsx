@@ -32,6 +32,7 @@ export function commandTitle(action: string, body: R = {}): string {
     "execution.create": "Start approved plan",
     "execution.cancel": "Cancel run",
     "execution.restart": "Restart run",
+    "execution.remove": "Remove run",
     "execution.resolve": "Resolve escalation",
     "execution.assess": "Reassess quality gates",
     "execution.export": "Request local export",

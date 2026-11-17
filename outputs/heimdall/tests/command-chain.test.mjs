@@ -100,3 +100,18 @@ test("a restart goes to Sindri's restart with the dialog's reason, nothing else"
   assert.equal(route.path, "/v1/executions/exe_1/restart");
   assert.deepEqual(route.body, { reason: "Claude's limit reset" });
 });
+
+test("a remove goes to Sindri's remove with the dialog's reason, nothing else", () => {
+  const route = commandRoute({
+    action: "execution.remove",
+    id: "exe_1",
+    reason: "Duplicate of a later run",
+    body: { stray: 1 },
+  });
+  assert.equal(route.source, "sindri");
+  assert.equal(route.path, "/v1/executions/exe_1/remove");
+  assert.deepEqual(route.body, { reason: "Duplicate of a later run" });
+  assert.throws(() =>
+    commandRoute({ action: "execution.remove", id: "../x", reason: "r" }),
+  );
+});

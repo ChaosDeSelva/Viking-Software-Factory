@@ -14,6 +14,7 @@ export interface ExecutionSummaryRow {
   mimirMissionId: string;
   createdAt: string;
   finishedAt: string | null;
+  removedAt?: string;
 }
 
 export interface EventRow {
@@ -25,16 +26,26 @@ export interface EventRow {
   occurredAt: string;
 }
 
-export function executionsByProject(db: SqliteDatabase, projectId: string): ExecutionSummaryRow[] {
+export function executionsByProject(
+  db: SqliteDatabase,
+  projectId: string,
+  { removed = false }: { removed?: boolean } = {},
+): ExecutionSummaryRow[] {
+  // Removed runs are hidden everywhere a run is listed; `removed` lists only those, to restore one.
   return db
     .prepare(
       `SELECT e.id, e.plan_id AS planId, e.plan_version AS planVersion, p.project_id AS projectId,
               e.status, e.mimir_mission_id AS mimirMissionId, e.created_at AS createdAt,
-              e.finished_at AS finishedAt
+              e.finished_at AS finishedAt, e.removed_at AS removedAt
        FROM executions e JOIN plans p ON p.id = e.plan_id
-       WHERE p.project_id = ? ORDER BY e.created_at DESC, e.rowid DESC`,
+       WHERE p.project_id = ? AND e.removed_at IS ${removed ? "NOT NULL" : "NULL"}
+       ORDER BY e.created_at DESC, e.rowid DESC`,
     )
-    .all(projectId) as ExecutionSummaryRow[];
+    .all(projectId)
+    .map((r) => {
+      const { removedAt, ...row } = r as ExecutionSummaryRow & { removedAt: string | null };
+      return removedAt ? { ...row, removedAt } : row;
+    });
 }
 
 /** The project of an execution, through its plan (null when the plan is gone). */
