@@ -9,6 +9,8 @@ export function RunStatus({ execution, deliveries }: { execution: R; deliveries:
   const decided = documentDecision(deliveries, execution.id);
   if (!decided) return <Status value={execution.status} domain="run" />;
   const what = decided.kind === "proposal" ? "Plan" : "Document";
+  if (decided.decision === "replaced")
+    return <Badge tone="neutral">Replaced by a revision</Badge>;
   return decided.decision === "accepted" ? (
     <Badge tone="forest">{what} accepted</Badge>
   ) : (

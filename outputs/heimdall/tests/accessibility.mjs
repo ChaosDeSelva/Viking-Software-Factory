@@ -86,11 +86,24 @@ const WORK_STATES = [
     await table.getByText("Accepted config plan").waitFor();
     // A plan with no decision is not in the library.
     assert.equal(await table.getByText("Plan for proposal").count(), 0);
+    // A version a decided revision replaced shows only with the switch, and never waits.
+    assert.equal(await table.getByText("Replaced config plan").count(), 0);
+    await page.getByLabel("Show rejected and replaced").check();
+    await table.getByText("Replaced config plan").waitFor();
+    await table.getByText("Replaced by a revision").waitFor();
+    await page.getByLabel("Show rejected and replaced").uncheck();
     await table.getByRole("button", { name: "Use as context" }).click();
     await page.waitForURL(/\/new-work\?.*context=exe_accepted/);
     const picked = page.getByRole("checkbox", { name: /Accepted config plan/ });
     await picked.waitFor();
     assert.equal(await picked.isChecked(), true);
+  }],
+  ["Quality: a replaced plan does not wait", async () => {
+    await page.goto(app.url + "/quality?project=prj_demo");
+    const docs = page.getByRole("table", { name: "Documents and reviews" });
+    await docs.waitFor();
+    await page.waitForTimeout(500);
+    assert.equal(await docs.getByText("Replaced config plan").count(), 0);
   }],
   ["Inspector: plan revision", async () => {
     await page.goto(app.url + "/quality?project=prj_demo");

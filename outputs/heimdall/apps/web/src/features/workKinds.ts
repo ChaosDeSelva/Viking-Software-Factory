@@ -351,6 +351,8 @@ export interface WorkSummary {
   changesRequested?: boolean;
   decidedAt?: string | null;
   decidedBy?: string | null;
+  /** Plans: the run of a later revision someone decided on; this version waits for nothing. */
+  replacedBy?: string | null;
 }
 
 /**
@@ -400,7 +402,8 @@ export const researchChecksPassed = (research: R | null | undefined): boolean =>
 export function pendingDocuments(deliveries: R[]): R[] {
   return deliveries.filter((d) => {
     const w: WorkSummary | undefined = d.work;
-    if (w?.kind === "research" || w?.kind === "proposal") return !w.decision;
+    if (w?.kind === "research" || w?.kind === "proposal")
+      return !w.decision && !w.replacedBy;
     if (w?.kind === "pr_review") return !w.posted;
     return false;
   });
@@ -607,14 +610,17 @@ export function shortLocation(f: {
 export function documentDecision(
   deliveries: R[],
   executionId: string,
-): { kind: "research" | "proposal"; decision: "accepted" | "rejected" } | null {
+): {
+  kind: "research" | "proposal";
+  decision: "accepted" | "rejected" | "replaced";
+  replacedBy?: string;
+} | null {
   const d = deliveries.find((x) => (x.executionId ?? x.id) === executionId);
   const w: WorkSummary | undefined = d?.work;
-  if (
-    (w?.kind === "research" || w?.kind === "proposal") &&
-    (w.decision === "accepted" || w.decision === "rejected")
-  )
+  if (w?.kind !== "research" && w?.kind !== "proposal") return null;
+  if (w.decision === "accepted" || w.decision === "rejected")
     return { kind: w.kind, decision: w.decision };
+  if (w.replacedBy) return { kind: w.kind, decision: "replaced", replacedBy: w.replacedBy };
   return null;
 }
 
@@ -631,7 +637,8 @@ export function decidedDocuments(deliveries: R[], { rejected = false } = {}): R[
       const w: WorkSummary | undefined = d.work;
       return (
         (w?.kind === "research" || w?.kind === "proposal") &&
-        (w.decision === "accepted" || (rejected && w.decision === "rejected"))
+        (w.decision === "accepted" ||
+          (rejected && (w.decision === "rejected" || (!w.decision && !!w.replacedBy))))
       );
     })
     .sort((a, b) =>

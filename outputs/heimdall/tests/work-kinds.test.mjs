@@ -472,6 +472,7 @@ test("list summaries are trimmed to what lists show, and an unevaluated gate has
       changesRequested: false,
       decidedAt: null,
       decidedBy: null,
+      replacedBy: null,
     },
   );
   assert.equal(
@@ -613,6 +614,7 @@ test("the snapshot labels deliveries with their kind and keeps research and revi
     changesRequested: false,
     decidedAt: null,
     decidedBy: null,
+    replacedBy: null,
   });
   assert.equal(row("exe_p").work.posted, false);
   assert.equal(row("exe_x").workKind, "audit");
@@ -683,6 +685,7 @@ test("summaries Sindri puts on its list rows are used without reading the report
     changesRequested: false,
     decidedAt: null,
     decidedBy: null,
+    replacedBy: null,
   });
   await app.hub.refresh();
   assert.equal(
@@ -876,6 +879,7 @@ test("a plan delivery waits for a decision and is listed with its title", async 
     changesRequested: false,
     decidedAt: null,
     decidedBy: null,
+    replacedBy: null,
   });
 });
 
@@ -970,4 +974,22 @@ test("Documents lists decided plans and research, newest first; context links ar
   assert.deepEqual(contextFromQuery("?context=exe_1,exe_2,../x,exe_1"), ["exe_1", "exe_2"]);
   assert.deepEqual(contextField([]), {});
   assert.deepEqual(contextField(["a", "b", "c", "d", "e", "f"]).contextExecutionIds.length, 5);
+});
+
+test("a plan replaced by a decided revision waits for nothing and says so", async () => {
+  const { pendingDocuments, documentDecision, decidedDocuments } = await import(
+    "../apps/web/src/features/workKinds.ts"
+  );
+  const old = { executionId: "exe_v1", work: { kind: "proposal", title: "v1", decision: null, replacedBy: "exe_v2" } };
+  const open = { executionId: "exe_v3", work: { kind: "proposal", title: "v3", decision: null, replacedBy: null } };
+  assert.deepEqual(pendingDocuments([old, open]).map((d) => d.executionId), ["exe_v3"]);
+  assert.deepEqual(documentDecision([old], "exe_v1"), {
+    kind: "proposal",
+    decision: "replaced",
+    replacedBy: "exe_v2",
+  });
+  assert.equal(documentDecision([open], "exe_v3"), null);
+  // On Documents only with "Show rejected and replaced".
+  assert.equal(decidedDocuments([old]).length, 0);
+  assert.equal(decidedDocuments([old], { rejected: true }).length, 1);
 });

@@ -122,7 +122,7 @@ export function DocumentsPage() {
             />
             <Checkbox
               id="documents-rejected"
-              label="Show rejected"
+              label="Show rejected and replaced"
               checked={rejected}
               onChange={(e) => setRejected(e.target.checked)}
             />

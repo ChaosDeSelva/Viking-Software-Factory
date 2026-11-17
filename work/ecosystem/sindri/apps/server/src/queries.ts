@@ -118,6 +118,8 @@ export interface DeliveryWork {
   /** Research and plans only: when and by whom the decision was made. */
   decidedAt?: string | null;
   decidedBy?: string | null;
+  /** Plans only: the run of a later revision someone decided on, which replaces this one. */
+  replacedBy?: string | null;
   /** PR reviews only: the review was posted to GitHub. */
   posted: boolean;
   postedUrl: string | null;
@@ -180,7 +182,8 @@ export function deliveriesWork(
       db
         .prepare(
           `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN
-           ('gate_evaluations', 'document_decisions', 'review_posts', 'review_drafts', 'specifications')`,
+           ('gate_evaluations', 'document_decisions', 'review_posts', 'review_drafts', 'specifications',
+            'intakes', 'plans')`,
         )
         .all() as { name: string }[]
     ).map((r) => r.name),
@@ -228,6 +231,20 @@ export function deliveriesWork(
       actor: string;
     }[])
       decisions.set(d.execution_id, d);
+  // A plan replaced by a revision someone decided on (accepted or rejected) waits for nothing.
+  const replacedBy = new Map<string, string>();
+  if (["document_decisions", "specifications", "intakes", "plans"].every((t) => tables.has(t)))
+    for (const r of db
+      .prepare(
+        `SELECT i.linked_execution_id AS earlier, e.id AS later FROM intakes i
+         JOIN specifications s ON s.intake_id = i.id
+         JOIN plans p ON p.spec_id = s.id
+         JOIN executions e ON e.plan_id = p.id
+         JOIN document_decisions d ON d.execution_id = e.id
+         WHERE i.work_kind = 'proposal' AND i.linked_execution_id ${IN}`,
+      )
+      .all(ids) as { earlier: string; later: string }[])
+      replacedBy.set(r.earlier, r.later);
   const posts = new Map<string, string>();
   if (tables.has("review_posts"))
     for (const p of db
@@ -294,6 +311,7 @@ export function deliveriesWork(
       work.decision = decisions.get(e.id)?.decision ?? null;
       work.decidedAt = decisions.get(e.id)?.decided_at ?? null;
       work.decidedBy = decisions.get(e.id)?.actor ?? null;
+      work.replacedBy = replacedBy.get(e.id) ?? null;
     } else if (workKind === "pr_review") {
       work.title = plan.work?.prReview?.title?.slice(0, 300) ?? null;
       work.prUrl = plan.work?.prReview?.url ?? null;

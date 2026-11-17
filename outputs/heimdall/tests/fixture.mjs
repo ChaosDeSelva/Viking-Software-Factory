@@ -813,6 +813,19 @@ export function installWorkKinds(source) {
     delivery("exe_review", "pln_rev"),
     delivery("exe_odd", "pln_odd"),
     delivery("exe_plan", "pln_plan"),
+    // An earlier version the accepted plan replaced: off the waiting list.
+    {
+      ...delivery("exe_replaced", "pln_plan"),
+      workKind: "proposal",
+      work: {
+        kind: "proposal",
+        title: "Replaced config plan",
+        decision: null,
+        replacedBy: "exe_accepted",
+        gatePassed: false,
+        changesRequested: true,
+      },
+    },
     // An accepted plan: on Documents, and offered as context on New work.
     {
       ...delivery("exe_accepted", "pln_plan"),

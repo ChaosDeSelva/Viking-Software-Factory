@@ -28,9 +28,11 @@ import { sindriDeliveryHref } from "../lib/apps";
 import { hrefFor, navigate } from "../lib/router";
 import { useDetail, WorkKindBadge } from "./WorkForms";
 import { renderDiagrams } from "../components/Mermaid";
+import { scopeOf } from "./scope";
 import { FactCheckList } from "./FactCheckList";
 import {
   docSources,
+  documentDecision,
   findingCounts,
   leakCheckOf,
   postedUrl,
@@ -453,7 +455,12 @@ export function ProposalView({
   executionId: string;
   report: R;
 }) {
-  const { session, propose, notify } = useHeimdall();
+  const { session, propose, notify, state, open } = useHeimdall();
+  // A later revision someone decided on replaces this version: nothing waits on it.
+  const replacedBy = documentDecision(
+    scopeOf(state, "all").deliveries,
+    executionId,
+  )?.replacedBy;
   const plan: R = report.proposal ?? {};
   const [feedback, setFeedback] = useState("");
   const sources = docSources(plan.sources);
@@ -468,7 +475,11 @@ export function ProposalView({
     plan.factCheck?.verdict === "request_changes" &&
     planChecksPassed({ ...plan, factCheck: null });
   const access = actionBlock("research.accept", undefined, session);
-  const decided = decision ? `This plan was already ${decision.decision}.` : "";
+  const decided = decision
+    ? `This plan was already ${decision.decision}.`
+    : replacedBy
+      ? "A later revision of this plan was decided, so this version no longer needs a decision."
+      : "";
   const rejectWhy = access || decided;
   // Only the fact-check's opinion failed: the operator may accept over it, with a reason.
   const acceptWhy =
@@ -536,7 +547,9 @@ export function ProposalView({
                 : "Rejected"}
             </Badge>
           ) : (
-            <Badge tone="warning">Awaiting your decision</Badge>
+            <Badge tone={replacedBy ? "neutral" : "warning"}>
+              {replacedBy ? "Replaced by a revision" : "Awaiting your decision"}
+            </Badge>
           )}
           <Badge tone="neutral">
             {findings.length} {findings.length === 1 ? "project" : "projects"}{" "}
@@ -564,7 +577,24 @@ export function ProposalView({
           />
         )}
         <DrawerActions>
-          {decision ? (
+          {replacedBy && !decision ? (
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Button
+                variant="primary"
+                className="w-full"
+                onClick={() =>
+                  open("deliveries", {
+                    id: replacedBy,
+                    executionId: replacedBy,
+                    title: "Plan",
+                  })
+                }
+              >
+                Open the revision that replaced it
+              </Button>
+              <p className="text-sm text-muted">{decided}</p>
+            </div>
+          ) : decision ? (
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               {decision.decision === "accepted" && (
                 <Button
@@ -638,7 +668,7 @@ export function ProposalView({
             </>
           )}
         </DrawerActions>
-        {changesOnly && !decision && (
+        {changesOnly && !decision && !replacedBy && (
           <Callout tone="warning" title="The fact-check asked for changes">
             {findingCounts(plan.factCheck?.findings) || "See its findings"}.
             Read them in the Fact-check tab below. Revise the plan here (the
@@ -648,7 +678,7 @@ export function ProposalView({
         )}
         <Disclosure
           title="Revise the plan"
-          defaultOpen={changesOnly && !decision}
+          defaultOpen={changesOnly && !decision && !replacedBy}
         >
           <Stack gap={3}>
             <Field

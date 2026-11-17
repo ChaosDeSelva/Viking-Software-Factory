@@ -80,4 +80,47 @@ describe("queries", () => {
       changesRequested: false,
     });
   });
+
+  it("says a plan is replaced once a revision of it was decided, accepted or rejected", () => {
+    const db = openDatabase(":memory:");
+    ensureDeliverySchema(db);
+    ensureQualitySchema(db);
+    // Only the columns the link reads: intake → spec → plan → run (no project rows).
+    db.pragma("foreign_keys = OFF");
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS intakes (id TEXT PRIMARY KEY, work_kind TEXT, linked_execution_id TEXT);
+      CREATE TABLE IF NOT EXISTS specifications (id TEXT PRIMARY KEY, intake_id TEXT, title TEXT);
+      CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY, spec_id TEXT);
+    `);
+    const plan = JSON.stringify({
+      tasks: [{ id: "proposal" }],
+      work: { kind: "proposal", proposal: { text: "Plan" } },
+    });
+    const run = db.prepare(
+      `INSERT INTO executions (id, plan_id, plan_version, mimir_mission_id, status, plan_json, created_at)
+       VALUES (?, ?, 1, ?, 'verified_pending_review', ?, '2026-01-01T00:00:00Z')`,
+    );
+    const revision = (n: number, earlier: string) => {
+      db.prepare("INSERT INTO intakes VALUES (?, 'proposal', ?)").run(`int_${n}`, earlier);
+      db.prepare("INSERT INTO specifications VALUES (?, ?, ?)").run(`spc_${n}`, `int_${n}`, `v${n}`);
+      db.prepare("INSERT INTO plans VALUES (?, ?)").run(`pln_${n}`, `spc_${n}`);
+      run.run(`exe_v${n}`, `pln_${n}`, `msn_${n}`, plan);
+    };
+    run.run("exe_v1", "pln_1", "msn_1", plan);
+    revision(2, "exe_v1");
+    revision(3, "exe_v2");
+    const decide = (id: string, decision: string) =>
+      db
+        .prepare(
+          `INSERT INTO document_decisions (execution_id, project_id, delivery_id, decision, actor, decided_at)
+           VALUES (?, 'prj', NULL, ?, 'jacob', '2026-01-02T00:00:00Z')`,
+        )
+        .run(id, decision);
+    // v3 not decided yet: v2 still waits.
+    decide("exe_v2", "rejected");
+    const work = deliveriesWork(db, ["exe_v1", "exe_v2", "exe_v3"]);
+    expect(work.get("exe_v1")?.work.replacedBy).toBe("exe_v2");
+    expect(work.get("exe_v2")?.work.replacedBy).toBeNull();
+    expect(work.get("exe_v3")?.work.replacedBy).toBeNull();
+  });
 });
