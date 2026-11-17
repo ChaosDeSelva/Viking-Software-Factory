@@ -102,7 +102,11 @@ describe("queries", () => {
     );
     const revision = (n: number, earlier: string) => {
       db.prepare("INSERT INTO intakes VALUES (?, 'proposal', ?)").run(`int_${n}`, earlier);
-      db.prepare("INSERT INTO specifications VALUES (?, ?, ?)").run(`spc_${n}`, `int_${n}`, `v${n}`);
+      db.prepare("INSERT INTO specifications VALUES (?, ?, ?)").run(
+        `spc_${n}`,
+        `int_${n}`,
+        `v${n}`,
+      );
       db.prepare("INSERT INTO plans VALUES (?, ?)").run(`pln_${n}`, `spc_${n}`);
       run.run(`exe_v${n}`, `pln_${n}`, `msn_${n}`, plan);
     };
