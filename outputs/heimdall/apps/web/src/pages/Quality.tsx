@@ -25,7 +25,9 @@ import { openEscalations } from "../features/profileForm";
 import { isBudgetBlocked, type Scope } from "../features/scope";
 import {
   actionBlock,
+  decisionDetail,
   deliveryTitle,
+  revisionOf,
   runTitle,
 } from "../features/workflowState";
 import { WorkKindBadge } from "../features/WorkForms";
@@ -92,11 +94,13 @@ export function decisions(scope: Scope, specs: R[]): Decision[] {
       out.push({
         id: kind + ":" + r.id,
         kind,
-        title: String(r.title ?? `Plan v${r.version}`),
-        detail:
-          r.status === "review"
-            ? "Ready for your review"
-            : "Draft: submit it for review first",
+        // A plan has no title of its own: it plans its specification.
+        title: String(
+          r.title ??
+            scope.specs.find((spec) => spec.id === r.specId)?.title ??
+            `Plan v${r.version}`,
+        ),
+        detail: decisionDetail(kind, r, revisionOf(r, scope)),
         status: r.status,
         open: [kind === "Plan" ? "plans" : "specs", r],
         row: r,

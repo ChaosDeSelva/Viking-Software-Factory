@@ -16,7 +16,7 @@ export const commandTimeout = (action, body = {}) =>
   Math.max(
     TIMEOUTS[action] ?? 30000,
     body.thenPropose || body.thenDraft
-      ? TIMEOUTS["plan.propose"]
+      ? TIMEOUTS["plan.propose"] + (body.thenStart ? TIMEOUTS["execution.create"] : 0)
       : body.thenStart
         ? TIMEOUTS["execution.create"]
         : 0,
@@ -40,6 +40,17 @@ export function thenRequest(then, c, result) {
       path: "/v1/director/draft",
       body: { projectId: intake.projectId, intakeId: intake.id, request },
     };
+  }
+  // A revision's plan, approved and started in the same click as its spec: it repeats a kind of
+  // plan the operator already approved once. Submitting may already be done.
+  if (then === "plan.start") {
+    const planId = result?.plan?.id;
+    if (!planId) throw Error("Sindri returned no plan to start");
+    return [
+      { path: `/v1/plans/${planId}/submit`, body: {}, doneOk: true },
+      { path: `/v1/plans/${planId}/approve`, body: {} },
+      { path: "/v1/executions", body: { planId } },
+    ];
   }
   throw Error("Unknown chained step");
 }
@@ -219,7 +230,8 @@ export function commandRoute(c) {
     if (verb === "approve") {
       if (body.submitFirst === true) before = [`/v1/${resource}s/${id}/submit`];
       if (resource === "spec" && body.thenPropose === true)
-        then = "plan.propose";
+        then =
+          body.thenStart === true ? ["plan.propose", "plan.start"] : "plan.propose";
       if (resource === "plan" && body.thenStart === true)
         then = "execution.create";
       delete body.submitFirst;

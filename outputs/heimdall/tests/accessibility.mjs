@@ -79,6 +79,15 @@ const WORK_STATES = [
     await facts.getByText("proposal.md:12", { exact: true }).waitFor();
     await facts.getByText("move the export to week 2.").waitFor();
   }],
+  ["Inspector: plan revision", async () => {
+    await page.goto(app.url + "/quality?project=prj_demo");
+    const row = page.getByText('Revision of "Config plan": approve it to plan and run the revision');
+    await row.waitFor();
+    await page.goto(app.url + "/quality?project=prj_demo&inspect=specs:spc_revision");
+    const spec = page.getByRole("dialog");
+    await spec.getByText("This is a revision", { exact: true }).waitFor();
+    await spec.getByRole("button", { name: "Approve, plan and start" }).waitFor();
+  }],
   ["Inspector: PR review", async () => {
     await delivery("exe_review", "Leak check")();
     await page.getByRole("dialog").getByText("Posting is blocked").waitFor();

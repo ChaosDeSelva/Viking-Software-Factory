@@ -15,7 +15,8 @@ import type { R } from "../lib/api";
 /** "mission.pause" → "Pause mission"; unknown actions fall back to their words. */
 export function commandTitle(action: string, body: R = {}): string {
   // Chained controls (one click from a draft) are named for everything they do.
-  if (action === "spec.approve" && body.thenPropose) return "Approve and plan";
+  if (action === "spec.approve" && body.thenPropose)
+    return body.thenStart ? "Approve, plan and start" : "Approve and plan";
   if (action === "plan.approve" && body.thenStart) return "Approve and start";
   if (action === "intake.create" && body.thenDraft)
     return "Save and draft spec";
@@ -34,6 +35,7 @@ export function commandTitle(action: string, body: R = {}): string {
   const known: Record<string, string> = {
     "budget.raise": "Raise budget",
     "execution.create": "Start approved plan",
+    "plan.start": "Start the plan",
     "execution.cancel": "Cancel run",
     "execution.restart": "Restart run",
     "execution.remove": "Remove run",

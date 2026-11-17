@@ -58,6 +58,7 @@ import {
   projectKey,
   runTitle,
   restartBlock,
+  revisionOf,
   sameRepo,
   statusBadge,
   stopReasons,
@@ -1137,15 +1138,25 @@ export function Inspector({
         ...(draft ? { submitFirst: true } : {}),
         ...more,
       });
+    // A revision repeats a kind of plan already approved once: one click plans and runs it.
+    const revision = revisionOf(record, all);
     const actions = [
       kind === "specs"
-        ? {
-            id: "approve-plan",
-            label: "Approve and plan",
-            when: ["draft", "review"],
-            why: approveWhy,
-            run: approval({ thenPropose: true }),
-          }
+        ? revision
+          ? {
+              id: "approve-plan",
+              label: "Approve, plan and start",
+              when: ["draft", "review"],
+              why: approveWhy,
+              run: approval({ thenPropose: true, thenStart: true }),
+            }
+          : {
+              id: "approve-plan",
+              label: "Approve and plan",
+              when: ["draft", "review"],
+              why: approveWhy,
+              run: approval({ thenPropose: true }),
+            }
         : {
             id: "approve-start",
             label: "Approve and start",
@@ -1221,6 +1232,16 @@ export function Inspector({
         <Reasons reasons={[next?.why]} />
       </div>
     );
+    if (revision && ["draft", "review"].includes(record.status))
+      add(
+        "review",
+        <Callout tone="info" title="This is a revision">
+          {`This ${noun} revises "${revision.title}". `}
+          {kind === "specs"
+            ? "Approve, plan and start writes its plan and runs it in one step. The new version comes back to Documents and reviews with a fresh fact-check."
+            : "Approve and start runs it. The new version comes back to Documents and reviews with a fresh fact-check."}
+        </Callout>,
+      );
     if (kind === "specs" && details?.meta?.untrustedInstructionDetected)
       add(
         "review",

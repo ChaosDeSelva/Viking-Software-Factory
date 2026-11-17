@@ -326,3 +326,43 @@ export function restartBlock(status: unknown): string {
       ? "This run finished. Start the plan again to run it anew."
       : "Only a run that stopped can be restarted.";
 }
+
+/**
+ * The earlier run a spec or plan revises (a Revise or follow-up of a delivered document), with
+ * that run's title; null for new work. Sindri links the revision's intake to the earlier run.
+ */
+export function revisionOf(
+  record: R,
+  lists: { specs: R[]; plans?: R[]; intakes: R[]; executions: R[]; deliveries?: R[] },
+): { executionId: string; title: string } | null {
+  const spec = record.intakeId
+    ? record
+    : lists.specs.find((s) => s.id === record.specId);
+  const intake = lists.intakes.find((i) => i.id === spec?.intakeId);
+  const executionId = intake?.linkedExecutionId;
+  if (typeof executionId !== "string" || !executionId) return null;
+  const earlier = lists.executions.find((e) => e.execution?.id === executionId);
+  const planId =
+    earlier?.execution?.planId ??
+    lists.deliveries?.find((d) => d.executionId === executionId)?.planId;
+  const plan = earlier?.plan ?? lists.plans?.find((p) => p.id === planId);
+  const title =
+    lists.specs.find((s) => s.id === plan?.specId)?.title ??
+    "an earlier plan";
+  return { executionId, title: String(title) };
+}
+
+/** What a draft or in-review spec or plan on the Human decisions list waits for. */
+export function decisionDetail(
+  kind: "Specification" | "Plan",
+  record: R,
+  revision: { title: string } | null,
+): string {
+  if (revision)
+    return kind === "Plan"
+      ? `Revision of "${revision.title}": approve and start it to run`
+      : `Revision of "${revision.title}": approve it to plan and run the revision`;
+  return record.status === "review"
+    ? "Submitted for review: approve it to continue"
+    : "Waiting for your approval";
+}

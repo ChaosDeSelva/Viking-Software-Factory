@@ -7,7 +7,7 @@ import { commandRoute } from "../apps/server/commands.mjs";
 
 async function chained(
   t,
-  { proposeFails = false, alreadySubmitted = false } = {},
+  { proposeFails = false, alreadySubmitted = false, start = false } = {},
 ) {
   const sindri = await stub(t, (req, res) => {
     if (req.url === "/v1/approval-session")
@@ -32,6 +32,14 @@ async function chained(
             error: { code: "validation_failed", message: "planner refused" },
           })
         : send(res, 201, { plan: { id: "pln_1", status: "draft" } });
+    if (req.url === "/v1/plans/pln_1/submit")
+      return send(res, 409, {
+        error: { code: "invalid_state", message: "only drafts can be submitted" },
+      });
+    if (req.url === "/v1/plans/pln_1/approve")
+      return send(res, 200, { plan: { id: "pln_1", status: "approved" } });
+    if (req.url === "/v1/executions")
+      return send(res, 201, { execution: { id: "exe_9", status: "running" } });
     send(res, 200, {});
   });
   const { call, operator } = await setup(t, {
@@ -44,7 +52,7 @@ async function chained(
       action: "spec.approve",
       id: "spc_1",
       reason: "Approve the spec",
-      body: { submitFirst: true, thenPropose: true },
+      body: { submitFirst: true, thenPropose: true, ...(start ? { thenStart: true } : {}) },
     },
     { "idempotency-key": "chain-key-0000000001" },
   );
@@ -71,6 +79,28 @@ test("a chained approval submits, approves and proposes, each with the approval 
   assert.deepEqual(JSON.parse(steps[1].body), {});
   assert.equal(json.result.plan.id, "pln_1");
   assert.equal(json.followUp, undefined);
+});
+
+test("a revision's spec is approved, planned and started in one click", async (t) => {
+  const { answer, json, steps } = await chained(t, { start: true });
+  assert.equal(answer.status, 200);
+  assert.deepEqual(
+    steps.map((r) => r.path),
+    [
+      "/v1/specs/spc_1/submit",
+      "/v1/specs/spc_1/approve",
+      "/v1/plans/propose",
+      "/v1/plans/pln_1/submit",
+      "/v1/plans/pln_1/approve",
+      "/v1/executions",
+    ],
+  );
+  assert.ok(steps.every((r) => r.headers["x-sindri-approval"] === "human-secret"));
+  assert.equal(new Set(steps.map((r) => r.headers["idempotency-key"])).size, 6);
+  assert.deepEqual(JSON.parse(steps[5].body), { planId: "pln_1" });
+  // The plan's submit was already done (409): not a failure.
+  assert.equal(json.followUp, undefined);
+  assert.equal(json.result.execution.id, "exe_9");
 });
 
 test("a spec already in review is approved anyway: the submit step is skipped", async (t) => {

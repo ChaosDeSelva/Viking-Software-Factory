@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  decisionDetail,
+  revisionOf,
   latestVersions,
   orderedQuestions,
   statusBadge,
@@ -344,4 +346,29 @@ test("a stopped run says why, task by task, and can be restarted; a finished or 
     assert.equal(restartBlock(s), "");
   assert.match(restartBlock("verified_pending_review"), /finished/);
   assert.match(restartBlock("running"), /Only a run that stopped/);
+});
+
+test("a revision's spec and plan say what they revise; new work says it waits for approval", () => {
+  const lists = {
+    specs: [
+      { id: "spc_old", title: "Config plan" },
+      { id: "spc_new", title: "Config plan, revised", intakeId: "int_rev" },
+      { id: "spc_fresh", title: "New work", intakeId: "int_new" },
+    ],
+    plans: [{ id: "pln_old", specId: "spc_old" }],
+    intakes: [
+      { id: "int_rev", linkedExecutionId: "exe_old" },
+      { id: "int_new" },
+    ],
+    executions: [{ execution: { id: "exe_old", planId: "pln_old" } }],
+  };
+  const rev = revisionOf({ id: "pln_new", specId: "spc_new" }, lists);
+  assert.deepEqual(rev, { executionId: "exe_old", title: "Config plan" });
+  assert.deepEqual(revisionOf(lists.specs[1], lists), rev);
+  assert.equal(revisionOf({ id: "pln_x", specId: "spc_fresh" }, lists), null);
+  assert.equal(
+    decisionDetail("Plan", { status: "draft" }, rev),
+    'Revision of "Config plan": approve and start it to run',
+  );
+  assert.equal(decisionDetail("Plan", { status: "draft" }, null), "Waiting for your approval");
 });

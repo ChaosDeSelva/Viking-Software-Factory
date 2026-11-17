@@ -815,6 +815,20 @@ export function installWorkKinds(source) {
     delivery("exe_plan", "pln_plan"),
   );
   flow.intakes.push({ id: "int_odd", projectId: "prj_demo", title: "Mystery intake", body: "", workKind: "audit" });
+  // A Revise of the plan: its intake links the delivered plan, and its spec waits for approval.
+  flow.plans.find((p) => p.id === "pln_plan").specId = "spc_plan";
+  const spec = (id, status, title, intakeId) => ({
+    id, projectId: "prj_demo", lineageId: "ls_" + id, version: 1, status, title, intakeId,
+    body: { goal: title, acceptanceCriteria: [], openQuestions: [] },
+  });
+  flow.specs.push(
+    spec("spc_plan", "approved", "Config plan", "int_plan"),
+    spec("spc_revision", "draft", "Config plan, revised", "int_revision"),
+  );
+  flow.intakes.push({
+    id: "int_revision", projectId: "prj_demo", title: "Revise: fix the findings", body: "",
+    workKind: "proposal", linkedExecutionId: "exe_plan",
+  });
   source.work = {
     skills: [
       { id: "sk_sec", name: "Security review", description: "Look for injection and secrets" },

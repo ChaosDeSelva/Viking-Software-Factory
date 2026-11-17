@@ -799,21 +799,30 @@ export async function startHeimdall(options = {}) {
           // Then the follow-on step (propose, start, draft). The control is confirmed either
           // way; a failed follow-on is reported with it so the page can say what is left to do.
           let followUp;
-          if (route.then) {
+          const steps = route.then ? [route.then].flat() : [];
+          for (const [i, step] of steps.entries()) {
             try {
-              const next = thenRequest(route.then, c, result);
-              const more = await request(connections[route.source], next.path, {
-                method: "POST",
-                headers: headers(":then"),
-                body: JSON.stringify(next.body),
-                timeoutMs,
-              });
-              result = { ...result, ...more };
+              const next = [thenRequest(step, c, result)].flat();
+              for (const [j, req] of next.entries()) {
+                try {
+                  const more = await request(connections[route.source], req.path, {
+                    method: "POST",
+                    // The first step keeps its old key, so a resend continues the same request.
+                    headers: headers(i === 0 && j === 0 ? ":then" : `:then${i}.${j}`),
+                    body: JSON.stringify(req.body),
+                    timeoutMs,
+                  });
+                  result = { ...result, ...more };
+                } catch (e) {
+                  if (!(req.doneOk && e.status === 409 && e.code === "invalid_state")) throw e;
+                }
+              }
             } catch (e) {
               followUp = {
-                action: route.then,
+                action: step,
                 message: hub.clean(e.message ?? String(e)),
               };
+              break;
             }
           }
           const response = hub.clean({
