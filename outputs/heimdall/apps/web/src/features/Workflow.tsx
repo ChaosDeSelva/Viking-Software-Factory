@@ -348,6 +348,7 @@ export function InProgressPage() {
     specs: recordsOf("specs"),
     plans: recordsOf("plans"),
     deliveries: (sindri.deliveries ?? []).filter(inScope),
+    removed: (sindri.removedExecutions ?? []).filter(inScope),
     executions: (sindri.executions ?? []).filter((e: R) =>
       inScope({ projectId: e.execution?.projectId ?? e.plan?.projectId }),
     ),
@@ -433,7 +434,13 @@ export function InProgressPage() {
                               kind={kindOf(r, sindri.plans ?? [])}
                             />
                           )}
-                          {outcome(list.kind, r) ? (
+                          {list.kind === "plans" &&
+                          !outcome(list.kind, r) &&
+                          (sindri.removedExecutions ?? []).some(
+                            (e: R) => e.planId === r.id,
+                          ) ? (
+                            <Badge tone="neutral">Run removed</Badge>
+                          ) : outcome(list.kind, r) ? (
                             <RunStatus
                               execution={{ id: outcome(list.kind, r)!.executionId }}
                               deliveries={sindri.deliveries ?? []}

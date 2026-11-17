@@ -202,6 +202,7 @@ export function nextStep({
   plans,
   executions,
   deliveries = [],
+  removed = [],
 }: {
   intakes: R[];
   specs: R[];
@@ -209,10 +210,13 @@ export function nextStep({
   executions: R[];
   /** Sindri's delivery rows: a plan with one has run, even when its run is not listed. */
   deliveries?: R[];
+  /** Removed runs: their plan ran, and is not to be started again from here. */
+  removed?: R[];
 }): NextStep | null {
   const runOf = (plan: R) =>
     executions.find((e) => e.execution?.planId === plan.id) ??
-    deliveries.find((d) => d.planId === plan.id);
+    deliveries.find((d) => d.planId === plan.id) ??
+    removed.find((e) => e.planId === plan.id);
   const status = (e: R) => String(e.execution?.status ?? "");
   const NEEDS_YOU = [
     "awaiting_human",

@@ -1042,3 +1042,15 @@ test("uploaded files route to Sindri, and chosen ones travel as contextFileIds",
   });
   assert.deepEqual(contextFromQuery("?context=file:cf_1"), ["file:cf_1"]);
 });
+
+test("a plan whose run was removed is not offered to start again", async () => {
+  const { nextStep } = await import("../apps/web/src/features/workflowState.ts");
+  const lists = {
+    intakes: [{ id: "int_1" }],
+    specs: [{ id: "spc_1", intakeId: "int_1", status: "approved" }],
+    plans: [{ id: "pln_1", specId: "spc_1", status: "approved" }],
+    executions: [],
+  };
+  assert.match(nextStep(lists)?.text ?? "", /Start approved plan/);
+  assert.equal(nextStep({ ...lists, removed: [{ id: "exe_1", planId: "pln_1" }] }), null);
+});
