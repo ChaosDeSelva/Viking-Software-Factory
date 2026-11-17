@@ -1436,8 +1436,10 @@ export function Inspector({
         <p className="text-sm text-muted">
           {stopped
             ? "Restart runs it again from where it stopped: completed tasks are kept, the rest get fresh attempts."
-            : cancelWhy ||
-              "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
+            : ended
+              ? null
+              : cancelWhy ||
+                "Cancelling stops the run for good and cancels its mission. The reason you give is recorded with the run."}
         </p>
         {ended && (
           <p className="text-sm text-muted">
