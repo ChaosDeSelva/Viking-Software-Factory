@@ -45,8 +45,6 @@ npm run preview:site
 
 Open **http://127.0.0.1:4381**. See [GitHub Pages setup](docs/GITHUB-PAGES.md) for publication. The project site is https://chaosdeselva.github.io/Skidbladnir/.
 
-The supplied moonlit Skidbladnir illustration is used in this README and on the site. Its original [art direction prompt](docs/BANNER-PROMPT.md) is retained for reference.
-
 ## Architecture
 
 ```text
