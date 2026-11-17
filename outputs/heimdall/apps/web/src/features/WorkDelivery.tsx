@@ -449,13 +449,10 @@ export function ProposalView({
   const access = actionBlock("research.accept", undefined, session);
   const decided = decision ? `This plan was already ${decision.decision}.` : "";
   const rejectWhy = access || decided;
+  // Only the fact-check's opinion failed: the operator may accept over it, with a reason.
   const acceptWhy =
     rejectWhy ||
-    (changesOnly
-      ? "The fact-check asked for changes. Revise the plan above (its fact-check runs again), or reject it."
-      : checksFailed
-        ? "The quality checks have not passed."
-        : "");
+    (checksFailed && !changesOnly ? "The quality checks have not passed." : "");
   const reviseWhy =
     actionBlock("research.followUp", undefined, session) ||
     (feedback.trim() ? "" : "Say what to change first.");
@@ -511,7 +508,11 @@ export function ProposalView({
             <Badge
               tone={decision.decision === "accepted" ? "forest" : "danger"}
             >
-              {decision.decision === "accepted" ? "Accepted" : "Rejected"}
+              {decision.decision === "accepted"
+                ? decision.overrodeFactCheck
+                  ? "Accepted over the fact-check"
+                  : "Accepted"
+                : "Rejected"}
             </Badge>
           ) : (
             <Badge tone="warning">Awaiting your decision</Badge>
@@ -566,10 +567,11 @@ export function ProposalView({
                     propose("research.accept", executionId, {
                       reason: "",
                       document: "plan",
+                      ...(changesOnly ? { override: true } : {}),
                     })
                   }
                 >
-                  Accept plan
+                  {changesOnly ? "Accept over the fact-check" : "Accept plan"}
                 </Button>
                 <Button
                   variant="danger"
@@ -585,15 +587,22 @@ export function ProposalView({
                 </Button>
               </div>
               <Reasons reasons={[acceptWhy, rejectWhy]} />
+              {changesOnly && !acceptWhy && (
+                <p className="text-sm text-muted">
+                  The fact-check asked for changes. Revise the plan above (its
+                  fact-check runs again), or accept it as it is: your reason is
+                  recorded with the decision.
+                </p>
+              )}
             </>
           )}
         </DrawerActions>
         {changesOnly && !decision && (
           <Callout tone="warning" title="The fact-check asked for changes">
             {findingCounts(plan.factCheck?.findings) || "See its findings"}.
-            Read them in the Fact-check tab below, then revise the plan here:
-            the writer gets every finding, and the fact-check runs again on the
-            new version.
+            Read them in the Fact-check tab below. Revise the plan here (the
+            writer gets every finding, and the fact-check runs again), or accept
+            it over the fact-check with your reason.
           </Callout>
         )}
         <Disclosure

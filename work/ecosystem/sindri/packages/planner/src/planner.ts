@@ -104,7 +104,7 @@ export const PR_REVIEW_ROLES: readonly Role[] = ["reviewer", "security"];
  * redacted again and long text is cut. `nonce` keys the brief's data delimiters.
  */
 /** An earlier run's fact-check as its delivery report keeps it. */
-interface EarlierFactCheck {
+export interface EarlierFactCheck {
   verdict?: unknown;
   findings?: unknown;
 }
@@ -124,7 +124,19 @@ function factCheckSection(factCheck: EarlierFactCheck | undefined): string {
       string | undefined;
     return `- ${typeof x.severity === "string" ? `[${x.severity}] ` : ""}${text ?? JSON.stringify(f)}`;
   });
-  return `\n\n## Fact-check of this document (verdict: ${factCheck.verdict})\n${lines.join("\n")}`;
+  return `\n\n## Fact-check of the earlier document (verdict: ${factCheck.verdict})\n${lines.join("\n")}`;
+}
+
+/**
+ * An earlier document for a follow-up or revision, its fact-check first: a long plan and appendix
+ * are cut at the size limit, and a revision that lost the findings could not fix them.
+ */
+export function revisionContext(markdown: string, factCheck?: EarlierFactCheck): string {
+  const section = factCheckSection(factCheck).trim();
+  const text = redactSecrets(section ? `${section}\n\n---\n\n${markdown}` : markdown).text;
+  return text.length > MAX_FOLLOW_UP_CONTEXT_CHARS
+    ? text.slice(0, MAX_FOLLOW_UP_CONTEXT_CHARS) + CONTEXT_TRUNCATED_MARKER
+    : text;
 }
 
 /**
@@ -537,15 +549,7 @@ export function openPlanner(pathOrDb: string | SqliteDatabase, options: OpenPlan
       markdown = undefined;
     }
     if (typeof markdown !== "string" || !markdown) return null;
-    // The fact-check's findings travel with the document, so a follow-up can act on them.
-    const text = redactSecrets(markdown + factCheckSection(factCheck)).text;
-    return {
-      executionId,
-      document:
-        text.length > MAX_FOLLOW_UP_CONTEXT_CHARS
-          ? text.slice(0, MAX_FOLLOW_UP_CONTEXT_CHARS) + CONTEXT_TRUNCATED_MARKER
-          : text,
-    };
+    return { executionId, document: revisionContext(markdown, factCheck) };
   };
 
   const loadWork = (specId: string) => {

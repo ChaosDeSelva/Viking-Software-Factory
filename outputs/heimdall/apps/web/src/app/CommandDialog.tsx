@@ -19,6 +19,10 @@ export function commandTitle(action: string, body: R = {}): string {
   if (action === "plan.approve" && body.thenStart) return "Approve and start";
   if (action === "intake.create" && body.thenDraft)
     return "Save and draft spec";
+  if (action === "research.accept" && body.override)
+    return body.document === "plan"
+      ? "Accept plan over the fact-check"
+      : "Accept over the fact-check";
   if (body.document === "plan") {
     const plan: Record<string, string> = {
       "research.accept": "Accept plan",

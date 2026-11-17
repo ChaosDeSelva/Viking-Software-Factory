@@ -69,7 +69,7 @@ const findingsStep = (what: string) => [
   },
 ];
 
-async function approvedProposalPlan(flow: MimirFlow) {
+async function approvedProposalPlan(flow: MimirFlow, factCheck = false) {
   const repo = mkdtempSync(join(tmpdir(), "sindri-docs-site-"));
   const docs = (
     await flow.h.call({
@@ -87,7 +87,7 @@ async function approvedProposalPlan(flow: MimirFlow) {
         title: "Plan from the call",
         body: "We talked about the reports page and the docs-site.",
         workKind: "proposal",
-        proposal: { referenceProjectIds: [docs], factCheck: false },
+        proposal: { referenceProjectIds: [docs], factCheck },
       },
     })
   ).json().intake;
@@ -271,6 +271,73 @@ describe("proposal runs", () => {
     const writer = gates.find((g) => g.planTaskId === "proposal")!;
     expect(writer.passed).toBe(false);
     expect(writer.failures.map((x) => x.reason)).toContain("too_few_diagrams:0");
+    // A broken document is never accepted, even over the checks with a reason.
+    const accept = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/accept`,
+      payload: { override: true, reason: "Looks fine to me" },
+      headers: await flow.h.approvalHeaders(),
+    });
+    expect(accept.statusCode).toBe(409);
+    expect(accept.json().error.message).toContain("quality gates have not passed for: proposal");
+  });
+
+  it("accepts over a fact-check that only asked for changes, with a reason it records", async () => {
+    const review = {
+      verdict: "request_changes",
+      findings: [{ severity: "major", message: "Week 1 does not fit." }],
+      acceptance: [],
+      decisions: [],
+    };
+    const flow = (f = await startMimirFlow(
+      {
+        research: findingsStep("The app"),
+        "research-docs-site": findingsStep("The docs site"),
+        proposal: [
+          {
+            kind: "complete",
+            artifacts: ["report@proposal.md", "file@engineering.md", "file@sources.json"],
+            contents: {
+              "report@proposal.md": PROPOSAL,
+              "file@engineering.md": ENGINEERING,
+              "file@sources.json": SOURCES,
+            },
+          },
+        ],
+        "fact-check": [
+          {
+            kind: "complete",
+            artifacts: ["review@review.json"],
+            contents: { "review@review.json": JSON.stringify(review) },
+          },
+        ],
+      },
+      TRUST_FAKE,
+    ));
+    const plan = await approvedProposalPlan(flow, true);
+    expect(plan.tasks.map((t) => t.id)).toContain("fact-check");
+    const { execution } = await run(flow, plan.id, 4);
+    const accept = (payload: Record<string, unknown>) =>
+      flow.h.approvalHeaders().then((headers) =>
+        flow.h.call({
+          method: "POST",
+          url: `/v1/executions/${execution.id}/accept`,
+          payload,
+          headers,
+        }),
+      );
+    // Without the override the request for changes blocks; the override needs a reason.
+    expect((await accept({})).json().error.message).toBe(
+      "quality gates have not passed for: fact-check",
+    );
+    expect((await accept({ override: true })).statusCode).toBe(422);
+    const ok = await accept({ override: true, reason: "Week 1 is our call; we cut it on Monday" });
+    expect(JSON.stringify(ok.json().error ?? null)).toBe("null");
+    expect(ok.json().report.proposal.decision).toMatchObject({
+      decision: "accepted",
+      reason: "Week 1 is our call; we cut it on Monday",
+      overrodeFactCheck: "fact-check",
+    });
   });
 
   it("restarts a run whose writer stopped, from where it stopped: research is not run again", async () => {

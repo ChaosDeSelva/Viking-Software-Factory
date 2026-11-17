@@ -396,6 +396,15 @@ test("research decisions, follow-ups and PR imports route to Sindri with the app
     ["sindri", "/v1/executions/exe_1/accept", true, { reason: "looks right" }],
   );
   assert.deepEqual(route("research.accept", { reason: "" }).body, {});
+  // Accepting over the fact-check forwards the override, and only with a reason.
+  assert.deepEqual(
+    route("research.accept", { reason: "Our call", override: true, document: "plan" }).body,
+    { reason: "Our call", override: true },
+  );
+  assert.throws(
+    () => route("research.accept", { reason: " ", override: true }),
+    /why you accept over the fact-check/,
+  );
   assert.deepEqual(
     route("research.reject", { reason: "Wrong module", extra: 1 }).body,
     { reason: "Wrong module" },

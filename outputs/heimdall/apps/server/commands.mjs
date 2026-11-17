@@ -259,14 +259,18 @@ export function commandRoute(c) {
     source = "sindri";
     path = `/v1/deliveries/${id}/rework`;
   } else if (["research.accept", "research.reject"].includes(c.action)) {
-    // Only the dialog's audit reason is forwarded, as the decision's reason.
+    // Only the dialog's audit reason is forwarded, as the decision's reason (and an override).
     source = "sindri";
     path = `/v1/executions/${id}/${c.action.split(".")[1]}`;
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     if (c.action === "research.reject" && !reason)
       throw Error("A rejection reason is required");
+    // Accepting over a fact-check that only asked for changes; Sindri requires the reason.
+    const override = c.action === "research.accept" && body.override === true;
+    if (override && !reason) throw Error("Say why you accept over the fact-check");
     for (const key of Object.keys(body)) delete body[key];
     if (reason) body.reason = text(reason, "A reason", 2000);
+    if (override) body.override = true;
   } else if (c.action === "research.followUp") {
     source = "sindri";
     path = `/v1/executions/${id}/follow-up`;

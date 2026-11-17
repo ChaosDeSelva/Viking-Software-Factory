@@ -407,7 +407,7 @@ function proposalBrief(plan: Plan, task: PlanTask): string[] {
       `Read every project's findings: ${inputs.join("; ")}. They are your only evidence about the code; do not invent facts they do not contain.`,
       ...(work.context
         ? [
-            "This is a revision. The text above starts with what to change. Below are the earlier proposal and its appendix (and any fact-check findings): keep what still holds, apply the requested changes, fix what the fact-check found, and rewrite both documents in full.",
+            "This is a revision. The text above starts with what to change. Below are the earlier fact-check's findings (when it had one), then the earlier proposal and its appendix: keep what still holds, apply the requested changes, and rewrite both documents in full. Fix every major finding. Where a finding is a judgement call, decide it and say in the proposal what you decided and why.",
             JSON.stringify(work.context.document),
           ]
         : []),
@@ -424,14 +424,27 @@ function proposalBrief(plan: Plan, task: PlanTask): string[] {
   }
   const writer = plan.tasks.find((t) => t.id === "proposal");
   const dir = writer ? inputDirFor(plan, writer) : ".mimir/inputs/proposal";
+  const earlier = earlierFindings(work.context?.document);
   return [
     `Check the proposal and its appendix: ${dir}/${PROPOSAL_DOCUMENT}, ${dir}/${ENGINEERING_DOCUMENT} and ${dir}/${RESEARCH_SOURCES}. If they are missing, use request_changes with a blocking finding that says so.`,
     ...pastedText(work.text),
     "Check at least eight claims of the appendix against the files they cite (open the cited lines; another project's files are under the paths its research named). Then check that the proposal claims nothing not supported by the appendix, that its tickets and weeks cover the text's asks, that week 1 is realistic for its demo, and that Ticket 0 is a spike with objectives. Report each problem as a finding with the section or citation in the message.",
     REVIEW_JSON_CONTRACT,
     NO_INSTALL,
-    "Use request_changes when the proposal depends on an unsupported claim. Do not modify, create or delete any file outside .mimir/artifacts/.",
+    ...(earlier
+      ? [
+          "This plan revises an earlier one. The earlier fact-check's findings follow: check that each was fixed, or answered in the proposal with a stated decision. A judgement call the writer decided and explained is not grounds to request changes again.",
+          JSON.stringify(earlier),
+        ]
+      : []),
+    "Use request_changes only for a major, critical or blocking finding: a claim the plan depends on that is unsupported or wrong, an ask from the text that no ticket covers, or a week-1 demo that cannot be built as planned. Judgement calls, wording and small inconsistencies are minor or info findings, and the verdict stays approve. Do not modify, create or delete any file outside .mimir/artifacts/.",
   ];
+}
+
+/** The earlier fact-check's findings from a revision's context, which puts them first. */
+function earlierFindings(document: string | undefined): string | null {
+  if (!document?.startsWith("## Fact-check of the earlier document")) return null;
+  return document.split("\n\n---\n\n")[0] ?? null;
 }
 
 /** `shell` crews run the instruction with `sh -c`, so it must be the bare command. */

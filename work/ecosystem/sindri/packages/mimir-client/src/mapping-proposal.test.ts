@@ -102,6 +102,23 @@ describe("proposal plans", () => {
     expect(check).toContain(".mimir/artifacts/review.json");
   });
 
+  it("on a revision, has the fact-check check the earlier findings and not re-ask judgement calls", () => {
+    const first = briefOf(proposal(), "fact-check");
+    expect(first).toMatch(/request_changes only for a major, critical or blocking finding/);
+    expect(first).not.toContain("revises an earlier one");
+    const revised = proposal();
+    revised.work!.proposal!.context = {
+      executionId: "exe_old",
+      document:
+        "## Fact-check of the earlier document (verdict: request_changes)\n- [major] Week 1 does not fit.\n\n---\n\n# Plan\nBODY-OF-EARLIER-PLAN",
+    };
+    const check = briefOf(revised, "fact-check");
+    expect(check).toContain("revises an earlier one");
+    expect(check).toContain("Week 1 does not fit.");
+    // Only the findings: the earlier plan itself is not the fact-check's to read.
+    expect(check).not.toContain("BODY-OF-EARLIER-PLAN");
+  });
+
   it("tells the resolver the kind of work, so a plan's writer can run on the planning agent", () => {
     const asked: [string, string | undefined][] = [];
     mapPlan(proposal(), {

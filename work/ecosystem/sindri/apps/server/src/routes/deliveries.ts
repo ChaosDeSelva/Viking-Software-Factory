@@ -39,7 +39,16 @@ async function withMimir<T>(call: () => Promise<T>): Promise<T> {
 
 const ProjectQuery = z.object({ projectId: z.string().min(1) });
 const Rework = z.strictObject({ feedback: z.string().trim().min(1).max(20_000) });
-const Accept = z.strictObject({ reason: z.string().trim().min(1).max(2000).optional() });
+const Accept = z
+  .strictObject({
+    reason: z.string().trim().min(1).max(2000).optional(),
+    // Accept over a fact-check that only asked for changes; the reason is then required.
+    override: z.boolean().optional(),
+  })
+  .refine((b) => !b.override || b.reason, {
+    message: "accepting over the fact-check needs a reason",
+    path: ["reason"],
+  });
 const Reject = z.strictObject({ reason: z.string().trim().min(1).max(2000) });
 // The research question a plan carries is at most 8000 characters (MAX_RESEARCH_QUESTION_CHARS).
 const FollowUp = z.strictObject({ question: z.string().trim().min(1).max(8000) });
@@ -397,6 +406,7 @@ export function deliveryRoutes(
         decision: "accepted",
         actor,
         ...(body.reason ? { reason: body.reason } : {}),
+        ...(body.override ? { override: true } : {}),
       }),
     );
     req.log.info({ executionId: execution.id, actor }, "research document accepted");

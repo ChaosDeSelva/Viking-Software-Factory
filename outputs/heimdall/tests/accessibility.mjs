@@ -69,6 +69,9 @@ const WORK_STATES = [
     await plan.getByText(/1 major · 1 minor/).first().waitFor();
     await plan.getByLabel("What to change").waitFor();
     assert.equal(await plan.getByRole("button", { name: "Re-run quality checks" }).count(), 0);
+    // The way out of a fact-check that keeps asking: accept over it, with a reason.
+    assert.equal(await plan.getByRole("button", { name: "Accept over the fact-check" }).count(), 1);
+    assert.equal(await plan.getByRole("button", { name: "Accept plan" }).count(), 0);
     await plan.getByRole("tab", { name: /Fact-check/ }).click();
     const facts = plan.getByRole("list", { name: "Fact-check findings" });
     await facts.getByText("The Sources list skips [2]").waitFor();

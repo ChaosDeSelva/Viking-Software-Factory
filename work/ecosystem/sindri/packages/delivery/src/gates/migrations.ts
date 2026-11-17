@@ -303,4 +303,9 @@ export const QUALITY_MIGRATIONS: readonly string[] = [
   ALTER TABLE review_posts_v6 RENAME TO review_posts;
   CREATE INDEX review_posts_project ON review_posts(project_id);
   `,
+  // v7: a document accepted over its fact-check's request for changes says so, with the findings
+  // it was accepted with (the reason is the operator's).
+  `
+  ALTER TABLE document_decisions ADD COLUMN overrode_fact_check TEXT;
+  `,
 ];

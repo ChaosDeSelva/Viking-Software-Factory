@@ -263,6 +263,8 @@ export interface ResearchReport {
     actor: string;
     reason: string | null;
     decidedAt: string;
+    /** The plan tasks whose request for changes this acceptance overrode. */
+    overrodeFactCheck?: string;
   } | null;
 }
 
@@ -623,23 +625,36 @@ export class DeliveryReports {
   decision(executionId: string): ResearchReport["decision"] {
     const r = this.#db
       .prepare(
-        "SELECT decision, actor, reason, decided_at FROM document_decisions WHERE execution_id = ?",
+        "SELECT decision, actor, reason, decided_at, overrode_fact_check FROM document_decisions WHERE execution_id = ?",
       )
       .get(executionId) as
-      | { decision: DocumentDecision; actor: string; reason: string | null; decided_at: string }
+      | {
+          decision: DocumentDecision;
+          actor: string;
+          reason: string | null;
+          decided_at: string;
+          overrode_fact_check: string | null;
+        }
       | undefined;
     return r
-      ? { decision: r.decision, actor: r.actor, reason: r.reason, decidedAt: r.decided_at }
+      ? {
+          decision: r.decision,
+          actor: r.actor,
+          reason: r.reason,
+          decidedAt: r.decided_at,
+          ...(r.overrode_fact_check ? { overrodeFactCheck: r.overrode_fact_check } : {}),
+        }
       : null;
   }
 
   /**
    * Ends a document delivery with a human decision. Accepting needs every quality gate passed;
-   * a decision is final.
+   * `override` accepts over a fact-check that only asked for changes (with a reason), never
+   * over a document that failed its own checks. A decision is final.
    */
   async decide(
     executionId: string,
-    input: { decision: DocumentDecision; actor: string; reason?: string },
+    input: { decision: DocumentDecision; actor: string; reason?: string; override?: boolean },
   ): Promise<DeliveryReport> {
     const execution = await this.#o.executions.execution(executionId);
     if (!execution)
@@ -652,22 +667,37 @@ export class DeliveryReports {
         decision: this.decision(executionId),
       });
     if (this.decision(executionId)) throw decided();
+    let overrode: string | null = null;
     if (input.decision === "accepted") {
       const blocked = execution.plan.tasks.filter(
         (t) => this.#o.gates.latest(executionId, t.id)?.passed !== true,
       );
-      if (blocked.length > 0)
+      const opinionOnly = (t: { id: string }) => {
+        const failures = this.#o.gates.latest(executionId, t.id)?.failures ?? [];
+        return (
+          failures.length > 0 &&
+          failures.every((f) => f.reason.split(":")[0] === "review_request_changes")
+        );
+      };
+      if (blocked.length > 0 && !(input.override && blocked.every(opinionOnly)))
         throw new DeliveryError(
           "gates_not_passed",
           `quality gates have not passed for: ${blocked.map((t) => t.id).join(", ")}`,
         );
+      if (blocked.length > 0 && !input.reason?.trim())
+        throw new DeliveryError(
+          "gates_not_passed",
+          "accepting over the fact-check's request for changes needs a reason",
+        );
+      if (blocked.length > 0) overrode = blocked.map((t) => t.id).join(", ");
     }
     const report = this.latestFor(executionId) ?? (await this.build(executionId));
     // The insert is the check: a decision that arrived while this one awaited the report wins.
     const inserted = this.#db
       .prepare(
         `INSERT INTO document_decisions (execution_id, project_id, delivery_id, decision, actor,
-           reason, decided_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(execution_id) DO NOTHING`,
+           reason, decided_at, overrode_fact_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(execution_id) DO NOTHING`,
       )
       .run(
         executionId,
@@ -677,6 +707,7 @@ export class DeliveryReports {
         input.actor,
         input.reason ?? null,
         this.#now().toISOString(),
+        overrode,
       );
     if (inserted.changes === 0) throw decided();
     return this.#withDecision(report);
