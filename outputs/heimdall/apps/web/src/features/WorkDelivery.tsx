@@ -27,6 +27,7 @@ import type { R } from "../lib/api";
 import { sindriDeliveryHref } from "../lib/apps";
 import { useDetail, WorkKindBadge } from "./WorkForms";
 import { renderDiagrams } from "../components/Mermaid";
+import { FactCheckList } from "./FactCheckList";
 import {
   docSources,
   findingCounts,
@@ -386,7 +387,7 @@ export function ResearchView({
         />
         <Failures failures={research.gate?.failures} />
         {research.factCheck && (
-          <FindingsTable
+          <FactCheckList
             findings={factFindings}
             caption="Fact-check findings"
             emptyText="The fact-check found nothing to correct."
@@ -675,7 +676,7 @@ export function ProposalView({
                   label: "Fact-check",
                   count: factFindings.length,
                   content: (
-                    <FindingsTable
+                    <FactCheckList
                       findings={factFindings}
                       caption="Fact-check findings"
                       emptyText="The fact-check found nothing to correct."

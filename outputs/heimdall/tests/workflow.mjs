@@ -824,7 +824,7 @@ try {
   await inspector.getByText("Contains private lessons").waitFor();
   await researchDoc.getByText("Rounding happens per line").waitFor();
   await researchDoc.getByText("Never use floats for money").waitFor();
-  await inspector.getByRole("table", { name: "Fact-check findings" }).getByText("Line 4 rounds, not line 5").waitFor();
+  await inspector.getByRole("list", { name: "Fact-check findings" }).getByText("Line 4 rounds, not line 5").waitFor();
   await inspector.getByRole("region", { name: "Guidance used" }).getByText("Security review").waitFor();
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: app.url });
   await inspector.getByRole("button", { name: "Copy as Markdown" }).click();

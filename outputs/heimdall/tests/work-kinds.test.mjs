@@ -8,6 +8,8 @@ import { listedWork } from "../apps/server/connectors.mjs";
 import { workDetail } from "../apps/server/main.mjs";
 import {
   docSources,
+  findingParts,
+  shortLocation,
   kindBadge,
   kindOf,
   leakCheckOf,
@@ -912,4 +914,18 @@ test("a fact-check that asked for changes is not shown as a failed check", () =>
   assert.equal(findingCounts(undefined), "");
   // The badge value has a label of its own in the shared vocabulary.
   assert.ok(JSON.stringify(statuses).includes("request_changes"));
+});
+
+test("a fact-check finding's fix reads apart, and its location drops the run's input folders", () => {
+  assert.deepEqual(findingParts("Week 1 is too big. Fix: move the export to week 2."), {
+    problem: "Week 1 is too big.",
+    fix: "move the export to week 2.",
+  });
+  assert.deepEqual(findingParts("No fix here."), { problem: "No fix here.", fix: null });
+  assert.deepEqual(shortLocation({ file: ".mimir/inputs/proposal/proposal.md", line: 3 }), {
+    short: "proposal.md:3",
+    full: ".mimir/inputs/proposal/proposal.md:3",
+  });
+  assert.equal(shortLocation({ file: "a.md", placement: "general" }), null);
+  assert.equal(shortLocation({}), null);
 });

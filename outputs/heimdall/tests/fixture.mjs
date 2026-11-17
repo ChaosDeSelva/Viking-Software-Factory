@@ -947,7 +947,7 @@ export function installWorkKinds(source) {
             planTaskId: "fact-check",
             verdict: "request_changes",
             findings: [
-              { id: "fc1", severity: "major", message: "Week 1 does not fit the spike and the export" },
+              { id: "fc1", severity: "major", file: ".mimir/inputs/proposal/proposal.md", line: 12, message: "Week 1 does not fit the spike and the `export` step. Fix: move the export to week 2." },
               { id: "fc2", severity: "minor", message: "The Sources list skips [2]" },
             ],
             reviewArtifactId: null,

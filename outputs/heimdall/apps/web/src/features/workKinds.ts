@@ -576,3 +576,24 @@ export function planBody(f: PlanInput): R {
     ...guidance(f.notes, f.skillIds),
   };
 }
+
+/** A finding's problem and its "Fix:" (when it ends with one), so the fix reads apart. */
+export function findingParts(message: string): { problem: string; fix: string | null } {
+  const m = /^([\s\S]*?\S)\s*\bFix:\s*([\s\S]+)$/.exec(message.trim());
+  return m ? { problem: m[1]!, fix: m[2]!.trim() } : { problem: message.trim(), fix: null };
+}
+
+/**
+ * Where a finding points, short enough for a chip: the file name and line, without the run's
+ * `.mimir/inputs/...` folders. `full` keeps the whole path for a tooltip.
+ */
+export function shortLocation(f: {
+  file?: string | undefined;
+  line?: number | undefined;
+  placement?: string | undefined;
+}): { short: string; full: string } | null {
+  if (f.placement === "general" || !f.file) return null;
+  const line = f.line != null ? `:${f.line}` : "";
+  const name = f.file.split("/").filter(Boolean).pop() ?? f.file;
+  return { short: `${name}${line}`, full: `${f.file}${line}` };
+}

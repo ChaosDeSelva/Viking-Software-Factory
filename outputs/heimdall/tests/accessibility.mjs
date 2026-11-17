@@ -70,7 +70,11 @@ const WORK_STATES = [
     await plan.getByLabel("What to change").waitFor();
     assert.equal(await plan.getByRole("button", { name: "Re-run quality checks" }).count(), 0);
     await plan.getByRole("tab", { name: /Fact-check/ }).click();
-    await plan.getByRole("table", { name: "Fact-check findings" }).getByText("The Sources list skips [2]").waitFor();
+    const facts = plan.getByRole("list", { name: "Fact-check findings" });
+    await facts.getByText("The Sources list skips [2]").waitFor();
+    // The run's input folders are dropped from the location, and the fix reads apart.
+    await facts.getByText("proposal.md:12", { exact: true }).waitFor();
+    await facts.getByText("move the export to week 2.").waitFor();
   }],
   ["Inspector: PR review", async () => {
     await delivery("exe_review", "Leak check")();
