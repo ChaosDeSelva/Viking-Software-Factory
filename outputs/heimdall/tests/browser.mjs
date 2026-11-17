@@ -173,6 +173,12 @@ try {
 
   console.log("Execution graph");
   await nav("Execution graph");
+  // Graphs start collapsed; opening one shows its nodes.
+  assert.equal(await page.locator(".graph-node").count(), 0);
+  const showAll = async () => {
+    for (const b of await page.getByRole("button", { name: "Show graph" }).all()) await b.click();
+  };
+  await showAll();
   const graphNode = page.locator(".graph-node").filter({ hasText: "Implement integer-cent totals" });
   await graphNode.focus();
   await page.keyboard.press("Alt+ArrowRight");
@@ -180,6 +186,7 @@ try {
   await until(() => app.store.preferences().graphs?.msn_demo?.tsk_demo?.x === 50, "the saved layout");
   await page.reload();
   await h1("Execution graph").waitFor();
+  await showAll();
   assert.equal(await graphNode.evaluate((e) => e.style.left), "50px");
   await graphNode.dispatchEvent("click");
   await inspector.getByRole("heading", { name: "Task objective" }).waitFor();

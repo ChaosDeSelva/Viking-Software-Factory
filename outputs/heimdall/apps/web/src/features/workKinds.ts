@@ -658,3 +658,44 @@ export function contextFromQuery(search: string): string[] {
 /** The request field for chosen context documents; nothing when none are chosen. */
 export const contextField = (ids: string[]): R =>
   ids.length ? { contextExecutionIds: ids.slice(0, MAX_CONTEXT_DOCUMENTS) } : {};
+
+/** A finished piece of work for Overview's Results: what it was, how it ended, and when. */
+export interface Result {
+  executionId: string;
+  kind: string;
+  title: string | null;
+  outcome: string;
+  tone: "forest" | "info" | "neutral";
+  at: string | null;
+}
+
+/**
+ * Finished work, newest first: accepted plans and research, changes delivered (a PR opened or
+ * merged) and posted PR reviews. Rejected, replaced and undecided work is not a result.
+ */
+export function results(deliveries: R[]): Result[] {
+  const out: Result[] = [];
+  for (const d of deliveries) {
+    const w: (WorkSummary & { postedAt?: string }) | null = d.work ?? null;
+    const executionId = String(d.executionId ?? d.id);
+    const kind = String(w?.kind ?? d.workKind ?? "change");
+    const at = (w?.decidedAt ?? d.updatedAt ?? d.createdAt ?? null) as string | null;
+    const title = w?.title ?? null;
+    if ((kind === "proposal" || kind === "research") && w?.decision === "accepted")
+      out.push({
+        executionId,
+        kind,
+        title,
+        outcome: kind === "proposal" ? "Plan accepted" : "Research accepted",
+        tone: "forest",
+        at,
+      });
+    else if (kind === "pr_review" && w?.posted)
+      out.push({ executionId, kind, title, outcome: "Review posted", tone: "info", at });
+    else if (kind === "change" && d.status === "delivered")
+      out.push({ executionId, kind, title, outcome: "Merged", tone: "forest", at });
+    else if (kind === "change" && d.status === "delivered_pending_merge")
+      out.push({ executionId, kind, title, outcome: "PR opened", tone: "info", at });
+  }
+  return out.sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")));
+}

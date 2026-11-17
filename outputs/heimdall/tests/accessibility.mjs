@@ -105,6 +105,13 @@ const WORK_STATES = [
     await page.waitForTimeout(500);
     assert.equal(await docs.getByText("Replaced config plan").count(), 0);
   }],
+  ["Overview: results", async () => {
+    await page.goto(app.url + "/?project=prj_demo");
+    const list = page.getByRole("list", { name: "Results" });
+    await list.getByText("Accepted config plan").waitFor();
+    assert.match(await list.innerText(), /Plan accepted/);
+    assert.equal(await list.getByText("Replaced config plan").count(), 0);
+  }],
   ["Inspector: plan revision", async () => {
     await page.goto(app.url + "/quality?project=prj_demo");
     const row = page.getByText('Revision of "Config plan": approve it to plan and run the revision');

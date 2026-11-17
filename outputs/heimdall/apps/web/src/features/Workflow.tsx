@@ -42,10 +42,12 @@ import {
   latestVersions,
   nextStep,
   planTitle,
+  recordOutcome,
   sameRepo,
   specRevision,
   statusBadge,
 } from "./workflowState";
+import { RunStatus } from "./RunStatus";
 
 const STEPS = [
   { id: "connect", label: "Connect a project" },
@@ -350,6 +352,13 @@ export function InProgressPage() {
       inScope({ projectId: e.execution?.projectId ?? e.plan?.projectId }),
     ),
   });
+  // A record whose work ended in a decided plan or research shows that, not "approved".
+  const outcome = (kind: string, r: R) =>
+    recordOutcome(kind, r, {
+      specs: sindri.specs ?? [],
+      plans: sindri.plans ?? [],
+      deliveries: sindri.deliveries ?? [],
+    });
   return (
     <Page>
       <PageHeader
@@ -424,7 +433,12 @@ export function InProgressPage() {
                               kind={kindOf(r, sindri.plans ?? [])}
                             />
                           )}
-                          {list.kind === "intakes" ? (
+                          {outcome(list.kind, r) ? (
+                            <RunStatus
+                              execution={{ id: outcome(list.kind, r)!.executionId }}
+                              deliveries={sindri.deliveries ?? []}
+                            />
+                          ) : list.kind === "intakes" ? (
                             <IntakeStatus
                               row={r}
                               specs={sindri.specs ?? []}

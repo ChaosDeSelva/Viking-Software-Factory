@@ -1,3 +1,4 @@
+import { documentDecision } from "./workKinds.ts";
 // Pure view logic for specifications, plans, deliveries and projects. Sindri and Mimir stay authoritative.
 type R = Record<string, any>;
 
@@ -219,7 +220,12 @@ export function nextStep({
     "blocked",
     "replan_requested",
   ];
-  if (executions.some((e) => NEEDS_YOU.includes(status(e))))
+  // A delivered plan or research someone decided on (or replaced) needs nobody, though its run
+  // stays verified_pending_review.
+  const needsYou = (e: R) =>
+    NEEDS_YOU.includes(status(e)) &&
+    !documentDecision(deliveries, String(e.execution?.id ?? ""));
+  if (executions.some(needsYou))
     return {
       text: "A run needs you. Review it in Quality & approvals.",
       page: "quality-approvals",
@@ -365,4 +371,30 @@ export function decisionDetail(
   return record.status === "review"
     ? "Submitted for review: approve it to continue"
     : "Waiting for your approval";
+}
+
+/**
+ * How the work behind an In progress record ended, when its run delivered a plan or research
+ * someone decided on: intake → spec → plan → that plan's delivery. Null while undecided.
+ */
+export function recordOutcome(
+  kind: string,
+  row: R,
+  lists: { specs: R[]; plans: R[]; deliveries: R[] },
+): (NonNullable<ReturnType<typeof documentDecision>> & { executionId: string }) | null {
+  const plansOf = (specIds: string[]) =>
+    lists.plans.filter((p) => specIds.includes(p.specId));
+  const plans =
+    kind === "plans"
+      ? [row]
+      : kind === "specs"
+        ? plansOf([row.id])
+        : plansOf(lists.specs.filter((s) => s.intakeId === row.id).map((s) => s.id));
+  for (const plan of plans) {
+    const d = lists.deliveries.find((x) => x.planId === plan.id);
+    const executionId = d ? String(d.executionId ?? d.id) : "";
+    const outcome = d ? documentDecision(lists.deliveries, executionId) : null;
+    if (outcome) return { ...outcome, executionId };
+  }
+  return null;
 }

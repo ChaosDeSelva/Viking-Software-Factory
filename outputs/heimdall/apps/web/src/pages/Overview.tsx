@@ -1,6 +1,7 @@
 // Every card is narrowed to the picker's project; "All projects" shows a capped, searchable
 // project table instead.
 import {
+  Badge,
   Button,
   Card,
   DataTable,
@@ -15,6 +16,8 @@ import {
   PageHeader,
   Pagination,
   Progress,
+  RecordList,
+  RecordRow,
   Select,
   Stack,
   Timeline,
@@ -28,6 +31,8 @@ import { askGuide, type R } from "../lib/api";
 import { navigate } from "../lib/router";
 import { RaiseBudgetButton } from "../features/Budget";
 import { eventTitle } from "../features/events";
+import { WorkKindBadge } from "../features/WorkForms";
+import { results, type Result } from "../features/workKinds";
 import { isFinalExecution } from "../features/profileForm";
 import {
   attentionItems,
@@ -138,6 +143,14 @@ export function OverviewPage({ onAsk }: { onAsk: () => void }) {
     missionSpecTitle(m, executions, specs) ?? String(label(m));
   const events: R[] = (state?.events ?? []).filter(scope.includes).slice(0, 8);
   const all = scope.filter === "all";
+  const finished = results(scope.deliveries);
+  /** A result's title: its own, else the specification its run delivered. */
+  const resultTitle = (r: Result) =>
+    r.title ??
+    (() => {
+      const e = executions.find((x) => x.execution?.id === r.executionId);
+      return e ? runTitle(e, specs) : "Run " + r.executionId;
+    })();
   const matching = scope.activeProjects.filter((p) =>
     `${p.name} ${p.repoPath ?? ""}`.toLowerCase().includes(query.toLowerCase()),
   );
@@ -390,6 +403,54 @@ export function OverviewPage({ onAsk }: { onAsk: () => void }) {
                       New work
                     </Button>
                   }
+                />
+              )}
+            </Card>
+            <Card
+              title="Results"
+              count={finished.length}
+              description="Finished work: accepted plans and research, delivered changes and posted reviews."
+              actions={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  iconRight="arrowRight"
+                  onClick={() => navigate(href("documents"))}
+                >
+                  All documents
+                </Button>
+              }
+              flush
+            >
+              {finished.length ? (
+                <RecordList label="Results">
+                  {finished.slice(0, 8).map((r) => (
+                    <RecordRow
+                      key={r.executionId}
+                      title={resultTitle(r)}
+                      meta={r.at ? <Timestamp value={r.at} /> : r.executionId}
+                      status={
+                        <span className="flex flex-wrap items-center gap-2">
+                          <WorkKindBadge kind={r.kind} />
+                          <Badge tone={r.tone}>{r.outcome}</Badge>
+                        </span>
+                      }
+                      onClick={() =>
+                        open("deliveries", {
+                          id: r.executionId,
+                          executionId: r.executionId,
+                          title: resultTitle(r),
+                        })
+                      }
+                    />
+                  ))}
+                </RecordList>
+              ) : (
+                <EmptyState
+                  compact
+                  className="m-4"
+                  title="No results yet"
+                  body="Accepted plans and research, delivered changes and posted reviews appear here."
                 />
               )}
             </Card>

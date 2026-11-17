@@ -48,7 +48,9 @@ export function Graph({
   const [positions, setPositions] = useState<Record<string, Position>>(
       saved ?? {},
     ),
-    [zoom, setZoom] = useState(1);
+    [zoom, setZoom] = useState(1),
+    // Collapsed by default: a project's missions stack up; open the one you want to see.
+    [expanded, setExpanded] = useState(false);
   const suppressClick = useRef(false);
   const drag = useRef<{
     id: string;
@@ -70,15 +72,44 @@ export function Graph({
       [id]: { x: Math.max(0, p.x), y: Math.max(0, p.y) },
     }));
   }
+  const done = tasks.filter((t) => t.status === "completed").length;
+  const toggle = (
+    <Button
+      size="sm"
+      variant="ghost"
+      icon={expanded ? "chevronUp" : "chevronDown"}
+      aria-expanded={expanded}
+      aria-controls={`graph-${mission.id}`}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      {expanded ? "Hide graph" : "Show graph"}
+    </Button>
+  );
+  if (!expanded)
+    return (
+      <Card
+        title={
+          <span className="[overflow-wrap:anywhere]" title={mission.objective}>
+            {title ?? mission.objective}
+          </span>
+        }
+        description={`${tasks.length} ${tasks.length === 1 ? "task" : "tasks"} · ${done} completed`}
+        term="Task graph"
+        actions={toggle}
+      />
+    );
   return (
     <Card
       title={
-        <span title={mission.objective}>{title ?? mission.objective}</span>
+        <span className="[overflow-wrap:anywhere]" title={mission.objective}>
+          {title ?? mission.objective}
+        </span>
       }
       description="Drag nodes to arrange, or focus one and press Alt + arrow keys; Enter opens it. Layout never changes dependencies."
       term="Task graph"
       actions={
         <Cluster gap={1}>
+          {toggle}
           <Tooltip content="Zoom out">
             <Button
               size="sm"
@@ -131,6 +162,7 @@ export function Graph({
         </p>
       ) : null}
       <div
+        id={`graph-${mission.id}`}
         className="graph-viewport"
         role="region"
         aria-label="Interactive dependency graph"
@@ -293,8 +325,12 @@ export function Graph({
       </div>
       <Disclosure title="Accessible dependency list" className="mt-4">
         {tasks.map((t) => (
-          <p key={t.id} className="text-sm">
-            <Button variant="link" onClick={() => onInspect(t)}>
+          <p key={t.id} className="text-sm [overflow-wrap:anywhere]">
+            <Button
+              variant="link"
+              className="h-auto whitespace-normal text-left [overflow-wrap:anywhere]"
+              onClick={() => onInspect(t)}
+            >
               {t.title}
             </Button>{" "}
             — {t.status}; requires:{" "}

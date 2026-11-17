@@ -993,3 +993,31 @@ test("a plan replaced by a decided revision waits for nothing and says so", asyn
   assert.equal(decidedDocuments([old]).length, 0);
   assert.equal(decidedDocuments([old], { rejected: true }).length, 1);
 });
+
+test("Results lists finished work newest first; In progress and Next step see decided plans as done", async () => {
+  const { results } = await import("../apps/web/src/features/workKinds.ts");
+  const { recordOutcome, nextStep } = await import("../apps/web/src/features/workflowState.ts");
+  const deliveries = [
+    { executionId: "exe_plan", planId: "pln_1", status: "verified_pending_review", workKind: "proposal",
+      work: { kind: "proposal", title: "Plan", decision: "accepted", decidedAt: "2026-11-17T08:00:00Z" } },
+    { executionId: "exe_old", planId: "pln_0", status: "verified_pending_review", workKind: "proposal",
+      work: { kind: "proposal", title: "Old", decision: null, replacedBy: "exe_plan" } },
+    { executionId: "exe_fix", status: "delivered_pending_merge", workKind: "change", work: null, updatedAt: "2026-11-16T08:00:00Z" },
+    { executionId: "exe_rev", status: "verified_pending_review", workKind: "pr_review", work: { kind: "pr_review", title: "PR", posted: false } },
+  ];
+  assert.deepEqual(
+    results(deliveries).map((r) => [r.executionId, r.outcome]),
+    [["exe_plan", "Plan accepted"], ["exe_fix", "PR opened"]],
+  );
+  const lists = {
+    intakes: [{ id: "int_1" }],
+    specs: [{ id: "spc_1", intakeId: "int_1", status: "approved" }],
+    plans: [{ id: "pln_1", specId: "spc_1", status: "approved" }],
+    deliveries,
+  };
+  for (const [kind, row] of [["intakes", lists.intakes[0]], ["specs", lists.specs[0]], ["plans", lists.plans[0]]])
+    assert.deepEqual(recordOutcome(kind, row, lists), { kind: "proposal", decision: "accepted", executionId: "exe_plan" });
+  // The accepted plan's run is still verified_pending_review, but nothing waits on it.
+  const executions = [{ execution: { id: "exe_plan", planId: "pln_1", status: "verified_pending_review" } }];
+  assert.notEqual(nextStep({ ...lists, executions })?.page, "quality-approvals");
+});
