@@ -12,6 +12,11 @@ export function GraphPage() {
   const { state, scope, projectName, open, href, savePreferences } =
     useHeimdall();
   const preferences: R = state?.preferences ?? {};
+  // A removed run is hidden from every list, its graph too.
+  const removed = new Set(
+    (state?.sindri?.removedExecutions ?? []).map((e: R) => e.mimirMissionId),
+  );
+  const missions = scope.missions.filter((m) => !removed.has(m.id));
   return (
     <Page>
       <PageHeader
@@ -26,9 +31,9 @@ export function GraphPage() {
         term="Task graph"
         scope={{ project: projectName }}
       />
-      {scope.missions.length ? (
+      {missions.length ? (
         <Stack gap={6}>
-          {scope.missions.map((mission) => (
+          {missions.map((mission) => (
             <Graph
               key={mission.id}
               mission={mission}
