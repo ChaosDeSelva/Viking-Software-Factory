@@ -58,6 +58,8 @@ Project state lives in `data`, installed code in `releases`, recovery copies in 
 
 ## Updates and recovery
 
+For the 0.3.0 release, replace the companion with the [new app ZIP](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.3.0/Viking-Factory-0.3.0-macos-arm64.zip) before applying the runtime update. The new companion gives current agent login checks enough startup time and uses the existing installation and data.
+
 This installs prebuilt archives. It does not clone repositories, run git pull or compile every project on the operator’s Mac. Source development remains a separate workflow. Projects do not each need a DMG; one companion app manages the collection, while Hulder can also be distributed independently.
 
 The companion asks the manager to check periodically. Successful cached results suppress checks for 24 hours; Check updates forces a fresh request. Checks happen only while the companion is running and resume after wake. All eight project release feeds are displayed; only a compatible factory bundle is installable. Individual component releases do not silently update the collection. A bundle can include an updated companion. After installing it, choose Open updated companion from the V menu. This opens the new app and exits the old companion.
