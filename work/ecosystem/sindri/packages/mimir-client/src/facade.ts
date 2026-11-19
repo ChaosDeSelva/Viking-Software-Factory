@@ -18,6 +18,7 @@ import {
   type ArtifactId,
   type CapabilitiesResponse,
   type CreateTaskRequest,
+  type DecisionLogBlockRequest,
   type CrewId,
   type EventEnvelope,
   type GetMissionResponse,
@@ -56,6 +57,44 @@ export class MimirClientError extends Error {
     message: string,
   ) {
     super(message);
+  }
+}
+
+const DECISION_BLOCK_TARGET = 128 * 1024;
+const MAX_DECISION_ENTRY_BYTES =
+  256 * 1024 - Buffer.byteLength(JSON.stringify({ previous: "0".repeat(64), entries: [] }));
+
+function decisionLogReceiptPrefix(serverUrl: string, projectId: ProjectId): string {
+  const scope = createHash("sha256")
+    .update(JSON.stringify([serverUrl, projectId]))
+    .digest("hex");
+  return `sindri:decision-log:${scope}:`;
+}
+
+function* decisionLogEntries(entries: DecisionLogBlockRequest["entries"]) {
+  for (const { id, markdown } of entries) {
+    const entry = { id, markdown };
+    const entryBytes = Buffer.byteLength(JSON.stringify(entry));
+    if (entryBytes <= MAX_DECISION_ENTRY_BYTES) {
+      yield { entry, entryBytes };
+      continue;
+    }
+    // Imported ADRs can exceed a whole block. Consecutive fragments share their original ID.
+    const payloadBytes =
+      MAX_DECISION_ENTRY_BYTES - Buffer.byteLength(JSON.stringify({ id, markdown: "" }));
+    const partLength = Math.floor(payloadBytes / 6); // A JSON-escaped UTF-16 code unit takes at most six bytes.
+    if (partLength < 2)
+      throw new MimirClientError(
+        "invalid_plan",
+        "Decision log entry identifier exceeds the block limit",
+      );
+    for (let start = 0; start < markdown.length;) {
+      let end = Math.min(start + partLength, markdown.length);
+      if (markdown.codePointAt(end - 1)! > 0xffff) end--;
+      const part = { id, markdown: markdown.slice(start, end) };
+      yield { entry: part, entryBytes: Buffer.byteLength(JSON.stringify(part)) };
+      start = end;
+    }
   }
 }
 
@@ -254,11 +293,15 @@ export class MimirClientFacade {
       projectId,
       run,
       baseCommits,
+      decisionLog,
+      decisionLogAtVerification,
     }: {
       projectId: ProjectId | string;
       run?: number;
       /** Commits the mission's root tasks start from instead of the default branch (a rework). */
       baseCommits?: readonly string[];
+      decisionLog?: { id: string; markdown: string }[];
+      decisionLogAtVerification?: boolean;
     },
   ): Promise<MissionSubmission> {
     let mapped;
@@ -278,15 +321,24 @@ export class MimirClientFacade {
     } catch (err) {
       throw new MimirClientError("invalid_plan", (err as Error).message);
     }
+    if (decisionLogAtVerification && decisionLog?.length) {
+      throw new MimirClientError("invalid_plan", "Choose a single decision log snapshot cutoff");
+    }
     const client = this.sdk;
+    const serverUrl = this.target!.baseUrl;
     const fresh = !this.recorded(mapped.missionIdempotencyKey);
     // Position before the mission exists, so following it later starts with mission.created.
     const head = fresh ? (await client.snapshot()).cursor : undefined;
     const { mission } = await this.submit("mission", mapped.missionIdempotencyKey, async () => {
+      const decisionLogRef = decisionLog?.length
+        ? await this.uploadDecisionLog(client, serverUrl, projectId as ProjectId, decisionLog)
+        : null;
       const res = await client.missions.create(
         {
           projectId: projectId as ProjectId,
           objective: mapped.objective,
+          ...(decisionLogRef ? { decisionLogRef } : {}),
+          ...(decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
           ...(baseCommits?.length ? { baseCommits: [...baseCommits] } : {}),
         },
         { idempotencyKey: mapped.missionIdempotencyKey },
@@ -646,6 +698,80 @@ export class MimirClientFacade {
 
   async getUsage(missionId: MissionId | string): Promise<UsageResponse> {
     return this.sdk.usage.get({ missionId: missionId as MissionId });
+  }
+
+  async pinDecisionLog(
+    missionId: MissionId | string,
+    entries: DecisionLogBlockRequest["entries"],
+  ): Promise<void> {
+    const client = this.sdk;
+    const id = missionId as MissionId;
+    const serverUrl = this.target!.baseUrl;
+    const projectId = entries.length
+      ? (await client.missions.get(id)).mission.projectId
+      : undefined;
+    const pin = async (restore = false) => {
+      const decisionLogRef = projectId
+        ? await this.uploadDecisionLog(client, serverUrl, projectId, entries, restore)
+        : null;
+      await client.missions.pinDecisionLog(
+        id,
+        { decisionLogRef },
+        {
+          idempotencyKey: `sindri:pin-decision-log:${missionId}:${decisionLogRef ?? "empty"}`,
+        },
+      );
+    };
+    try {
+      await pin();
+    } catch (error) {
+      if (!projectId || !isMimirError(error) || error.code !== "not_found") throw error;
+      if ((await client.missions.get(id)).mission.projectId !== projectId) throw error;
+      // Mimir may have been restored to a backup older than Sindri's upload receipts.
+      this.db
+        .prepare(
+          "DELETE FROM mimir_submissions WHERE kind='decision-log-block' AND idempotency_key LIKE ?",
+        )
+        .run(decisionLogReceiptPrefix(serverUrl, projectId) + "%");
+      await pin(true);
+    }
+  }
+
+  private async uploadDecisionLog(
+    client: MimirClient,
+    serverUrl: string,
+    projectId: ProjectId,
+    entries: DecisionLogBlockRequest["entries"],
+    restore = false,
+  ): Promise<string | null> {
+    const prefix = decisionLogReceiptPrefix(serverUrl, projectId);
+    let block: DecisionLogBlockRequest = { previous: null, entries: [] };
+    let bytes = Buffer.byteLength(JSON.stringify(block));
+    const flush = async () => {
+      const digest = createHash("sha256").update(JSON.stringify(block)).digest("hex");
+      const key = prefix + digest;
+      await this.submit("decision-log-block", key, async () => {
+        const result = await client.projects.putDecisionLogBlock(projectId, block, {
+          idempotencyKey: restore ? randomKey() : key,
+        });
+        if (result.digest !== digest) {
+          throw new MimirClientError(
+            "hash_mismatch",
+            "Mimir returned a different decision log block digest",
+          );
+        }
+        return { id: digest, value: digest };
+      });
+      block = { previous: digest, entries: [] };
+      bytes = Buffer.byteLength(JSON.stringify(block));
+    };
+    for (const { entry, entryBytes } of decisionLogEntries(entries)) {
+      if (block.entries.length && bytes + 1 + entryBytes > DECISION_BLOCK_TARGET) await flush();
+      bytes += entryBytes + (block.entries.length ? 1 : 0);
+      block.entries.push(entry);
+    }
+    if (block.entries.length) await flush();
+    return block.previous;
   }
 
   private recorded(key: string): boolean {

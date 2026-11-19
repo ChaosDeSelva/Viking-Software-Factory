@@ -6,13 +6,15 @@ Use Hulder's task picker to run **Factory: open Heimdall**, **Factory: check ser
 
 For the start task, set `FACTORY_LAUNCHER` to the absolute path of your `factory.mjs` in the environment used to launch Hulder. Alternatively run `FACTORY_LAUNCHER=/your/path/factory.mjs ./script/factory start` in Hulder's terminal. Stop the factory with Control-C in that terminal.
 
+The open, fleet and status tasks use the Mac companion's configured ports. Set `VIKING_HOME` for a separate managed installation. When `FACTORY_LAUNCHER` selects a source checkout, the tasks use that launcher's default ports. In either case, `HEIMDALL_PORT`, `MIMIR_PORT` and `SINDRI_PORT` override the corresponding ports.
+
 To inspect an agent's work, open the task's worktree path shown in Heimdall with Hulder. Review changed files there. When using Mimir's Herdr backend, Hulder's existing Herd view can attach to those Herdr sessions. CLI, SSH and tmux tasks are monitored through Heimdall; they are not represented as native Herd sessions.
 
 The existing Bifröst MCP bridge exposes editor context and Saga notes to agents. This addition does not give the bridge factory control permissions, forward credentials, or change Hulder's HTTP policy. Opening the dashboard is an explicit OS browser action.
 
 ## Native Factory view
 
-Choose **View → Factory** to open the native GPUI inspector. Select **Choose credentials** and choose the running Mimir controller's `auth-token` file. Credentials are read locally, never copied into project settings. The default endpoint is `127.0.0.1:7700`; launch with `HULDER_FACTORY_PORT` to use a different local port. `HULDER_FACTORY_TOKEN_FILE` optionally supplies the credential path at launch.
+Choose **View → Factory** to open the native GPUI inspector. Select **Choose credentials** and choose the running Mimir controller's `auth-token` file. Credentials are read locally, never copied into project settings. The inspector and its **Open Heimdall** action follow the same managed or source ports as the tasks. `HULDER_FACTORY_PORT` takes precedence for the inspector's Mimir connection. `HULDER_FACTORY_TOKEN_FILE` optionally supplies the credential path at launch.
 
 The view refreshes every five seconds. Click a task to inspect its brief, acceptance criteria, sessions, approvals and artifact metadata. **Inspect source record** reveals the complete task-detail JSON, including dependencies. **Open task worktree** opens its existing local directory in Hulder. **Open Heimdall** opens the local operator console for approval, stop and retry controls. The native inspector and MCP tools are read-only.
 
@@ -22,6 +24,12 @@ Use Mimir with authenticated `GET /v1/tasks/:id` support, including its `spec.br
 
 Validation: the native build and live localhost task inspection, credential-picker reconnection, controller outage recovery and opening a real disposable Git worktree were exercised on macOS. This does not establish remote-host or additional vendor-agent acceptance.
 
+Run the native panel tests from the Hulder source checkout with `cargo test --locked -p herd_panel --lib`. If Cargo reports a missing Xcode developer directory on a Command Line Tools installation, use the selected SDK for this command.
+
+```sh
+DEVELOPER_DIR="$(xcode-select -p)" cargo +1.98.1 test --locked -p herd_panel --lib
+```
+
 ## Factory context in the editor
 
 `script/factory fleet` opens the fleet and supervisor view.
@@ -29,6 +37,7 @@ Validation: the native build and live localhost task inspection, credential-pick
 health, runtime capabilities and individual task inspection. Merge
 `factory-context-server.example.json` into your editor context-server settings,
 using an absolute script path if the editor launches outside this checkout.
+The context server follows the managed Mimir port or a source port override. Set `MIMIR_URL` to choose a specific loopback controller explicitly.
 Point `MIMIR_TOKEN_FILE` at the local controller token file; do not commit a token.
 The bridge has no mutation tools and rejects remote origins and path traversal.
 It is an additional local context server, not a change to Bifröst or Herd.

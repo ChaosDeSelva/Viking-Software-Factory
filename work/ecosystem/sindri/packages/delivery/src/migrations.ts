@@ -130,4 +130,12 @@ export const DELIVERY_MIGRATIONS: readonly string[] = [
   ALTER TABLE executions ADD COLUMN removed_at TEXT;
   ALTER TABLE executions ADD COLUMN removed_reason TEXT;
   `,
+  `CREATE TABLE execution_decision_snapshots (
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    plan_id TEXT NOT NULL,
+    plan_version INTEGER NOT NULL,
+    run_number INTEGER NOT NULL,
+    entries_json TEXT NOT NULL,
+    PRIMARY KEY(project_id, plan_id, plan_version, run_number)
+  );`,
 ];

@@ -13,7 +13,7 @@ import { bindTranscript, foldTranscript, observeTranscript } from "./transcripts
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
+}, 120_000);
 const jsonl = (...rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
 const run = (id: string, kind: string) => ({
   payload: { kind: "run", run_id: id, event: { kind } },

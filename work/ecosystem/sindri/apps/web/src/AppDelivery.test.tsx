@@ -64,10 +64,10 @@ describe("App navigation for plans, runs, needs you, deliveries and harnesses", 
     expect(links.at(-1)!.textContent).toBe("Autonomy");
     expect(tab("Autonomy").getAttribute("aria-keyshortcuts")).toBeNull();
     await userEvent.click(globalLink("Autonomy (all)"));
-    expect(await screen.findByRole("heading", { name: "Decision log" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Steward decision log" })).toBeTruthy();
     expect(window.location.hash).toBe("#/autonomy-all");
     // The global page covers all projects: no projectId on the log or the notes.
-    expect(api.listDecisions).toHaveBeenCalledWith({ limit: 50 });
+    expect(api.listDecisions).toHaveBeenCalledWith({ limit: 51 });
     expect(api.listStewardNotes).toHaveBeenCalledWith(null);
   });
 });

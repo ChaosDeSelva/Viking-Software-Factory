@@ -6,6 +6,19 @@ const root = resolve(dirname(process.env.SINDRI_ACCEPTANCE_MIMIR_MAIN), "../../.
 const { FakeRuntime } = await import(
   pathToFileURL(join(root, "packages/fake-runtime/dist/index.js"))
 );
+// Mirror the CLI adapter: exit reports actual usage before the terminal state closes the session.
+const subscribe = FakeRuntime.prototype.subscribe;
+FakeRuntime.prototype.subscribe = function (handler) {
+  return subscribe.call(this, (event) => {
+    if (event.kind === "session.state_changed" && event.state === "completed") {
+      globalThis.queueMicrotask(() => handler(event));
+    } else if (event.kind === "session.exited") {
+      handler({ ...event, usage: { tokens: 0, estimatedCost: 0 } });
+    } else {
+      handler(event);
+    }
+  });
+};
 const create = FakeRuntime.prototype.createSession;
 FakeRuntime.prototype.createSession = function (spec) {
   mkdirSync(join(spec.cwd, "node_modules"), { recursive: true });

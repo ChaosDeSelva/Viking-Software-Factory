@@ -19,7 +19,7 @@ npm test
 npm start
 ```
 
-Open **http://127.0.0.1:4380**. No AWS account or credentials are needed. The application binds only to loopback.
+Open **http://127.0.0.1:4380**. No AWS account or credentials are needed. The application binds only to loopback. For a source installation with custom ports, set `MIMIR_PORT`, `SINDRI_PORT`, and `HEIMDALL_PORT` when starting Skidbladnir. Set `SKIDBLADNIR_PORT` or `SKIDBLADNIR_URL` when starting the core factory so Heimdall can link back to these workers. The Mac manager supplies these values automatically.
 
 ## What works today
 

@@ -10,6 +10,7 @@ import {
   BudgetPolicySchema,
   CrewMemberSchema,
   CrewSchema,
+  DecisionLogRefSchema,
   ProjectSchema,
   TaskModeSchema,
   UsageSampleSchema,
@@ -34,6 +35,8 @@ import {
 
 export const EVENT_TYPES = [
   "mission.created",
+  "mission.decision_log_requested",
+  "mission.decision_log_pinned",
   "mission.started",
   "mission.paused",
   "mission.resumed",
@@ -152,7 +155,11 @@ export const EVENT_PAYLOAD_SCHEMAS = {
     budget: BudgetPolicySchema.optional(),
     /** Commits the mission's root tasks start from instead of the default branch. */
     baseCommits: z.array(z.string()).optional(),
+    decisionLogRef: DecisionLogRefSchema.optional(),
+    decisionLogAtVerification: z.literal(true).optional(),
   }),
+  "mission.decision_log_requested": z.object({}),
+  "mission.decision_log_pinned": z.object({ decisionLogRef: DecisionLogRefSchema.nullable() }),
   "mission.started": missionTransition("active"),
   "mission.paused": missionTransition("paused"),
   "mission.resumed": missionTransition("active"),

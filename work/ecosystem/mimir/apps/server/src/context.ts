@@ -1,5 +1,6 @@
 import type { AuditLog, CommandLedger, EventStore, PayloadRedactor } from "@mimir/core";
 import type { RuntimeAdapter } from "@mimir/protocol";
+import type { DecisionLogStore } from "./decision-log-store.js";
 import type { ArtifactStore } from "./orchestrator/artifacts.js";
 import type { Orchestrator } from "./orchestrator/orchestrator.js";
 import type { ReadModel } from "./readmodel.js";
@@ -8,6 +9,7 @@ import type { SseOptions } from "./routes/events.js";
 /** Everything route handlers need; available as `app.mimir`. */
 export interface ServerContext {
   store: EventStore;
+  decisionLogs: DecisionLogStore;
   ledger: CommandLedger;
   audit: AuditLog;
   runtime: RuntimeAdapter | null;

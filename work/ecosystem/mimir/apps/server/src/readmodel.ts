@@ -351,6 +351,8 @@ export class ReadModel {
           id: id as Mission["id"],
           projectId: pl.projectId,
           objective: pl.objective,
+          ...(pl.decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
+          ...(pl.decisionLogRef ? { decisionLogRef: pl.decisionLogRef } : {}),
           ...(pl.baseCommits?.length
             ? { baseCommits: pl.baseCommits as Mission["baseCommits"] }
             : {}),
@@ -359,6 +361,26 @@ export class ReadModel {
           updatedAt: at,
           version: 0,
         });
+        return;
+      }
+      case "mission.decision_log_requested": {
+        const id = this.need(event.missionId);
+        this.missions.set(
+          id,
+          bump(this.existing(this.missions, id), at, { decisionLogRequested: true }),
+        );
+        return;
+      }
+      case "mission.decision_log_pinned": {
+        const id = this.need(event.missionId);
+        const { decisionLogRef } = p as EventPayloadMap["mission.decision_log_pinned"];
+        this.missions.set(
+          id,
+          bump(this.existing(this.missions, id), at, {
+            decisionLogPinned: true,
+            ...(decisionLogRef ? { decisionLogRef } : {}),
+          }),
+        );
         return;
       }
       case "mission.started":

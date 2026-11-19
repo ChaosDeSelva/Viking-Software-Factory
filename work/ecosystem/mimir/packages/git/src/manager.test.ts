@@ -587,6 +587,38 @@ describe("claim", () => {
 });
 
 describe("verified task handoff", () => {
+  it("leaves a missing or existing ignored specification alone", async () => {
+    const work = await mgr.createWorktree(input());
+    await writeFile(join(work.path, ".gitignore"), "SPEC.md\n");
+    const spec = join(work.path, "SPEC.md");
+    const add = () =>
+      mgr.applyDecisionLog(work.id, [{ id: "one", markdown: "- Default greeting." }]);
+    await expect(add()).rejects.toThrow("SPEC.md is ignored");
+    expect(existsSync(spec)).toBe(false);
+    await writeFile(spec, "Personal draft");
+    await expect(add()).rejects.toThrow("SPEC.md is ignored");
+    expect(await readFile(spec, "utf8")).toBe("Personal draft");
+  });
+
+  it("exports the decision log as part of the checked worktree and preserves edits on replay", async () => {
+    const tree = await mgr.createWorktree(input());
+    const log = [
+      { id: "greeting:accepted", markdown: "- Use a default greeting for an unnamed visitor." },
+    ];
+    await mgr.applyDecisionLog(tree.id, log);
+    await mgr.applyDecisionLog(tree.id, log);
+    const verified = await readFile(join(tree.path, "SPEC.md"), "utf8");
+    expect(verified.match(/Use a default greeting/g)).toHaveLength(1);
+    expect(existsSync(join(repo, "SPEC.md"))).toBe(false);
+    const result = await mgr.checkpoint(tree.id);
+    const exported = await mgr.exportResult(projectId, repo, [tree.baseSha], [result]);
+    const patch = join(root, "delivery.patch");
+    await writeFile(patch, exported.patch);
+    sh(repo, "apply", "--check", patch);
+    sh(repo, "apply", patch);
+    expect(await readFile(join(repo, "SPEC.md"), "utf8")).toBe(verified);
+  });
+
   it("exports a complete immutable binary-safe result that applies and reverses locally", async () => {
     const a = await mgr.createWorktree(input({ taskSlug: "local-export" }));
     const bytes = Buffer.from([0, 255, 2, 3, 0]);

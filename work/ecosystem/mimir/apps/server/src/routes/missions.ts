@@ -5,6 +5,7 @@ import {
   ListMissionsQuerySchema,
   MimirError,
   MissionIdParamsSchema,
+  PinDecisionLogRequestSchema,
   StartMissionRequestSchema,
   newId,
   type BudgetInput,
@@ -231,6 +232,7 @@ export function missionRoutes(app: FastifyInstance): void {
           projectId: body.projectId,
         });
       }
+      if (body.decisionLogRef) ctx.decisionLogs.requireBlock(project.id, body.decisionLogRef);
       const baseCommits = body.baseCommits
         ? await resolveBaseCommits(project.repoPath, body.baseCommits)
         : undefined;
@@ -245,6 +247,8 @@ export function missionRoutes(app: FastifyInstance): void {
           payload: {
             projectId: body.projectId,
             objective: body.objective,
+            ...(body.decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
+            ...(body.decisionLogRef ? { decisionLogRef: body.decisionLogRef } : {}),
             ...(baseCommits ? { baseCommits } : {}),
             ...(body.budget
               ? {
@@ -262,6 +266,16 @@ export function missionRoutes(app: FastifyInstance): void {
           : {}),
       };
       return { status: 201, body: response, target: missionId };
+    }),
+  );
+
+  app.post(
+    "/v1/missions/:id/decision-log",
+    idempotent(ctx, "mission.pinDecisionLog", async (request) => {
+      const { id } = parseWith(MissionIdParamsSchema, request.params);
+      const { decisionLogRef } = parseWith(PinDecisionLogRequestSchema, request.body);
+      const mission = await ctx.orchestrator.pinDecisionLog(id, decisionLogRef);
+      return { status: 200, body: { mission }, target: id };
     }),
   );
 

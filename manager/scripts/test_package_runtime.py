@@ -20,6 +20,44 @@ packager = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(packager)
 
 
+class DeploymentContents(unittest.TestCase):
+    def test_preserves_runtime_files_and_removes_build_host_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / 'source'
+            target = root / 'release'
+            source.mkdir()
+            dist_manifest = {'name': '@sindri/cli', 'bin': {'sindri': './dist/main.js'}}
+            (source / 'package.json').write_text(json.dumps(dist_manifest))
+            test_files = {
+                'package.json': json.dumps({**dist_manifest, 'dependencies': {'tool': source.as_uri()}}),
+                'dist/main.js': 'export {}',
+                'test/local-case.ts': 'fixture',
+                'node_modules/.modules.yaml': str(root),
+                'node_modules/.pnpm/lock.yaml': str(source),
+                'node_modules/.pnpm-workspace-state-v1.json': str(root),
+                'pnpm-workspace.yaml': str(root),
+                'pnpm-lock.yaml': str(source),
+                'node_modules/@mimir/worker/package.json': '{"name":"@mimir/worker","main":"./dist/index.js"}',
+                'node_modules/@mimir/worker/.turbo/turbo-test.log': str(root),
+                'node_modules/@mimir/worker/src/index.test.ts': 'fixture',
+                'node_modules/@mimir/worker/dist/index.js': 'export {}',
+                'node_modules/@mimir/worker/fixtures/example.json': '{}',
+                'node_modules/library/src/index.js': 'export {}',
+            }
+            for name, value in test_files.items():
+                path = target / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(value)
+            packager.clean_deployment(source, target)
+            self.assertEqual(json.loads((target / 'package.json').read_text()), dist_manifest)
+            files = {str(path.relative_to(target)) for path in target.rglob('*') if path.is_file()}
+            self.assertEqual(files, {'package.json', 'dist/main.js', 'node_modules/@mimir/worker/package.json',
+                                     'node_modules/@mimir/worker/dist/index.js',
+                                     'node_modules/@mimir/worker/fixtures/example.json',
+                                     'node_modules/library/src/index.js'})
+
+
 class LocalFactoryFiles(unittest.TestCase):
     def test_every_relative_import_of_factory_mjs_is_packaged(self):
         directory = REPO / 'outputs/local-factory'

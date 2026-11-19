@@ -88,11 +88,12 @@ const termHeader = (text: string, term: string) => (
 );
 
 export function FleetPage() {
-  const { api, session, propose } = useHeimdall();
+  const { api, session, propose, state } = useHeimdall();
   // Fleet commands go to Mimir, so they need the operator unlock but not Sindri pairing.
   const locked = session.operator ? "" : LOCKED;
   const [harnesses, setHarnesses] = useState<Harness[]>([]),
     [workers, setWorkers] = useState<Worker[] | null>(null),
+    [workerError, setWorkerError] = useState(""),
     [actors, setActors] = useState<Actor[]>([]),
     [errors, setErrors] = useState<string[]>([]),
     [detail, setDetail] = useState<Detail | null>(null),
@@ -120,16 +121,19 @@ export function FleetPage() {
           api("harnesses"),
         ]);
         if (closed) return;
-        setWorkers(
-          results[0].status === "fulfilled"
-            ? (results[0].value.workers ?? [])
-            : [],
-        );
-        setActors(
-          results[1].status === "fulfilled"
-            ? (results[1].value.supervisors ?? [])
-            : [],
-        );
+        const fleet = results[0];
+        if (fleet.status === "fulfilled" && Array.isArray(fleet.value?.workers)) {
+          setWorkers(fleet.value.workers);
+          setWorkerError("");
+        } else {
+          setWorkerError(
+            fleet.status === "rejected" && fleet.reason?.message
+              ? fleet.reason.message
+              : "Mimir returned an unreadable worker inventory.",
+          );
+        }
+        if (results[1].status === "fulfilled")
+          setActors(results[1].value.supervisors ?? []);
         if (results[3].status === "fulfilled")
           setHarnesses(results[3].value.harnesses ?? []);
         setDetail(
@@ -139,6 +143,7 @@ export function FleetPage() {
         );
         setErrors(
           results
+            .slice(1)
             .filter((r) => r.status === "rejected")
             .map((r) =>
               String((r as PromiseRejectedResult).reason?.message ?? ""),
@@ -279,37 +284,54 @@ export function FleetPage() {
         learnMore={<LearnMore screen="fleet" />}
         term="Fleet"
         scope={{ global: true }}
-        meta={updated && <Timestamp value={updated} prefix="Updated" />}
+        meta={updated && <Timestamp value={updated} prefix="Last checked" />}
         actions={<Button onClick={refresh}>Refresh observations</Button>}
       />
       <AccessCallout />
       {errors.length > 0 && (
         // One notice for all failed reads; the same refusal from several endpoints says it once.
         <Callout tone="warning" title="Some observations are unavailable">
-          {[...new Set(errors)].map((e) => e.replace(/\.?$/, ".")).join(" ")}{" "}
-          Unavailable observations do not mean the worker stopped.
+          {[...new Set(errors)].map((e) => e.replace(/\.?$/, ".")).join(" ")}
         </Callout>
       )}
       <Card
         title="Workers"
         term="Worker"
+        actions={
+          state?.appOrigins?.skidbladnir && (
+            <a
+              href={state.appOrigins.skidbladnir}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-sm text-accent underline"
+            >
+              Open Skidbladnir worker dashboard
+              <span className="sr-only"> (opens in a new tab)</span>
+            </a>
+          )
+        }
         description="Draining stops new assignments and preserves running and uncertain sessions."
         count={workers?.length}
         flush
       >
+        {workerError && workers?.length ? (
+          <Callout tone="warning" title="Showing the last reported workers">
+            {workerError}
+          </Callout>
+        ) : null}
         <DataTable
           caption="Workers"
           columns={workerColumns}
           rows={workers ?? []}
-          loading={workers === null}
+          loading={workers === null && !workerError}
           rowKey={(w) => w.id}
           layout="stack"
           empty={
             <EmptyState
               compact
               className="m-4"
-              title="No workers reported."
-              body="Mimir lists its workers once one has started."
+              title={workerError ? "Worker inventory unavailable." : "No workers reported."}
+              body={workerError || "Add a worker to Mimir's fleet configuration to see it here."}
               action={
                 <Button size="sm" onClick={refresh}>
                   Refresh observations

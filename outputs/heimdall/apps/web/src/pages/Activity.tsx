@@ -21,10 +21,11 @@ import { useEffect, useRef, useState } from "react";
 import { useHeimdall } from "../app/context";
 import { LearnMore } from "../components/app";
 import type { R } from "../lib/api";
-import { eventSubject, eventTitle } from "../features/events";
+import { eventContext, eventSubject, eventTitle } from "../features/events";
 import { mergeEventPages } from "../features/workflowState";
 
 const PAGE = 12;
+const FETCH_SIZE = 150;
 const CATEGORIES = [
   "session",
   "tool",
@@ -34,6 +35,10 @@ const CATEGORIES = [
   "task",
   "mission",
   "artifact",
+  "budget",
+  "policy",
+  "recovery",
+  "execution",
 ];
 const ALL = "all";
 
@@ -46,11 +51,15 @@ export function ActivityPage() {
     [rows, setRows] = useState<R[]>([]),
     [page, setPage] = useState(1),
     [loading, setLoading] = useState(true),
-    [older, setOlder] = useState(false);
+    [older, setOlder] = useState(false),
+    [moreAvailable, setMoreAvailable] = useState(false);
+  const currentQuery = useRef("");
+  const requestKey = JSON.stringify([search, source, type, mission]);
   const loadedQuery = useRef("");
   const query = (before?: unknown) =>
     "events?" +
     new URLSearchParams({
+      limit: String(FETCH_SIZE + 1),
       source: source === ALL ? "" : source,
       type: type === ALL ? "" : type,
       missionId: mission === ALL ? "" : mission,
@@ -59,18 +68,28 @@ export function ActivityPage() {
     }).toString();
   useEffect(() => {
     // A new event refetches the first page too; only a changed filter starts over.
-    const key = [search, source, type, mission].join("\n");
-    if (loadedQuery.current !== key) setPage(1);
+    const key = requestKey;
+    currentQuery.current = key;
+    if (loadedQuery.current !== key) {
+      setPage(1);
+      setRows([]);
+      setMoreAvailable(false);
+      setOlder(false);
+      setLoading(true);
+    }
     let gone = false;
     const timer = setTimeout(
       () =>
         api(query())
           .then((d) => {
             if (gone) return;
+            const first = d.events.slice(0, FETCH_SIZE);
+            if (loadedQuery.current !== key)
+              setMoreAvailable(d.events.length > FETCH_SIZE);
             setRows((loaded) =>
               loadedQuery.current === key
-                ? mergeEventPages(d.events, loaded)
-                : d.events,
+                ? mergeEventPages(first, loaded)
+                : first,
             );
             loadedQuery.current = key;
           })
@@ -82,7 +101,7 @@ export function ActivityPage() {
       gone = true;
       clearTimeout(timer);
     };
-  }, [search, source, type, mission, state?.events?.[0]?.eventId]);
+  }, [requestKey, state?.events?.[0]?.eventId]);
   const scoped = rows.filter(scope.includes);
   const pageCount = Math.max(1, Math.ceil(scoped.length / PAGE));
   const shown = Math.min(page, pageCount);
@@ -104,7 +123,9 @@ export function ActivityPage() {
       cell: (e) => (
         <span className="flex min-w-0 flex-col">
           <span className="font-medium">{eventTitle(e.type)}</span>
-          <code className="truncate text-xs text-muted">{String(e.type)}</code>
+          <span className="line-clamp-2 break-words text-xs text-muted">
+            {eventContext(e) || String(e.type)}
+          </span>
         </span>
       ),
     },
@@ -238,19 +259,29 @@ export function ActivityPage() {
             pageCount={pageCount}
             onPageChange={setPage}
           />
-          {rows.length > 0 && (
+          {moreAvailable && (
             <LoadMore
               hasMore
               loading={older}
               shown={scoped.length}
               onLoadMore={() => {
+                const key = requestKey;
                 setOlder(true);
                 void api(query(rows.at(-1)?.cacheSequence))
-                  .then((d) =>
-                    setRows((loaded) => mergeEventPages(d.events, loaded)),
-                  )
-                  .catch((e) => notify(e.message, "danger"))
-                  .finally(() => setOlder(false));
+                  .then((d) => {
+                    if (currentQuery.current !== key) return;
+                    setMoreAvailable(d.events.length > FETCH_SIZE);
+                    setRows((loaded) =>
+                      mergeEventPages(d.events.slice(0, FETCH_SIZE), loaded),
+                    );
+                  })
+                  .catch((e) => {
+                    if (currentQuery.current === key)
+                      notify(e.message, "danger");
+                  })
+                  .finally(() => {
+                    if (currentQuery.current === key) setOlder(false);
+                  });
               }}
             />
           )}

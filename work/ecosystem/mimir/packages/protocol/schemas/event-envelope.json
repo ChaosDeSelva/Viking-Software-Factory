@@ -33,6 +33,8 @@
       "type": "string",
       "enum": [
         "mission.created",
+        "mission.decision_log_requested",
+        "mission.decision_log_pinned",
         "mission.started",
         "mission.paused",
         "mission.resumed",

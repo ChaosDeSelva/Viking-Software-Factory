@@ -24,7 +24,7 @@ import { DrawerActions, DrawerFooter } from "./DrawerActions";
 import { IntakeStatus, Raw, Reasons, Status, label } from "../components/app";
 import { download, type R } from "../lib/api";
 import { RaiseBudgetForm } from "../features/Budget";
-import { eventSubject, eventTitle } from "../features/events";
+import { eventContext, eventSubject, eventTitle } from "../features/events";
 import { ExecutionProfile } from "../features/ExecutionProfile";
 import { FeedbackGraphSection } from "../features/Autonomy";
 import { LiveSession } from "../features/LiveSession";
@@ -182,9 +182,7 @@ function EventList({ events }: { events: R[] }) {
           >
             <span className="min-w-0">
               <span className="block text-sm">{eventTitle(e.type)}</span>
-              <code className="block truncate text-xs text-muted">
-                {e.type}
-              </code>
+              <span className="block line-clamp-2 break-words text-xs text-muted">{eventContext(e) || e.type}</span>
             </span>
             <span className="text-xs text-muted">
               {e.timestamp ? <Timestamp value={e.timestamp} /> : "Unreported"}
@@ -1677,9 +1675,52 @@ export function Inspector({
   }
 
   if (kind === "event") {
+    const task = (m.tasks ?? []).find((t: R) => t.id === row.taskId);
+    const mission = (m.missions ?? []).find(
+      (m: R) => m.id === (row.missionId ?? task?.missionId),
+    );
+    const run = executions.find(
+      (e: R) =>
+        e.execution.id === row.executionId ||
+        (mission && e.execution.mimirMissionId === mission.id),
+    )?.execution;
+    const approval = (m.approvals ?? []).find(
+      (a: R) => a.id === row.payload?.approvalId,
+    );
     add(
       "event",
       <Block title="Event">
+        {eventContext(row) && (
+          <p className="break-words text-sm">{eventContext(row)}</p>
+        )}
+        <Cluster>
+          {approval && (
+            <Button
+              variant="secondary"
+              onClick={() => open("approvals", approval)}
+            >
+              Open approval
+            </Button>
+          )}
+          {task && (
+            <Button variant="secondary" onClick={() => open("tasks", task)}>
+              Open task · {task.title}
+            </Button>
+          )}
+          {run && (
+            <Button variant="secondary" onClick={() => open("execution", run)}>
+              Open run
+            </Button>
+          )}
+          {mission && !run && (
+            <Button
+              variant="secondary"
+              onClick={() => open("missions", mission)}
+            >
+              Open mission
+            </Button>
+          )}
+        </Cluster>
         <KeyValue
           columns={2}
           items={[

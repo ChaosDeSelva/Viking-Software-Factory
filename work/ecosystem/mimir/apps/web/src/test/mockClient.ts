@@ -103,8 +103,10 @@ export function mockClient(over: Partial<MimirClient> = {}): MockClient {
     projects: {
       list: vi.fn(async () => ({ projects: [] })),
       create: vi.fn(),
+      putDecisionLogBlock: vi.fn(),
     },
     missions: {
+      pinDecisionLog: vi.fn(),
       list: vi.fn(async () => ({ missions: [] })),
       get: vi.fn(),
       create: vi.fn(),

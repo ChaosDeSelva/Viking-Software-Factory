@@ -1,0 +1,16 @@
+# Viking Software Factory
+
+The factory coordinates work in repositories selected by an operator. Sindri owns the plan and project decisions, Mimir runs the work, and Brokkr checks the result. Heimdall brings the records together for the operator. See [operator handoffs](OPERATOR-HANDOFFS.md) to follow one request across the tools.
+
+## Maintaining this record
+
+When a maintainer or coordination agent changes a lasting factory behavior, append a dated entry explaining the choice and the reason. Link the change or the public evidence for it. When a choice changes, name the earlier entry and keep its original rationale. Record feature-specific decisions in the project that owns the feature.
+
+## Decision log
+
+- **2026-10-18 — Keep the tools independently usable.** The umbrella brings together the launcher, source, and integration instructions. Each project retains its own responsibility and license so that operators can use the parts they need. This was the initial distribution decision. [dc0a2c7](https://github.com/ChaosDeSelva/Viking-Software-Factory/commit/dc0a2c7)
+- **2026-10-21 — Offer a signed, managed Mac installation.** A companion and CLI install compatible bundles, verify updates, and allow recovery. This extends the October 18 source release with a second installation option. [59aae1d](https://github.com/ChaosDeSelva/Viking-Software-Factory/commit/59aae1d)
+- **2026-11-10 — Let each project define its verification commands.** Repositories use different build tools. Plan tasks need checks that match the target repository, and changing the execution profile requires operator approval. This replaces reliance on one default set of commands for every project. [78eb5dc](https://github.com/ChaosDeSelva/Viking-Software-Factory/commit/78eb5dc) · [84ae137](https://github.com/ChaosDeSelva/Viking-Software-Factory/commit/84ae137)
+- **2026-11-17 — Carry accepted documents into new work when the operator selects them.** Plans and research can inform a later request without repeating the original investigation. This extends the existing intake forms with a choice of previously accepted documents. [0ab9266](https://github.com/ChaosDeSelva/Viking-Software-Factory/commit/0ab9266)
+- **2026-11-18 — Deliver accepted project decisions with verified code changes.** An operator should be able to read why the code works the way it does after the run has ended. Sindri retains the project history. Mimir includes approved, project-facing entries in the isolated worktree before verification. The first change verification sets the cutoff. Choices accepted during the build go into this patch, and later choices travel with the next change. This extends the existing internal decision records and delivery proposals.
+- **2026-11-18 — Ship runtime dependencies with portable paths.** Projects need the same harnesses and service links on the operator's Mac as on the signing Mac. The managed installer now carries the built harness library and uses a dependency layout that omits local build paths, caches and test logs. This updates the packaging used by the October 21 managed installation.

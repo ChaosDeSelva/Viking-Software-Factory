@@ -340,6 +340,8 @@ try {
   const event = page.getByRole("button", { name: "Task output (task.output)" });
   await event.first().click();
   await inspector.getByText("Running regression tests", { exact: false }).first().waitFor();
+  await inspector.getByRole("button", { name: /^Open task ·/ }).click();
+  await page.waitForURL((url) => url.searchParams.get("inspect") === "tasks:tsk_demo");
   await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "hidden" });
 

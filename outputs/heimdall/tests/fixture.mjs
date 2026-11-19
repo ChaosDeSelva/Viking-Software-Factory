@@ -711,7 +711,7 @@ export async function fixture() {
       if (input.value !== undefined) decision.recommendation = { ...decision.recommendation, value: input.value };
       decision.decidedAt = now;
     } else if (verb === "rollback") {
-      if (!decision.reversible || decision.status !== "applied")
+      if (!decision.reversible || !["accepted", "changed", "applied"].includes(decision.status))
         return refuse(409, "invalid_state", "only an applied, reversible decision can be rolled back");
       decision.status = "rolled_back";
     } else if (verb === "notes") {

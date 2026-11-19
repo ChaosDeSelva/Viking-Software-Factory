@@ -31,6 +31,10 @@ import {
   CreateCrewRequestSchema,
   CreateMissionRequestSchema,
   CreateProjectRequestSchema,
+  PinDecisionLogRequestSchema,
+  PinDecisionLogResponseSchema,
+  DecisionLogBlockRequestSchema,
+  DecisionLogBlockResponseSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
   IDEMPOTENCY_HEADER,
@@ -87,6 +91,7 @@ describe("createMimirClient: every OpenAPI operation", () => {
     const { mission: open } = await client.missions.create({
       projectId: mission.projectId,
       objective: "stays open",
+      decisionLogAtVerification: true,
     });
 
     const requestSchemas: Record<
@@ -98,6 +103,8 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "PATCH /v1/crews/{id}/budget": UpdateBudgetRequestSchema,
       "PATCH /v1/missions/{id}/budget": UpdateBudgetRequestSchema,
       "POST /v1/tasks/{id}/verify": RetryTaskRequestSchema,
+      "POST /v1/projects/{id}/decision-log-blocks": DecisionLogBlockRequestSchema,
+      "POST /v1/missions/{id}/decision-log": PinDecisionLogRequestSchema,
       "POST /v1/projects": CreateProjectRequestSchema,
       "POST /v1/missions": CreateMissionRequestSchema,
       "POST /v1/missions/{id}/start": StartMissionRequestSchema,
@@ -137,6 +144,18 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "GET /v1/snapshot": () => client.snapshot(),
       "POST /v1/projects": () => client.projects.create({ name: "q", repoPath: "/q" }),
       "GET /v1/projects": () => client.projects.list(),
+      "POST /v1/projects/{id}/decision-log-blocks": () =>
+        client.projects.putDecisionLogBlock(mission.projectId, {
+          previous: null,
+          entries: [{ id: "policy", markdown: "Save timestamps in UTC." }],
+        }),
+      "POST /v1/missions/{id}/decision-log": () => {
+        server.state.missions.set(open.id, {
+          ...server.state.missions.get(open.id)!,
+          decisionLogRequested: true,
+        });
+        return client.missions.pinDecisionLog(open.id, { decisionLogRef: null });
+      },
       "POST /v1/missions": () =>
         client.missions.create({ projectId: mission.projectId, objective: "again" }),
       "GET /v1/missions": () => client.missions.list({ projectId: mission.projectId }),
@@ -191,6 +210,8 @@ describe("createMimirClient: every OpenAPI operation", () => {
       "GET /v1/health": HealthResponseSchema,
       "GET /v1/capabilities": CapabilitiesResponseSchema,
       "GET /v1/snapshot": SnapshotResponseSchema,
+      "POST /v1/projects/{id}/decision-log-blocks": DecisionLogBlockResponseSchema,
+      "POST /v1/missions/{id}/decision-log": PinDecisionLogResponseSchema,
       "POST /v1/projects": CreateProjectResponseSchema,
       "GET /v1/projects": ListProjectsResponseSchema,
       "POST /v1/missions": CreateMissionResponseSchema,

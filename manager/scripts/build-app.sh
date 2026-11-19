@@ -11,6 +11,7 @@ if [ -n "${VIKING_DEBUG:-}" ] && [ -n "${VIKING_SIGN_IDENTITY:-}" ]; then
  exit 1
 fi
 mkdir -p "$out"
+out=$(cd "$out" && pwd -P)
 swift=(xcrun swiftc -module-cache-path "$out/swift-cache" -parse-as-library -target arm64-apple-macosx13.0)
 # VIKING_DEBUG=1 builds without optimisation and lets Safari's Web Inspector attach to the factory window.
 if [ -n "${VIKING_DEBUG:-}" ]; then swift+=(-Onone -g -D DEBUG); else swift+=(-O); fi
@@ -22,7 +23,28 @@ mkdir -p "$build"
 if [ -f "$root/update-public-key.txt" ] && [ -z "${VIKING_UPDATE_PUBLIC_KEY:-}" ]; then
  export VIKING_UPDATE_PUBLIC_KEY="$(cat "$root/update-public-key.txt")"
 fi
-cargo build --locked --release --manifest-path "$root/Cargo.toml"
+# A dependency's panic location can otherwise include the build account's Cargo registry path.
+# Wrap rustc so target-specific flags, encoded arguments and compiler caches keep their settings.
+cat > "$build/remap-rustc" <<'SH'
+#!/bin/bash
+set -eu
+compiler=$1
+shift
+maps=()
+for directory in "$HOME" "${CARGO_HOME:-$HOME/.cargo}" "${RUSTUP_HOME:-$HOME/.rustup}" "$VIKING_MANAGER_ROOT" "$VIKING_MANAGER_TARGET"; do
+  maps+=("--remap-path-prefix=$directory=/build")
+  if [[ -d "$directory" ]]; then
+    maps+=("--remap-path-prefix=$(cd "$directory" && pwd -P)=/build")
+  fi
+done
+if [[ -n "${VIKING_UPSTREAM_WRAPPER:-}" ]]; then
+  exec "$VIKING_UPSTREAM_WRAPPER" "$compiler" "$@" "${maps[@]}"
+fi
+exec "$compiler" "$@" "${maps[@]}"
+SH
+chmod +x "$build/remap-rustc"
+VIKING_UPSTREAM_WRAPPER="${RUSTC_WRAPPER:-}" VIKING_MANAGER_ROOT="$root" VIKING_MANAGER_TARGET="$build/rust" \
+  RUSTC_WRAPPER="$build/remap-rustc" cargo build --locked --release --manifest-path "$root/Cargo.toml" --target-dir "$build/rust"
 app="$out/Viking Factory.app"
 # The companion carries the manager it embeds, so it reports that manager's version.
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$root/Cargo.toml" | head -n 1)
@@ -34,7 +56,18 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 "${swift[@]}" "$root/macos/main.swift" "$root/macos/FactoryLinks.swift" "$root/macos/FactoryWindow.swift" -framework AppKit -framework ServiceManagement -framework WebKit -o "$build/VikingFactory"
 cp "$build/VikingFactory" "$app/Contents/MacOS/VikingFactory"
-cp "$root/target/release/viking" "$app/Contents/Resources/viking"
+# Native dependencies also carry linker debug-map paths, which rustc cannot rewrite.
+xcrun strip -S -o "$app/Contents/Resources/viking" "$build/rust/release/viking"
+python3 - "$app/Contents/Resources/viking" "$HOME" "${CARGO_HOME:-$HOME/.cargo}" "${RUSTUP_HOME:-$HOME/.rustup}" "$root" "$build" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+binary = Path(sys.argv[1]).read_bytes()
+paths = {os.fsencode(candidate) for path in sys.argv[2:] for candidate in (path, os.path.realpath(path))}
+if any(path and path != b'/' and path in binary for path in paths):
+    sys.exit("The embedded manager contains a host build path.")
+PY
 cp "$root/../LICENSE" "$root/../NOTICE" "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

@@ -1,4 +1,8 @@
-import type { SqliteDatabase } from "@sindri/knowledge";
+import {
+  decideProjectDecision,
+  proposeProjectDecision,
+  type SqliteDatabase,
+} from "@sindri/knowledge";
 import { openDeliveryTestDb } from "./test-db.test-helpers.js";
 import { MimirClientFacade, MimirError } from "@sindri/mimir-client";
 import { approvedPlan, planTask } from "@sindri/mimir-client/testing";
@@ -79,6 +83,118 @@ function eventIds(db: SqliteDatabase, executionId: string): string[] {
 }
 
 describe("DeliveryLoop", () => {
+  it("pins choices accepted after dispatch through the verification request and resumes the same snapshot after a failed pin", async () => {
+    const h = await boot();
+    const plan = approvedPlan([planTask("impl")]);
+    const exec = await execute(h, plan);
+    const client = new MimirClientFacade({ db: h.db }).connect({
+      baseUrl: h.fake.url,
+      token: h.fake.token,
+    });
+    const accept = (title: string, at?: string) => {
+      const id = proposeProjectDecision(
+        h.db,
+        plan.projectId,
+        {
+          title,
+          decision: title,
+          rationale: "Project convention",
+          source: "human discussion",
+        },
+        "director",
+        at,
+      );
+      decideProjectDecision(h.db, plan.projectId, id, "accepted", "operator", at);
+    };
+    const pinPath = `/v1/missions/${exec.mimirMissionId}/decision-log`;
+    const missionCreate = h.fake.requests.find(
+      (r) => r.method === "POST" && r.path === "/v1/missions",
+    )!.body;
+    expect(missionCreate).toMatchObject({ decisionLogAtVerification: true });
+    expect(missionCreate).not.toHaveProperty("decisionLogRef");
+    expect(h.fake.requests.some((r) => r.path.endsWith("/decision-log-blocks"))).toBe(false);
+    accept("Choice after dispatch");
+    await client.start(exec.mimirMissionId);
+    await until(() => h.fake.events().some((e) => e.type === "mission.decision_log_requested"));
+    const request = h.fake.events().find((e) => e.type === "mission.decision_log_requested")!;
+    const later = new Date(Date.parse(request.occurredAt) + 1000).toISOString();
+    accept("Choice after request", later);
+    h.fake.failNext("POST", pinPath);
+    await expect(h.loop.run(exec.id)).rejects.toThrow();
+    expect(eventIds(h.db, exec.id)).not.toContain(request.id);
+    expect((await client.catchUp(exec.mimirMissionId)).events.map((e) => e.id)).toContain(
+      request.id,
+    );
+    const saved = h.db.prepare("SELECT entries_json FROM execution_decision_snapshots").get() as {
+      entries_json: string;
+    };
+    expect(saved.entries_json).toContain("Choice after dispatch");
+    expect(saved.entries_json).not.toContain("Choice after request");
+    accept("Choice after failed pin", later);
+    const retry = await h.newLoop().resume(exec.id);
+    expect(retry.status).toBe("verified_pending_review");
+    const uploads = h.fake.requests.filter((r) => r.path.endsWith("/decision-log-blocks"));
+    expect(uploads).toHaveLength(1);
+    expect(JSON.stringify(uploads[0]!.body)).toContain("Choice after dispatch");
+    expect(JSON.stringify(uploads[0]!.body)).not.toContain("Choice after request");
+    expect(JSON.stringify(uploads[0]!.body)).not.toContain("Choice after failed pin");
+    const pins = h.fake.requests.filter((r) => r.path === pinPath);
+    expect(pins).toHaveLength(2);
+    expect(pins[1]!.body).toEqual(pins[0]!.body);
+    expect(eventIds(h.db, exec.id)).toContain(request.id);
+    expect(h.db.prepare("SELECT 1 FROM execution_decision_snapshots").get()).toBeUndefined();
+  });
+
+  it("commits a concurrently replayed verification request once", async () => {
+    const h = await boot();
+    const exec = await execute(h, approvedPlan([planTask("impl")]));
+    const client = new MimirClientFacade({ db: h.db }).connect({
+      baseUrl: h.fake.url,
+      token: h.fake.token,
+    });
+    await client.start(exec.mimirMissionId);
+    await until(() => h.fake.events().some((e) => e.type === "mission.decision_log_requested"));
+    const results = await Promise.all([h.loop.resume(exec.id), h.newLoop().resume(exec.id)]);
+    expect(results.map((r) => r.status)).toEqual([
+      "verified_pending_review",
+      "verified_pending_review",
+    ]);
+    expect(
+      h.loop.events(exec.id).filter((e) => e.type === "mission.decision_log_requested"),
+    ).toHaveLength(1);
+    expect(h.fake.events().filter((e) => e.type === "mission.decision_log_pinned")).toHaveLength(1);
+  });
+
+  it("keeps a read-only research mission independent of the decision journal", async () => {
+    const h = await boot();
+    const plan = approvedPlan([planTask("research", { role: "investigator" })], {
+      work: { kind: "research" },
+    });
+    const exec = await execute(h, plan);
+    const mission = h.fake.requests.find((r) => r.method === "POST" && r.path === "/v1/missions")!;
+    expect(mission.body).not.toHaveProperty("decisionLogAtVerification");
+    await h.loop.run(exec.id);
+    expect(h.fake.events().some((e) => e.type === "mission.decision_log_requested")).toBe(false);
+  });
+
+  it("pins an empty journal before verification", async () => {
+    const h = await boot();
+    const exec = await execute(h, approvedPlan([planTask("impl")]));
+    await h.loop.run(exec.id);
+    const events = h.fake.events().map((e) => e.type);
+    const pin = events.indexOf("mission.decision_log_pinned");
+    expect(pin).toBeGreaterThan(events.indexOf("mission.decision_log_requested"));
+    expect(events.indexOf("task.verifying")).toBeLessThan(
+      events.indexOf("mission.decision_log_requested"),
+    );
+    expect(pin).toBeLessThan(events.indexOf("test.run_completed"));
+    expect(h.fake.requests.filter((r) => r.path.endsWith("/decision-log-blocks"))).toHaveLength(0);
+    expect(
+      h.fake.requests.find((r) => r.path === `/v1/missions/${exec.mimirMissionId}/decision-log`)
+        ?.body,
+    ).toEqual({ decisionLogRef: null });
+  });
+
   it("creates an execution with one row per plan task mapped to Mimir task ids", async () => {
     const h = await boot();
     const exec = await execute(h, threeTasks());
@@ -340,7 +456,7 @@ describe("DeliveryLoop fix round 1", () => {
         token: h.fake.token,
       });
       await mimir.decideApproval(h.fake.approvals()[0]!.id, "approved");
-      await until(() => h.fake.events().some((e) => e.type === "mission.completed"));
+      await until(() => h.fake.events().some((e) => e.type === "mission.decision_log_requested"));
       const result = await h.loop.resume(exec.id);
       expect(result.status).toBe("verified_pending_review");
       expect(h.loop.approvals(exec.id)[0]!.status).toBe("approved");

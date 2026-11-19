@@ -91,6 +91,16 @@
             "pattern": "^[0-9a-f]{7,64}$"
           }
         },
+        "decisionLogAtVerification": {
+          "description": "Wait for the coordinator to pin this project's accepted choices before the first verification.",
+          "type": "boolean",
+          "const": true
+        },
+        "decisionLogRef": {
+          "description": "Digest of this project’s immutable decision log at submission.",
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
         "tasks": {
           "type": "array",
           "items": {
@@ -264,6 +274,19 @@
                 "cancelled",
                 "failed"
               ]
+            },
+            "decisionLogAtVerification": {
+              "type": "boolean"
+            },
+            "decisionLogRequested": {
+              "type": "boolean"
+            },
+            "decisionLogPinned": {
+              "type": "boolean"
+            },
+            "decisionLogRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
             },
             "baseCommits": {
               "type": "array",

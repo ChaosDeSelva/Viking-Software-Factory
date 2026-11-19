@@ -1,6 +1,5 @@
 import React from 'react';
 import { Callout, Drawer, Link, Stack } from '@factory/ui';
-import { SINDRI_OVERVIEW } from './apps.js';
 
 const QUESTIONS = [
   'What does a stopped worker cost?',
@@ -13,7 +12,7 @@ const QUESTIONS = [
  * hands the operator to Sindri's Overview, where the "Ask the factory" Guide runs. Project IDs are
  * per app, so the operator picks the project again there.
  */
-export function AskDrawer({ open, onOpenChange, docsHref }) {
+export function AskDrawer({ open, onOpenChange, docsHref, sindriHref }) {
   return (
     <Drawer
       open={open}
@@ -37,7 +36,7 @@ export function AskDrawer({ open, onOpenChange, docsHref }) {
         </Stack>
         <Stack gap={3}>
           <a
-            href={SINDRI_OVERVIEW}
+            href={sindriHref}
             target="_blank"
             rel="noreferrer noopener"
             className="inline-flex h-control-md items-center justify-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-on-accent hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"

@@ -16,6 +16,14 @@ When a task's agent finishes, the task enters `verifying`. In that step Mimir, i
    `outside_worktree`); more than 200 entries emit one `artifact.collection_truncated`.
 3. Runs the verifier with the task id, mission id, worktree, base commit and observed head.
 
+## Project decisions in a change
+
+Create a coordinated change mission with `decisionLogAtVerification: true`. When the first writable task is ready to verify, Mimir records `mission.decision_log_requested` and waits. The coordinator freezes the project's accepted choices at that boundary and uploads them to `POST /v1/projects/:id/decision-log-blocks`. Each entry has a stable `id` and project-facing `markdown`. Send the previous block’s digest with the next block, starting with `previous: null`. A long entry can span consecutive fragments with the same ID. The verifier joins their Markdown without adding a separator.
+
+Pin the final digest with `POST /v1/missions/:id/decision-log`. An empty journal uses `{"decisionLogRef":null}`. The same pin survives restarts, retries and subsequent tasks. Clients that already have a fixed snapshot can pass `decisionLogRef` at mission creation. The digest keeps journal content out of dashboard snapshots.
+
+Before running checks, the verifier adds missing entries to the task worktree's `SPEC.md` under **Decision log**. The entry IDs preserve earlier entries and human edits on retry. Document tasks skip this step. The delivery patch comes from the verified result. Choices accepted after the verification boundary are eligible for the next change.
+
 ## Task modes
 
 A task created with `mode` (see `TaskMode` in [api.md](api.md)) changes this step:

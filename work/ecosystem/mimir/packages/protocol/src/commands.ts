@@ -6,6 +6,8 @@ import {
   CrewLimitsSchema,
   CrewMemberSchema,
   CrewSchema,
+  DecisionLogSchema,
+  DecisionLogRefSchema,
   MissionSchema,
   ProjectSchema,
   ReadDirsSchema,
@@ -72,6 +74,7 @@ const expectedVersion = z.number().int().min(0).optional();
 // Path params
 // ---------------------------------------------------------------------------
 
+export const ProjectIdParamsSchema = z.object({ id: ProjectIdSchema });
 export const MissionIdParamsSchema = z.object({ id: MissionIdSchema });
 export type MissionIdParams = z.infer<typeof MissionIdParamsSchema>;
 export const TaskIdParamsSchema = z.object({ id: TaskIdSchema });
@@ -103,6 +106,14 @@ export type UpdateProjectRequest = z.infer<typeof UpdateProjectRequestSchema>;
 
 export const UpdateProjectResponseSchema = z.object({ project: ProjectSchema });
 export type UpdateProjectResponse = z.infer<typeof UpdateProjectResponseSchema>;
+
+export const DecisionLogBlockRequestSchema = z.strictObject({
+  previous: DecisionLogRefSchema.nullable(),
+  entries: DecisionLogSchema.min(1),
+});
+export type DecisionLogBlockRequest = z.infer<typeof DecisionLogBlockRequestSchema>;
+export const DecisionLogBlockResponseSchema = z.object({ digest: DecisionLogRefSchema });
+export type DecisionLogBlockResponse = z.infer<typeof DecisionLogBlockResponseSchema>;
 
 export const ListProjectsResponseSchema = z.object({ projects: z.array(ProjectSchema) });
 export type ListProjectsResponse = z.infer<typeof ListProjectsResponseSchema>;
@@ -198,19 +209,33 @@ export const TaskInputSchema = z.strictObject({
 });
 export type TaskInput = z.infer<typeof TaskInputSchema>;
 
-export const CreateMissionRequestSchema = z.strictObject({
-  projectId: ProjectIdSchema,
-  objective: z.string().min(1),
-  budget: BudgetInputSchema.optional(),
-  /**
-   * Commits already in the project repository that tasks with no dependencies start from,
-   * instead of the default branch (several are combined, as dependency results are). Used to
-   * rework an earlier mission's verified results.
-   */
-  baseCommits: z.array(GitShaSchema).min(1).max(16).optional(),
-  /** The mission's task DAG, created with the mission (`dependsOn` may reference earlier ids). */
-  tasks: z.array(TaskInputSchema).optional(),
-});
+export const CreateMissionRequestSchema = z
+  .strictObject({
+    projectId: ProjectIdSchema,
+    objective: z.string().min(1),
+    budget: BudgetInputSchema.optional(),
+    /**
+     * Commits already in the project repository that tasks with no dependencies start from,
+     * instead of the default branch (several are combined, as dependency results are). Used to
+     * rework an earlier mission's verified results.
+     */
+    baseCommits: z.array(GitShaSchema).min(1).max(16).optional(),
+    decisionLogAtVerification: z
+      .literal(true)
+      .optional()
+      .describe(
+        "Wait for the coordinator to pin this project's accepted choices before the first verification.",
+      ),
+    decisionLogRef: DecisionLogRefSchema.optional().describe(
+      "Digest of this project’s immutable decision log at submission.",
+    ),
+    /** The mission's task DAG, created with the mission (`dependsOn` may reference earlier ids). */
+    tasks: z.array(TaskInputSchema).optional(),
+  })
+  .refine((mission) => !(mission.decisionLogAtVerification && mission.decisionLogRef), {
+    message: "Choose a decision log at creation or request it at verification.",
+    path: ["decisionLogRef"],
+  });
 export type CreateMissionRequest = z.infer<typeof CreateMissionRequestSchema>;
 
 export const CreateMissionResponseSchema = z.object({
@@ -219,6 +244,13 @@ export const CreateMissionResponseSchema = z.object({
   tasks: z.array(TaskSchema).optional(),
 });
 export type CreateMissionResponse = z.infer<typeof CreateMissionResponseSchema>;
+
+export const PinDecisionLogRequestSchema = z.strictObject({
+  decisionLogRef: DecisionLogRefSchema.nullable(),
+});
+export type PinDecisionLogRequest = z.infer<typeof PinDecisionLogRequestSchema>;
+export const PinDecisionLogResponseSchema = z.object({ mission: MissionSchema });
+export type PinDecisionLogResponse = z.infer<typeof PinDecisionLogResponseSchema>;
 
 export const StartMissionRequestSchema = z.strictObject({ expectedVersion });
 export type StartMissionRequest = z.infer<typeof StartMissionRequestSchema>;

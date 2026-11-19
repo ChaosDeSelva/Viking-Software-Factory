@@ -1,0 +1,145 @@
+{
+  "operation": "POST /v1/missions/{id}/decision-log",
+  "method": "POST",
+  "path": "/v1/missions/{id}/decision-log",
+  "status": 200,
+  "request": {
+    "url": "/v1/missions/msn_00000000000000000000000003/decision-log",
+    "body": {
+      "decisionLogRef": null
+    },
+    "headers": [
+      "authorization",
+      "idempotency-key"
+    ]
+  },
+  "response": {
+    "status": 200,
+    "contentType": "application/json",
+    "body": {
+      "mission": {
+        "id": "msn_00000000000000000000000003",
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "version": 2,
+        "projectId": "prj_00000000000000000000000001",
+        "objective": "stays open",
+        "status": "draft",
+        "decisionLogAtVerification": true,
+        "decisionLogRequested": true,
+        "decisionLogPinned": true
+      }
+    }
+  },
+  "schemas": {
+    "request": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "decisionLogRef": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "decisionLogRef"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "mission": {
+          "$ref": "#/$defs/Mission"
+        }
+      },
+      "required": [
+        "mission"
+      ],
+      "additionalProperties": false,
+      "$defs": {
+        "Mission": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+            },
+            "version": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "projectId": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "objective": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "paused",
+                "completed",
+                "cancelled",
+                "failed"
+              ]
+            },
+            "decisionLogAtVerification": {
+              "type": "boolean"
+            },
+            "decisionLogRequested": {
+              "type": "boolean"
+            },
+            "decisionLogPinned": {
+              "type": "boolean"
+            },
+            "decisionLogRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "baseCommits": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{7,64}$"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "createdAt",
+            "updatedAt",
+            "version",
+            "projectId",
+            "objective",
+            "status"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

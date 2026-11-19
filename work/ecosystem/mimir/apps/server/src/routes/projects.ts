@@ -4,8 +4,9 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import {
   CreateProjectRequestSchema,
+  DecisionLogBlockRequestSchema,
   MimirError,
-  ProjectIdSchema,
+  ProjectIdParamsSchema,
   UpdateProjectRequestSchema,
   newId,
   type CreateProjectResponse,
@@ -14,15 +15,16 @@ import {
   type ProjectSettings,
   type UpdateProjectResponse,
 } from "@mimir/protocol";
-import { z } from "zod";
 import {
   classifyCommand,
+  hashRequest,
   findCredentialShapes,
   redactPayload,
   type CredentialShape,
   type PayloadRedactor,
 } from "@mimir/core";
 import type { FastifyInstance } from "fastify";
+import { MAX_DECISION_LOG_BLOCK_BYTES } from "../decision-log-store.js";
 import { emitProjected } from "../emit.js";
 import { classifyOptions } from "../orchestrator/commands.js";
 import { parseWith } from "../errors.js";
@@ -201,8 +203,6 @@ function assertTestCommandAllowed(settings: ProjectSettings, repoPath: string): 
   );
 }
 
-const ProjectIdParamsSchema = z.object({ id: ProjectIdSchema });
-
 export function projectRoutes(app: FastifyInstance): void {
   const ctx = app.mimir;
 
@@ -241,6 +241,23 @@ export function projectRoutes(app: FastifyInstance): void {
       const response: CreateProjectResponse = { project };
       return { status: 201, body: response, target: project.id };
     }),
+  );
+
+  app.post(
+    "/v1/projects/:id/decision-log-blocks",
+    { bodyLimit: 2 * MAX_DECISION_LOG_BLOCK_BYTES },
+    idempotent(
+      ctx,
+      "project.putDecisionLogBlock",
+      (request) => {
+        const { id } = parseWith(ProjectIdParamsSchema, request.params);
+        if (!ctx.readModel.projects.has(id))
+          throw new MimirError("not_found", `project ${id} not found`);
+        const block = parseWith(DecisionLogBlockRequestSchema, request.body);
+        return { status: 200, body: { digest: ctx.decisionLogs.put(id, block) }, target: id };
+      },
+      (body) => ({ bodyHash: hashRequest("decision-log-block", body) }),
+    ),
   );
 
   /**

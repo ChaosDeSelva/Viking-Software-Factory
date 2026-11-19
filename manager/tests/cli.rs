@@ -89,7 +89,7 @@ fn help_and_argument_errors_exit_with_failure() {
         (vec!["start"], "Nothing installed"),
         (vec!["start", "skidbladnir"], "Nothing installed"),
         (vec!["open", "hulder"], "Nothing installed"),
-        (vec!["logs"], "No such file"),
+        (vec!["logs"], "No core log has been written yet"),
     ] {
         assert!(err(&stub, &home, &args).contains(message), "{args:?}");
     }
@@ -261,6 +261,7 @@ fn services_start_report_and_stop_through_launchd_with_escaped_plists() {
         label(&home, "core")
     )));
     assert!(plist.contains("/opt/&lt;odd&gt;&amp;&quot;bin&quot;"));
+    assert!(!plist.contains("SKIDBLADNIR_PORT"));
     for key in [
         "FACTORY_DATA_DIR",
         "FACTORY_ACCESS_FILE",
@@ -347,6 +348,17 @@ fn services_start_report_and_stop_through_launchd_with_escaped_plists() {
 }
 
 #[test]
+fn startup_allows_a_slow_login_before_the_first_service_binds() {
+    let stub = Stub::new();
+    let t = tempfile::tempdir().unwrap();
+    let (home, ports) = managed(&stub, t.path());
+    install(&stub, &home, t.path(), "0.2.0");
+    listen_core(&stub, ports);
+    stub.write("delay-listener-ms", "21500");
+    assert_eq!(ok(&stub, &home, &["start"])["running"], true);
+}
+
+#[test]
 fn start_refuses_unsafe_or_unhealthy_states() {
     let stub = Stub::new();
     let t = tempfile::tempdir().unwrap();
@@ -361,6 +373,12 @@ fn start_refuses_unsafe_or_unhealthy_states() {
     stub.flag("fail-bootstrap", true);
     assert!(err(&stub, &home, &["start"]).contains("bootstrap refused"));
     stub.flag("fail-bootstrap", false);
+    stub.write(
+        "login-error",
+        "Claude Code is signed out. Run claude auth login.",
+    );
+    assert!(err(&stub, &home, &["start"]).contains("Run claude auth login"));
+    stub.flag("login-error", false);
     // Loaded but not answering health checks.
     stub.flag(&format!("{}.loaded", label(&home, "core")), true);
     assert!(err(&stub, &home, &["start"]).contains("loaded but unhealthy"));
@@ -397,6 +415,13 @@ fn skidbladnir_starts_separately_and_only_when_installed() {
         &home,
         &["install", manifest.to_str().unwrap(), "skidbladnir"],
     );
+    listen_core(&stub, ports);
+    ok(&stub, &home, &["start"]);
+    let core = fs::read_to_string(stub.state().join("core.plist.seen")).unwrap();
+    assert!(core.contains(&format!(
+        "<key>SKIDBLADNIR_PORT</key><string>{}</string>",
+        ports[3]
+    )));
     let busy = std::net::TcpListener::bind(("127.0.0.1", ports[3])).unwrap();
     assert!(err(&stub, &home, &["start", "skidbladnir"]).contains("port is occupied"));
     drop(busy);
@@ -407,16 +432,29 @@ fn skidbladnir_starts_separately_and_only_when_installed() {
         json!({"started":true})
     );
     let plist = fs::read_to_string(stub.state().join("skidbladnir.plist.seen")).unwrap();
-    assert!(plist.contains(&format!("<key>PORT</key><string>{}</string>", ports[3])));
+    for (key, port) in ["MIMIR_PORT", "SINDRI_PORT", "HEIMDALL_PORT", "PORT"]
+        .into_iter()
+        .zip(ports)
+    {
+        assert!(plist.contains(&format!("<key>{key}</key><string>{port}</string>")));
+    }
     assert!(plist.contains(&format!("{}", home.join("data/skidbladnir").display())));
     assert_eq!(
         ok(&stub, &home, &["start", "skidbladnir"]),
         json!({"running":true})
     );
-    assert_eq!(ok(&stub, &home, &["status"])["skidbladnir_loaded"], true);
+    let status = ok(&stub, &home, &["status"]);
+    assert_eq!(status["skidbladnir_loaded"], true);
+    assert_eq!(status["skidbladnir_healthy"], true);
     stub.flag("worker-ok", false);
+    let status = ok(&stub, &home, &["status"]);
+    assert_eq!(status["skidbladnir_loaded"], true);
+    assert_eq!(status["skidbladnir_healthy"], false);
     assert!(err(&stub, &home, &["start", "skidbladnir"]).contains("loaded but unhealthy"));
     // Stopping waits for the worker port too.
+    fs::create_dir_all(home.join("data/mimir")).unwrap();
+    fs::write(home.join("data/mimir/auth-token"), "fixture").unwrap();
+    stub.write("missions.json", r#"{"missions":[]}"#);
     assert_eq!(ok(&stub, &home, &["stop"]), json!({"stopped":true}));
     assert!(std::net::TcpStream::connect(("127.0.0.1", ports[3])).is_err());
     assert!(err(&stub, &home, &["start", "skidbladnir"]).contains("did not become ready"));

@@ -27,6 +27,7 @@ function stubWorktrees(dir: string): WorktreePort {
       branch: `mimir/${input.crewSlug}/${input.taskId}-${input.taskSlug}`,
     }),
     baseRefOf: () => "HEAD",
+    applyDecisionLog: () => Promise.reject(new Error("not in the bench")),
     checkpoint: () => Promise.resolve("0".repeat(40)),
     exportResult: () =>
       Promise.resolve({ baseSha: "0".repeat(40), resultCommit: "0".repeat(40), patch: "" }),

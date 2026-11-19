@@ -21,7 +21,13 @@ try {
  const bundled='/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
  const codex=process.env.MIMIR_CODEX_BIN || (existsSync(bundled)?bundled:'codex');
  const claude=process.env.MIMIR_CLAUDE_BIN || 'claude';
- checkLogins(runtimeChoice,{codex,claude},execFileSync);
+ try {
+   checkLogins(runtimeChoice, { codex, claude }, execFileSync);
+ } catch (error) {
+   const errorFile = process.env.FACTORY_STARTUP_ERROR_FILE;
+   if (errorFile) writeFileSync(errorFile, error.message, { mode: 0o600 });
+   throw error;
+ }
  console.log('Planner login and applicable local agent login checks passed. Runtime: '+runtimeChoice);
  // Mimir serves its own web app only when given a built one; without it :7700 is API-only.
  const mimirWeb=join(ecosystem,'mimir/apps/web/dist');
@@ -40,7 +46,8 @@ try {
  console.log('Codex implements; Claude Code plans and reviews. Change agents in Settings.');
  if(!process.env.FACTORY_QUIET_AUTH)console.log('Access token (paste into the browser): '+readFileSync(sindri.tokenPath,'utf8').trim());
  if(!process.env.FACTORY_QUIET_AUTH)console.log('Approval pairing code (for approving your plans): '+pairing);
- heimdall = await startHeimdall({env:{HEIMDALL_PORT:process.env.HEIMDALL_PORT || '4320',HEIMDALL_DATA_DIR:join(root,'heimdall'),MIMIR_URL:`http://127.0.0.1:${process.env.MIMIR_PORT || '7700'}`,MIMIR_TOKEN:mtoken,SINDRI_URL:sindri.url,SINDRI_TOKEN:readFileSync(sindri.tokenPath,'utf8').trim()}});
+ const workerUrl = process.env.SKIDBLADNIR_URL || (process.env.SKIDBLADNIR_PORT ? `http://127.0.0.1:${process.env.SKIDBLADNIR_PORT}` : undefined);
+ heimdall = await startHeimdall({env:{SKIDBLADNIR_URL:workerUrl,HEIMDALL_PORT:process.env.HEIMDALL_PORT || '4320',HEIMDALL_DATA_DIR:join(root,'heimdall'),MIMIR_URL:`http://127.0.0.1:${process.env.MIMIR_PORT || '7700'}`,MIMIR_TOKEN:mtoken,SINDRI_URL:sindri.url,SINDRI_TOKEN:readFileSync(sindri.tokenPath,'utf8').trim()}});
  // A new file renamed into place: writeFileSync's mode would not tighten a file that already exists.
  if(process.env.FACTORY_ACCESS_FILE){const temporary=process.env.FACTORY_ACCESS_FILE+'.tmp';rmSync(temporary,{force:true});writeFileSync(temporary,JSON.stringify({heimdallToken:heimdall.token,operatorCode:heimdall.operatorCode,sindriPairingCode:pairing}),{mode:0o600,flag:'wx'});renameSync(temporary,process.env.FACTORY_ACCESS_FILE);}
  console.log('Heimdall command center: '+heimdall.url);

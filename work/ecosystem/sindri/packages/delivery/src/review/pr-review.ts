@@ -1,6 +1,11 @@
 import { PR_REVIEW_JSON, PR_REVIEW_MARKDOWN } from "@sindri/mimir-client";
 import { createHash } from "node:crypto";
-import { containsSecret, SECRET_CONTENT_PATTERNS } from "@sindri/knowledge";
+import {
+  containsSecret,
+  SECRET_CONTENT_PATTERNS,
+  PRIVATE_TOOLING,
+  LESSON_REFERENCE,
+} from "@sindri/knowledge";
 import { z } from "zod";
 import type { GateFailure } from "../gates/brokkr-report.js";
 import { readVerifiedArtifact, type RecordedArtifact } from "../gates/evidence.js";
@@ -471,11 +476,7 @@ export function findMarkedReview<T extends { body?: string | null }>(
 
 // ------------------------------------------------------------------------------ Leak check
 
-/** Private local tooling that must never reach a posted review. */
-export const PRIVATE_TOOLING =
-  /feedback[\s-]?graph|\bfg__|check_before_done|report_feedback|localhost:8787|127\.0\.0\.1:8787/i;
-/** A citation of an operator lesson (`lesson:<id>`). */
-export const LESSON_REFERENCE = /\blesson:[A-Za-z0-9_.-]{2,}/i;
+export { PRIVATE_TOOLING, LESSON_REFERENCE } from "@sindri/knowledge";
 
 export type LeakCheck =
   { ok: true } | { ok: false; rule: string; findingId: string | null; field: PostedText["field"] };

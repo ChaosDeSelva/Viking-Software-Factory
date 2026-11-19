@@ -73,6 +73,25 @@ function renderDetail(client: ReturnType<typeof mockClient>, id: string) {
 }
 
 describe("MissionDetail", () => {
+  it("explains a verification wait until the coordinator confirms the journal", async () => {
+    const m = mission({ decisionLogAtVerification: true });
+    const client = mockClient({ snapshot: vi.fn(async () => snapshot({ missions: [m] })) });
+    renderDetail(client, m.id);
+    await waitFor(() => expect(client.streamController.calls).toHaveLength(1));
+    act(() =>
+      client.streamController.push(
+        event("mission.decision_log_requested", {}, { missionId: m.id }),
+      ),
+    );
+    expect(await screen.findByText("Waiting for project decisions")).toBeTruthy();
+    act(() =>
+      client.streamController.push(
+        event("mission.decision_log_pinned", { decisionLogRef: null }, { missionId: m.id }),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText("Waiting for project decisions")).toBeNull());
+  });
+
   it("shows header with completed/total progress and a Plan DAG", async () => {
     const { m, client } = setup();
     const { container } = renderDetail(client, m.id);

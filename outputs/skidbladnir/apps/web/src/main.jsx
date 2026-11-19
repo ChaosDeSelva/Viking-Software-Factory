@@ -75,7 +75,7 @@ function App() {
   const global = route.page === 'docs';
 
   const here = window.location.origin + '/';
-  const apps = switcherApps(here, project);
+  const apps = switcherApps(here, project, fleet.data?.appOrigins);
   const tabs = [
     { id: 'fleet', label: 'Worker fleet', href: href.fleet() },
     { id: 'launch', label: 'Launch', href: href.launch() },
@@ -158,7 +158,12 @@ function App() {
             </Suspense>
           )}
           {route.page === 'not-found' && <NotFoundPage />}
-          <AskDrawer open={askOpen} onOpenChange={setAskOpen} docsHref={appHref(docsTarget)} />
+          <AskDrawer
+            sindriHref={apps.find((app) => app.id === 'sindri').href}
+            open={askOpen}
+            onOpenChange={setAskOpen}
+            docsHref={appHref(docsTarget)}
+          />
         </AppShell>
       </GlossaryProvider>
     </LinkProvider>

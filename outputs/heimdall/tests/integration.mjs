@@ -175,7 +175,7 @@ try {
   assert.equal(snap.mimir.tasks[0].priority, 80);
   const { chromium } = await import("@playwright/test");
   browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext();
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
   const split = cookie.indexOf("=");
   await context.addCookies([
     {
@@ -188,9 +188,10 @@ try {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(h.url);
+
   await page
-    .getByRole("banner")
-    .getByRole("button", { name: "New work", exact: true })
+    .getByRole("navigation", { name: "Project pages" })
+    .getByRole("link", { name: /^In progress(?: \d+)?$/ })
     .click();
   await page.getByRole("button", { name: new RegExp(plan.id) }).click();
   await page

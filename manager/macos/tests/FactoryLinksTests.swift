@@ -10,6 +10,13 @@ struct FactoryLinksTests {
     }
 
     static func main() {
+        let factory = "Viking-Software-Factory"
+        let release: [[String: Any]] = [["repo": factory, "release": ["tag_name": "v0.3.0"]]]
+        check(factoryUpdateSummary([:], feeds: [["repo": factory, "error": "offline"]]).contains("Couldn’t check"), true, "unknown release status")
+        check(factoryUpdateSummary([:], feeds: [["repo": factory, "release": NSNull()]]).contains("No factory release"), true, "empty channel")
+        check(factoryUpdateSummary(["available": false, "installable": true], feeds: release).contains("No newer"), true, "already installed")
+        check(factoryUpdateSummary(["available": true, "installable": false], feeds: release).contains("no compatible"), true, "source-only release")
+        check(factoryUpdateSummary(["available": true, "installable": true], feeds: release).contains("install v0.3.0"), true, "installable release")
         let ports = FactoryPorts()
         func decide(_ text: String, main: Bool = true, in tab: FactoryTab = .heimdall) -> FactoryLinks.Decision {
             FactoryLinks.decide(URL(string: text), mainFrame: main, in: tab, ports: ports)

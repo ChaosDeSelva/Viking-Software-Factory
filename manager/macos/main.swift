@@ -20,6 +20,7 @@ struct FactoryState {
     var components: [String] = []
     var healthy = false
     var loaded = false
+    var workersLoaded = false
     var workersRunning = false
     var pendingRecovery = false
     var channel = "preview"
@@ -32,7 +33,8 @@ struct FactoryState {
         components = install?["components"] as? [String] ?? []
         healthy = value["core_healthy"] as? Bool == true
         loaded = value["core_loaded"] as? Bool == true
-        workersRunning = value["skidbladnir_loaded"] as? Bool == true
+        workersLoaded = value["skidbladnir_loaded"] as? Bool == true
+        workersRunning = value["skidbladnir_healthy"] as? Bool == true
         pendingRecovery = value["pending_recovery"] as? Bool == true
         channel = value["channel"] as? String ?? "preview"
     }
@@ -210,7 +212,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
 
         startStop = button("Start factory", #selector(startOrStop), tip: "Starts Sindri, Mimir and Heimdall as background services.")
         openHeimdallButton = button("Open Heimdall", #selector(openHeimdall), tip: Self.heimdallTip)
-        codesButton = button("Show sign-in codes", #selector(access), tip: "Shows the Heimdall access token, the operator code that unlocks actions in Heimdall, and the Sindri pairing code for approvals. They change each time the factory starts.")
+        codesButton = button("Show sign-in codes", #selector(access), tip: "Shows the Heimdall access token for sign-in, the operator code for actions in Heimdall, and the Sindri pairing code for approvals.")
         healthButton = button("Check health", #selector(doctor), tip: "Checks that Git, Codex and Claude Code are installed and signed in, and that the factory's services answer.")
         _ = section("Everyday", "Start the factory, open it, and sign in.", [row([startStop, openHeimdallButton]), row([codesButton, healthButton])], in: root)
 
@@ -229,7 +231,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         moreRowRef = moreRow
 
         let openSindri = button("Open Sindri", #selector(openSindri), tip: "Opens Sindri, where specs and plans are approved, in the factory window.")
-        let openMimir = button("Open Mimir", #selector(openMimir), tip: "Opens Mimir, the factory's memory, in the factory window.")
+        let openMimir = button("Open Mimir", #selector(openMimir), tip: "Open Mimir to inspect agent runs, tasks and events.")
         let openDocs = button("Open docs", #selector(openDocs), tip: "Opens the factory's documentation in the factory window.")
         let inBrowser = NSPopUpButton(frame: .zero, pullsDown: true)
         inBrowser.addItem(withTitle: "Open in browser")
@@ -313,11 +315,19 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         openHeimdallButton.isEnabled = s.installed
         openHeimdallButton.toolTip = s.installed ? Self.heimdallTip : "Install the factory first."
         pageButtons.forEach { $0.isEnabled = s.installed }
-        codesButton.isEnabled = s.installed
+        codesButton.isEnabled = s.healthy
+        codesButton.toolTip = s.healthy
+            ? "Shows the current sign-in and approval codes."
+            : "Start the factory and wait until it is ready to view sign-in codes."
 
         workersSection.isHidden = !(s.hasWorkers || s.hasHulder)
         workersButton.isHidden = !s.hasWorkers; openWorkersButton.isHidden = !s.hasWorkers
-        workersButton.title = s.workersRunning ? "Workers running" : "Start workers"
+        let showWorkerLogs = s.workersLoaded && !s.workersRunning
+        workersButton.title = showWorkerLogs ? "View worker logs" : (s.workersRunning ? "Workers running" : "Start workers")
+        workersButton.action = showWorkerLogs ? #selector(workerLogs) : #selector(startWorkers)
+        workersButton.toolTip = showWorkerLogs
+            ? "Skidbladnir is loaded but its dashboard has not answered. Open its log for details."
+            : "Starts Skidbladnir, which manages worker machines using the simulator unless you configure AWS."
         workersButton.isEnabled = s.hasWorkers && !s.workersRunning
         openWorkersButton.isEnabled = s.hasWorkers
         hulderButton.isHidden = !s.hasHulder
@@ -325,7 +335,7 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         installUpdateButton.isEnabled = updateAvailable && !s.pendingRecovery
         installUpdateButton.toolTip = updateAvailable
             ? "Downloads the newer release, verifies its signature, backs up your data and switches over. Waits until no run is in progress."
-            : "No newer release found yet. Press Check for updates."
+            : "Choose Check for updates to look for an installable factory release."
         undoButton.isEnabled = s.installed && !s.pendingRecovery
         recoverButton.isEnabled = s.pendingRecovery
         recoverButton.toolTip = s.pendingRecovery
@@ -375,7 +385,6 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
         guard !busy else { return }
         busy = true; controls.forEach { $0.isEnabled = false }
         if stateKnown { factoryWindowController?.apply(state, busy: true) }
-        // Codes change when the factory restarts; never leave old ones one click away.
         if args != ["access"] { codesRow.isHidden = true; codes = [:] }
         headline.stringValue = working
         execute(args) { ok, value, message in
@@ -411,17 +420,21 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
                 + "Sindri pairing code (for approvals): \(shown["pairing"]!)\n"
                 + "Sindri access token: \(shown["sindri"]!)\n"
                 + "Mimir access token: \(shown["mimir"]!)\n\n"
-                + "The Heimdall token, operator code and pairing code change each time the factory starts."
+                + "The Heimdall access token and operator code are saved across restarts. Use the current Sindri pairing code for approvals."
+        }
+        if let log = value["local_log"] as? String {
+            return log.isEmpty ? "The service hasn't written any log entries yet." : log
         }
         if value["installation"] != nil { return FactoryState(value).headline }
         if let repositories = value["repositories"] as? [[String: Any]] {
-            let found = (value["installable"] as? Bool == true)
-            return (found ? "A newer factory release is available. Press Install update when ready." : "You have the latest release on this channel.")
+            return factoryUpdateSummary(value, feeds: repositories)
                 + "\n\nReleases checked:\n" + repositories.map { repo in
                     let release = repo["release"] as? [String: Any]
                     return "• " + (repo["repo"] as? String ?? "Project") + ": " + (repo["error"] as? String ?? release?["tag_name"] as? String ?? "none published")
                 }.joined(separator: "\n")
         }
+        if value["started"] as? Bool == true { return "Workers are ready. Choose Open workers to view the dashboard." }
+        if value["stopped"] as? Bool == true { return "Factory services are stopped." }
         if value["running"] as? Bool == true { return "Running." }
         if value["running"] as? Bool == false { return "Stopped." }
         return message
@@ -438,8 +451,9 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     @objc private func startOrStop() {
         if state.running {
             confirm("Stop the factory?", "Sindri, Mimir and Heimdall stop until you start them again. The manager refuses while a run is in progress.") { self.act(["stop"], working: "Stopping the factory…") }
-        } else { act(["start"], working: "Starting the factory…") }
+        } else { startFactory() }
     }
+    private func startFactory() { act(["start"], working: "Checking agent sign-ins and starting services…") }
     @objc private func installBundle() {
         let bundled = Bundle.main.resourceURL!.appendingPathComponent("bundle/factory-manifest.json")
         let chosen: URL
@@ -501,12 +515,17 @@ final class FactoryDelegate: NSObject, NSApplicationDelegate {
     @objc private func access() { act(["access"], working: "Reading the sign-in codes…") }
     @objc private func doctor() { act(["doctor"], working: "Checking health…") }
     @objc private func startWorkers() { act(["start", "skidbladnir"], working: "Starting workers…") }
+    @objc private func workerLogs() {
+        showWindow()
+        act(["logs", "skidbladnir"], working: "Reading worker logs…")
+    }
     private static let heimdallTip = "Opens the command center in the factory window. Sign in with the code from Show sign-in codes."
     private var factoryWindow: FactoryWindowController {
         if let existing = factoryWindowController { return existing }
         let controller = FactoryWindowController()
-        controller.onStart = { [weak self] in if self?.state.running == false { self?.act(["start"], working: "Starting the factory…") } }
+        controller.onStart = { [weak self] in if self?.state.running == false { self?.startFactory() } }
         controller.onStartWorkers = { [weak self] in self?.startWorkers() }
+        controller.onWorkerLogs = { [weak self] in self?.workerLogs() }
         controller.onShowCompanion = { [weak self] in self?.showWindow() }
         controller.onRefresh = { [weak self] in self?.refresh() }
         if stateKnown { controller.apply(state, busy: busy) } else if let statusError { controller.statusFailed(statusError) }

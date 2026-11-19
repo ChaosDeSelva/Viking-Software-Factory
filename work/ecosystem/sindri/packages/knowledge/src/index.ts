@@ -24,6 +24,8 @@ export {
 export { hardenedGitEnv, HARDENED_GIT_CONFIG } from "./git-safety.js";
 export {
   containsSecret,
+  PRIVATE_TOOLING,
+  LESSON_REFERENCE,
   redactSecrets,
   secretLineRanges,
   SECRET_CONTENT_PATTERNS,
@@ -80,3 +82,14 @@ export {
   type SkillListing,
   type SkillSkipReason,
 } from "./guidance.js";
+
+export {
+  acceptedDecisionContext,
+  decideProjectDecision,
+  DesignProposalSchema,
+  projectDecisionLog,
+  projectDecisionLogSnapshot,
+  proposeProjectDecision,
+  type DesignProposal,
+  type ProjectDecision,
+} from "./decision-log.js";

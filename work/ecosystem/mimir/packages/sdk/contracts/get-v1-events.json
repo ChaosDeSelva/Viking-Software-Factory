@@ -46,7 +46,8 @@
           "missionId": "msn_00000000000000000000000003",
           "payload": {
             "projectId": "prj_00000000000000000000000001",
-            "objective": "stays open"
+            "objective": "stays open",
+            "decisionLogAtVerification": true
           }
         }
       ],
@@ -120,6 +121,8 @@
               "type": "string",
               "enum": [
                 "mission.created",
+                "mission.decision_log_requested",
+                "mission.decision_log_pinned",
                 "mission.started",
                 "mission.paused",
                 "mission.resumed",

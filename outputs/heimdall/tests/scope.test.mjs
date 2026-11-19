@@ -233,6 +233,12 @@ test("routes: every page has a path, old links still land, the project rides alo
 
 test("the app switcher links to the other apps' landing pages without Heimdall's project ID", async () => {
   const { switcherApps } = await import("../apps/web/src/lib/apps.ts");
+  const origins = { sindri: "http://127.0.0.1:44310", mimir: "http://127.0.0.1:47700" };
+  const { sindriDecisionLogHref } = await import("../apps/web/src/lib/apps.ts");
+  assert.equal(sindriDecisionLogHref("a+b", origins), origins.sindri + "/#/autonomy?project=a%2Bb");
+  assert.deepEqual(switcherApps("/", origins).map((app) => app.href), [
+    origins.sindri + "/#/overview", "/", origins.mimir + "/",
+  ]);
   const links = Object.fromEntries(
     switcherApps("/?project=prj_a").map((a) => [a.id, a.href]),
   );

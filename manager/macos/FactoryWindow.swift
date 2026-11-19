@@ -89,6 +89,7 @@ final class FactoryNoticeView: NSVisualEffectView {
 final class FactoryWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate, NSMenuItemValidation, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
     var onStart: () -> Void = {}
     var onStartWorkers: () -> Void = {}
+    var onWorkerLogs: () -> Void = {}
     var onShowCompanion: () -> Void = {}
     var onRefresh: () -> Void = {}
 
@@ -245,6 +246,9 @@ final class FactoryWindowController: NSWindowController, NSWindowDelegate, NSToo
         } else if current == .skidbladnir {
             if !s.hasWorkers {
                 placeholder.configure(symbol: "server.rack", title: "Workers aren't installed", message: "Skidbladnir is optional. Reinstall the factory bundle with it selected to use workers.", action: companion)
+            } else if s.workersLoaded {
+                placeholder.configure(symbol: "stethoscope", title: "The worker dashboard hasn't answered", message: "Skidbladnir is loaded. Its logs show startup progress and errors.",
+                                      action: .init(title: "View worker logs", tip: "Shows the Skidbladnir log in the companion.", enabled: !busy) { [weak self] in self?.onWorkerLogs() })
             } else {
                 placeholder.configure(symbol: "server.rack", title: "Workers are stopped", message: "Start Skidbladnir to manage worker machines. It simulates them unless you configure AWS.",
                                       action: .init(title: busy ? "Working…" : "Start workers", tip: "Starts Skidbladnir as a background service.", enabled: !busy) { [weak self] in self?.onStartWorkers() })

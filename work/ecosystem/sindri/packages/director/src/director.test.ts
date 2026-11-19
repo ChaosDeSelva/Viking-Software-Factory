@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openIntake, type Intake } from "@sindri/intake";
-import { openKnowledge, type Knowledge } from "@sindri/knowledge";
+import {
+  decideProjectDecision,
+  openKnowledge,
+  projectDecisionLog,
+  type Knowledge,
+} from "@sindri/knowledge";
 import { openSpecs, type Specs } from "@sindri/specs";
 import { createTempRepo, type TempRepo } from "@sindri/testing";
 import { openDirector, type ContextItem, type Director, type DraftOutput } from "./director.js";
@@ -155,6 +160,61 @@ describe("Director", () => {
             model: "claude-opus-5-5",
             usage: { inputTokens: 1000, outputTokens: 400 },
           };
+
+  it("proposes only sourced design choices when a draft is saved", async () => {
+    const { d } = director(
+      drafting((ctx) => {
+        const cited = [...ctx.keys()].find((key) => key.startsWith("intake:"))!;
+        const choice = {
+          title: "Stream reports",
+          decision: "Stream CSV rows",
+          rationale: "Bound memory",
+          citations: [cited],
+        };
+        return {
+          designDecisions: [
+            choice,
+            choice,
+            { ...choice, title: "Unverified choice", citations: ["unknown"] },
+          ],
+        };
+      }),
+    );
+    const { spec } = await d.draftSpec({ projectId, request: "Add CSV export for reports" });
+    const choices = projectDecisionLog(k.db, projectId).entries.filter(
+      (e) => e.actor === "Director",
+    );
+    expect(choices).toHaveLength(1);
+    expect(choices[0]).toMatchObject({
+      title: "Stream reports",
+      status: "proposed",
+      source: expect.stringContaining(spec.id),
+    });
+    expect(d.loadContext(projectId, "Stream reports").items.map((i) => i.id)).not.toContain(
+      "decision:" + choices[0]!.id,
+    );
+    decideProjectDecision(k.db, projectId, choices[0]!.id, "accepted", "approver");
+    const next = director(
+      drafting((ctx) => ({
+        designDecisions: [
+          {
+            title: "Paginate reports",
+            decision: "Return pages",
+            rationale: "Readers request a page at a time",
+            citations: [[...ctx.keys()].find((k) => k.startsWith("intake:"))!],
+            supersedes: "decision:" + choices[0]!.id,
+          },
+        ],
+      })),
+    );
+    await next.d.draftSpec({ projectId, request: "Display monthly reports" });
+    const draftCall = next.provider.calls.find((c) => c.metadata?.purpose === "draft_spec")!;
+    expect(draftCall.messages[0]?.content).toContain("Stream CSV rows");
+    expect(
+      projectDecisionLog(k.db, projectId).entries.find((e) => e.title === "Paginate reports"),
+    ).toMatchObject({ supersedesId: choices[0]!.id, status: "proposed" });
+    expect(k.decisions.get(choices[0]!.id)?.status).toBe("accepted");
+  });
 
   it("classifies a request with validated structured output and records usage", async () => {
     const { d, provider } = director([

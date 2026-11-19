@@ -170,6 +170,20 @@ describe("deliveries", () => {
     expect(proposed.statusCode).toBe(200);
     const proposals = proposed.json().proposals;
     expect(proposals.length).toBeGreaterThan(1);
+    // An operator can still be reviewing these proposals when reassessment publishes a new report.
+    const reassess = await flow.h.call({
+      method: "POST",
+      url: `/v1/executions/${execution.id}/assess`,
+    });
+    expect(reassess.statusCode).toBe(200);
+    expect(
+      (await flow.h.call({ url: `/v1/deliveries/${execution.id}` })).json().report.id,
+    ).not.toBe(report.id);
+    expect((await flow.h.call({ url })).json().proposals).toEqual(proposals);
+    expect((await flow.h.call({ method: "POST", url, headers })).json().proposals).toEqual(
+      proposals,
+    );
+
     for (const [i, decision] of ["accepted", "rejected"].entries()) {
       const res = await flow.h.call({
         method: "POST",

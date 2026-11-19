@@ -1,7 +1,7 @@
 {
   "description": "Mimir HTTP contract fixtures: one file per OpenAPI operation with a recorded request and response and their JSON Schemas. Ids and timestamps are placeholders.",
   "protocolVersion": 1,
-  "protocolPackageVersion": "0.4.1",
+  "protocolPackageVersion": "0.5.1",
   "operations": [
     {
       "operation": "GET /v1/health",
@@ -29,6 +29,11 @@
       "status": 200
     },
     {
+      "operation": "POST /v1/projects/{id}/decision-log-blocks",
+      "file": "post-v1-projects-id-decision-log-blocks.json",
+      "status": 200
+    },
+    {
       "operation": "POST /v1/missions",
       "file": "post-v1-missions.json",
       "status": 201
@@ -41,6 +46,11 @@
     {
       "operation": "GET /v1/missions/{id}",
       "file": "get-v1-missions-id.json",
+      "status": 200
+    },
+    {
+      "operation": "POST /v1/missions/{id}/decision-log",
+      "file": "post-v1-missions-id-decision-log.json",
       "status": 200
     },
     {

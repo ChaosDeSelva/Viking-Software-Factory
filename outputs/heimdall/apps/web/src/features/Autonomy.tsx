@@ -29,6 +29,7 @@ import {
   type Column,
 } from "@factory/ui";
 import { useHeimdall } from "../app/context";
+import { sindriDecisionLogHref } from "../lib/apps";
 import { LearnMore, Reasons, Status } from "../components/app";
 import type { R } from "../lib/api";
 import { AccessCallout, ownReasons } from "./AccessCallout";
@@ -82,7 +83,7 @@ const SindriErrors = ({ errors }: { errors: string[] }) =>
 
 /** Top-bar page: the steward's decisions and notes for the selected project. */
 export function AutonomyPage() {
-  const { api, session, propose, reloadKey, scope, projectName } =
+  const { api, session, propose, reloadKey, scope, projectName, state: factoryState } =
     useHeimdall();
   const projectIds = stewardProjects(scope.filter, scope.sindriProjects);
   const sindriProjects = scope.sindriProjects;
@@ -338,6 +339,21 @@ export function AutonomyPage() {
           </Button>
         }
       />
+      {projectIds?.length === 1 && (
+        <p className="text-sm">
+          Design choices for this repository are in its{" "}
+          <a
+            className="text-accent underline"
+            href={sindriDecisionLogHref(
+              projectIds[0]!,
+              factoryState?.appOrigins,
+            )}
+          >
+            project decision log in Sindri
+          </a>
+          .
+        </p>
+      )}
       <AccessCallout pairing />
       <SindriErrors errors={errors} />
       <SplitView

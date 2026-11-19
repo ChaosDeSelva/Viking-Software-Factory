@@ -1,3 +1,4 @@
+import { isMimirError } from "@sindri/mimir-client";
 import { createProvider, type LlmProvider } from "@sindri/director";
 import {
   BrokkrHarnessService,
@@ -148,7 +149,18 @@ export function createFactory(o: ServiceOptions & FactoryOptions, s: Services): 
     ...(o.secrets ? { secrets: o.secrets } : {}),
     ...(o.permissionPolicy ? { permissionPolicy: o.permissionPolicy } : {}),
     ...(o.mimirFetch ? { mimirFetch: o.mimirFetch } : {}),
-    ...(o.onRunError ? { onRunError: o.onRunError } : {}),
+    onRunError(executionId, err) {
+      o.onRunError?.(executionId, err);
+      if (!(err instanceof TypeError || (isMimirError(err) && err.status >= 500))) return;
+      const waiting = s.db
+        .prepare(
+          `SELECT 1 FROM execution_decision_snapshots d JOIN executions e
+         ON d.project_id=e.project_id AND d.plan_id=e.plan_id
+         AND d.plan_version=e.plan_version AND d.run_number=e.run_number WHERE e.id=?`,
+        )
+        .get(executionId);
+      if (waiting) scheduleRetry();
+    },
     ...(o.onWarn ? { logger: { warn: o.onWarn } } : {}),
     onSettled: (executionId, status) => settleAssessment(executionId, status),
     now,

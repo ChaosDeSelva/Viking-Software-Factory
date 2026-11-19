@@ -274,7 +274,9 @@ test("entry actions: decide only pending ones, roll back only reversible applied
   const applied = entryActions(decision({ status: "applied", reversible: true }), paired);
   assert.match(applied.accept, /awaiting you/);
   assert.equal(applied.rollback, "");
-  assert.match(entryActions(decision({ status: "accepted", reversible: true }), paired).rollback, /Only an applied/);
+  for (const status of ["accepted", "changed"])
+    assert.equal(entryActions(decision({ status, reversible: true }), paired).rollback, "");
+  assert.match(entryActions(decision({ status: "rolled_back", reversible: true }), paired).rollback, /Only an applied/);
   assert.match(entryActions(decision({ status: "mystery" }), paired).accept, /status is mystery/);
   const locked = entryActions(decision({ status: "applied", reversible: true }), {});
   for (const reason of Object.values(locked)) assert.match(reason, /Unlock operator/);

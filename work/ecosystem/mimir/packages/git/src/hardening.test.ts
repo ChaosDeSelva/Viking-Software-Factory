@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { unlink, chmod, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { newId, type ProjectId, type TaskId } from "@mimir/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -170,6 +170,25 @@ describe("createWorktree cleans up after a failure", () => {
 });
 
 describe("concurrent use of a fresh worktree root", () => {
+  it("can retry a failed Git registration with the same task branch", async () => {
+    const directory = join(repo, ".git", "worktrees");
+    await writeFile(directory, "not a directory");
+    const task = input();
+    await expect(mgr.createWorktree(task)).rejects.toThrow();
+    expect(sh(repo, "branch", "--list", "mimir/*")).toBe("");
+    await unlink(directory);
+    const tree = await mgr.createWorktree(task);
+    expect(sh(tree.path, "symbolic-ref", "--short", "HEAD")).toBe(tree.branch);
+  });
+
+  it("registers concurrent task branches on the same repository", async () => {
+    const tasks = Array.from({ length: 12 }, () => input());
+    const trees = await Promise.all(tasks.map((task) => mgr.createWorktree(task)));
+    expect(new Set(trees.map((tree) => sh(tree.path, "symbolic-ref", "--short", "HEAD")))).toEqual(
+      new Set(trees.map((tree) => tree.branch)),
+    );
+  });
+
   it("combines dependencies from several callers at once", async () => {
     sh(repo, "checkout", "-q", "-b", "left");
     const left = await commitFile(repo, "left.txt", "left\n", "left");

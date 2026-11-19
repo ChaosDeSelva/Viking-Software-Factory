@@ -241,7 +241,8 @@ export async function* sseFrames(body) {
   }
 }
 export class Hub {
-  constructor(connections, store, notify) {
+  constructor(connections, store, notify, workerOrigin) {
+    this.workerOrigin = workerOrigin;
     this.connections = connections;
     this.store = store;
     this.notify = notify;
@@ -552,6 +553,14 @@ export class Hub {
   snapshot() {
     return this.clean({
       ...this.state,
+      appOrigins: {
+        ...Object.fromEntries(
+          Object.entries(this.connections)
+            .filter(([, connection]) => connection?.url)
+            .map(([name, connection]) => [name, connection.url]),
+        ),
+        ...(this.workerOrigin ? { skidbladnir: this.workerOrigin } : {}),
+      },
       events: this.store.events(),
       preferences: this.store.preferences(),
       notifications: this.store.notifications(),

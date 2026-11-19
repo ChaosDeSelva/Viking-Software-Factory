@@ -458,6 +458,19 @@
                 "failed"
               ]
             },
+            "decisionLogAtVerification": {
+              "type": "boolean"
+            },
+            "decisionLogRequested": {
+              "type": "boolean"
+            },
+            "decisionLogPinned": {
+              "type": "boolean"
+            },
+            "decisionLogRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
             "baseCommits": {
               "type": "array",
               "items": {

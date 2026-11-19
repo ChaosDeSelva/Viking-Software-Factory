@@ -11,7 +11,7 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const REPO: &str = "ChaosDeSelva/Viking-Software-Factory";
@@ -592,6 +592,7 @@ impl Manager {
         }
         let dir = self.release()?;
         preflight(&dir)?;
+        let startup_error = tempfile::NamedTempFile::new_in(&self.root)?;
         let mut env = BTreeMap::new();
         for (k, v) in [
             (
@@ -604,11 +605,18 @@ impl Manager {
             ),
             ("FACTORY_NO_OPEN", "1".into()),
             ("FACTORY_QUIET_AUTH", "1".into()),
+            (
+                "FACTORY_STARTUP_ERROR_FILE",
+                startup_error.path().display().to_string(),
+            ),
             ("MIMIR_PORT", cfg.mimir_port.to_string()),
             ("SINDRI_PORT", cfg.sindri_port.to_string()),
             ("HEIMDALL_PORT", cfg.heimdall_port.to_string()),
         ] {
             env.insert(k.into(), v);
+        }
+        if dir.join("skidbladnir/apps/api/server.mjs").is_file() {
+            env.insert("SKIDBLADNIR_PORT".into(), cfg.skidbladnir_port.to_string());
         }
         self.bootstrap(
             "core",
@@ -619,16 +627,33 @@ impl Manager {
                 .to_string()],
             env,
         )?;
-        for _ in 0..80 {
+        // The launcher checks two CLI logins, each bounded at 30s, before Mimir binds.
+        let health_timeout = Duration::from_secs(20);
+        let mut deadline = Instant::now() + Duration::from_secs(60) + health_timeout;
+        let mut mimir_started = false;
+        while Instant::now() < deadline {
+            let error = fs::read_to_string(startup_error.path()).unwrap_or_default();
+            if !error.is_empty() {
+                self.bootout("core")?;
+                return Err(error.into());
+            }
             if self.ready(&cfg) {
                 return Ok(
                     json!({"running":true,"url":format!("http://127.0.0.1:{}",cfg.heimdall_port)}),
                 );
             }
+            if !mimir_started && Self::occupied(cfg.mimir_port) {
+                mimir_started = true;
+                deadline = deadline.min(Instant::now() + health_timeout);
+            }
             std::thread::sleep(Duration::from_millis(250));
         }
         self.bootout("core")?;
-        Err("Services did not become ready. Run doctor and inspect local logs.".into())
+        if mimir_started {
+            Err("Factory services did not become ready after Mimir started. Open View logs in the companion or run viking logs core for the startup error.".into())
+        } else {
+            Err("The factory stopped before Mimir opened its port. Run Check health in the companion or viking doctor to check agent sign-in, then inspect viking logs core.".into())
+        }
     }
     pub fn healthy(&self) -> bool {
         self.running("core") && self.config().map(|c| self.ready(&c)).unwrap_or(false)
@@ -671,6 +696,9 @@ impl Manager {
         }
         let env = BTreeMap::from([
             ("PORT".into(), cfg.skidbladnir_port.to_string()),
+            ("MIMIR_PORT".into(), cfg.mimir_port.to_string()),
+            ("SINDRI_PORT".into(), cfg.sindri_port.to_string()),
+            ("HEIMDALL_PORT".into(), cfg.heimdall_port.to_string()),
             (
                 "SKIDBLADNIR_DATA_DIR".into(),
                 self.root.join("data/skidbladnir").display().to_string(),
@@ -738,9 +766,23 @@ impl Manager {
     }
     pub fn status(&self) -> Result<Value> {
         let cfg = self.config()?;
-        Ok(
-            json!({"installation":self.current()?,"core_loaded":self.running("core"),"core_healthy":self.healthy(),"skidbladnir_loaded":self.running("skidbladnir"),"ports":{"mimir":Self::occupied(cfg.mimir_port),"sindri":Self::occupied(cfg.sindri_port),"heimdall":Self::occupied(cfg.heimdall_port)},"pending_recovery":self.root.join("transaction.json").exists(),"channel":cfg.channel,"root":self.root}),
-        )
+        let core_loaded = self.running("core");
+        let workers_loaded = self.running("skidbladnir");
+        Ok(json!({
+            "installation": self.current()?,
+            "core_loaded": core_loaded,
+            "core_healthy": core_loaded && self.ready(&cfg),
+            "skidbladnir_loaded": workers_loaded,
+            "skidbladnir_healthy": workers_loaded && self.worker_ready(cfg.skidbladnir_port),
+            "ports": {
+                "mimir": Self::occupied(cfg.mimir_port),
+                "sindri": Self::occupied(cfg.sindri_port),
+                "heimdall": Self::occupied(cfg.heimdall_port)
+            },
+            "pending_recovery": self.root.join("transaction.json").exists(),
+            "channel": cfg.channel,
+            "root": self.root
+        }))
     }
     pub fn doctor(&self) -> Result<Value> {
         let cfg = self.config()?;

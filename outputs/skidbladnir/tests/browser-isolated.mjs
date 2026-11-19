@@ -95,7 +95,7 @@ const browser = await chromium.launch({
 });
 try {
   for (const aws of [false, true]) {
-    const app = createApp({ provider: aws ? new Fixture() : new Simulator() });
+    const app = createApp({ provider: aws ? new Fixture() : new Simulator(), env: { SINDRI_PORT: '14310' } });
     await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
     const base = `http://127.0.0.1:${app.server.address().port}`;
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -208,7 +208,7 @@ try {
         await drawer.getByText('Skidbladnir has no Sindri token', { exact: false }).waitFor();
         assert.equal(
           await drawer.getByRole('link', { name: 'Open the Guide in Sindri' }).getAttribute('href'),
-          'http://127.0.0.1:4310/#/overview',
+          'http://127.0.0.1:14310/#/overview',
         );
         await page.keyboard.press('Escape');
         await page.getByRole('link', { name: 'Docs', exact: true }).click();

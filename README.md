@@ -14,6 +14,8 @@ A collection of independent local tools for turning an idea into a plan, agent e
 
 This is a source preview with working changes listed in SOURCE-MANIFEST.json. No GitHub account is required to run locally. Agent providers require their own installed and authenticated tools. Model requests can use the network.
 
+To follow a request across tools, see [operator handoffs](OPERATOR-HANDOFFS.md). Maintainers and coordination agents record lasting changes in the [factory decision log](SPEC.md#decision-log).
+
 ## Build and run
 
 Install Node 25 or newer and pnpm 12.11.2. On macOS, run `./build.sh`, then `./outputs/local-factory/Start\ Factory.command`. The launcher uses Codex execution and Claude Code planning and review by default. Read each project README for its setup and API configuration.

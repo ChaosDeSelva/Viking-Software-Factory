@@ -38,6 +38,7 @@ const uiAll = (
 function api(over: Parameters<typeof mockApi>[0] = {}): MockApi {
   return mockApi({
     stewardStatus: stewardStatus(),
+    getProjectJournal: { entries: [], markdown: "" },
     listDecisions: [decision()],
     listStewardNotes: [note(), note({ id: "n2", projectId: null, text: "Never touch prod" })],
     ...over,
@@ -202,6 +203,14 @@ describe("AutonomyAllScreen: steward status and modes", () => {
 });
 
 describe("AutonomyScreen: decision log", () => {
+  it("opens Projects instead of showing global records when no project is selected", async () => {
+    const a = api();
+    renderWithStore(ui, a, { projectId: null });
+    await userEvent.click(screen.getByRole("button", { name: "Open Projects" }));
+    expect(a.listDecisions).not.toHaveBeenCalled();
+    expect(a.listStewardNotes).not.toHaveBeenCalled();
+    expect(a.getProjectJournal).not.toHaveBeenCalled();
+  });
   it("lists the project's decisions with their key facts", async () => {
     const a = api({
       listDecisions: [
@@ -219,7 +228,7 @@ describe("AutonomyScreen: decision log", () => {
     });
     renderWithStore(ui, a);
     const items = within(await log()).getAllByRole("listitem");
-    expect(a.listDecisions).toHaveBeenCalledWith({ projectId: "p1", limit: 50 });
+    expect(a.listDecisions).toHaveBeenCalledWith({ projectId: "p1", limit: 51 });
     // Server order (newest first) is kept.
     expect(items[0]!.textContent).toContain("Plan v2");
     expect(items[0]!.textContent).toContain("Approve plans");
@@ -233,6 +242,34 @@ describe("AutonomyScreen: decision log", () => {
     expect(second.textContent).toContain("Outcome Passed (checks green)");
   });
 
+  it("pages by decision ID and starts over when filters change", async () => {
+    const rows = Array.from({ length: 51 }, (_, i) =>
+      decision({ id: `d${i}`, subject: { kind: "spec", id: `s${i}`, label: `Spec ${i}` } }),
+    );
+    const a = api({
+      listDecisions: (q: { before?: string }) => Promise.resolve(q.before ? [rows[50]] : rows),
+    });
+    renderWithStore(ui, a);
+    expect(within(await log()).getAllByRole("listitem")).toHaveLength(50);
+    expect(screen.queryByText("Spec 50")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Older decisions" }));
+    expect(await screen.findByText("Spec 50")).toBeTruthy();
+    expect(a.listDecisions).toHaveBeenLastCalledWith({ projectId: "p1", limit: 51, before: "d49" });
+    expect(screen.queryByText("Spec 49")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Newer decisions" }));
+    expect(await screen.findByText("Spec 49")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Older decisions" }));
+    await screen.findByText("Spec 50");
+    await userEvent.selectOptions(screen.getByLabelText("Status"), "accepted");
+    await waitFor(() =>
+      expect(a.listDecisions).toHaveBeenLastCalledWith({
+        projectId: "p1",
+        limit: 51,
+        status: "accepted",
+      }),
+    );
+  });
+
   it("filters by type and status within the project", async () => {
     const a = api();
     renderWithStore(ui, a);
@@ -242,7 +279,7 @@ describe("AutonomyScreen: decision log", () => {
       expect(a.listDecisions).toHaveBeenLastCalledWith({
         projectId: "p1",
         type: "escalation.resolve",
-        limit: 50,
+        limit: 51,
       }),
     );
     await userEvent.selectOptions(screen.getByLabelText("Status"), "rolled_back");
@@ -251,7 +288,7 @@ describe("AutonomyScreen: decision log", () => {
         projectId: "p1",
         type: "escalation.resolve",
         status: "rolled_back",
-        limit: 50,
+        limit: 51,
       }),
     );
   });
@@ -260,7 +297,7 @@ describe("AutonomyScreen: decision log", () => {
     const a = api();
     renderWithStore(uiAll, a);
     await log();
-    expect(a.listDecisions).toHaveBeenLastCalledWith({ limit: 50 });
+    expect(a.listDecisions).toHaveBeenLastCalledWith({ limit: 51 });
     expect(a.listStewardNotes).toHaveBeenLastCalledWith(null);
     await userEvent.selectOptions(screen.getByLabelText("Type"), "escalation.resolve");
     await userEvent.selectOptions(screen.getByLabelText("Status"), "rolled_back");
@@ -268,7 +305,7 @@ describe("AutonomyScreen: decision log", () => {
       expect(a.listDecisions).toHaveBeenLastCalledWith({
         type: "escalation.resolve",
         status: "rolled_back",
-        limit: 50,
+        limit: 51,
       }),
     );
   });

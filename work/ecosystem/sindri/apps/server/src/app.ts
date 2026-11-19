@@ -20,6 +20,7 @@ import { planRoutes } from "./routes/plans.js";
 import { prReviewRoutes } from "./routes/pr-reviews.js";
 import { REDACTED_RECEIPT_BODY, receiptKey } from "./idempotency.js";
 import { approvalRoutes, NO_IDEMPOTENCY, REDACTED_RECEIPT } from "./routes/approvals.js";
+import { decisionLogRoutes } from "./routes/decision-log.js";
 import { projectRoutes } from "./routes/projects.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { specRoutes } from "./routes/specs.js";
@@ -243,6 +244,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   });
   approvalRoutes(app, approvals);
   projectRoutes(app, services, approvals);
+  decisionLogRoutes(app, services, approvals);
   intakeRoutes(app, services);
   contextFileRoutes(app, services);
   specRoutes(app, services, approvals);

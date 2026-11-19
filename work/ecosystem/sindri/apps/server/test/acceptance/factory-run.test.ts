@@ -239,23 +239,8 @@ describe.skipIf(!MIMIR_MAIN)(
       record("spec approved", "ok", `spec ${spec.id} v${spec.version}`);
 
       // 3. Plan with harness selection, approved.
-      let proposed = await ok(
+      const proposed = await ok(
         { method: "POST", url: "/v1/plans/propose", payload: { specId } },
-        201,
-      );
-      // Deterministic fixtures consume no model tokens. Keep only the documented wall-clock
-      // metadata; production monetary/token budgets explicitly block unknown usage.
-      proposed = await ok(
-        {
-          method: "POST",
-          url: `/v1/plans/${proposed.plan.id}/revise`,
-          payload: {
-            tasks: proposed.plan.tasks.map((t: object) => ({
-              ...t,
-              budget: { wallClockMinutes: 10 },
-            })),
-          },
-        },
         201,
       );
       await ok({ method: "POST", url: `/v1/plans/${proposed.plan.id}/submit`, payload: {} });

@@ -48,7 +48,11 @@ viking config ports 47700 44310 44320 44380
 viking config path "$PATH"
 ```
 
+The manager uses the configured ports for links from Heimdall to the installed worker dashboard and from Skidbladnir back to the core apps. Start the workers separately to make that dashboard available.
+
 Launchd owns the background processes, so closing a terminal does not terminate them. Startup requires service health responses. Shutdown waits for managed ports to close before update data backups are taken. Failed startup is reported with local logs; the manager does not repeatedly relaunch a broken service.
+
+During startup the launcher checks the configured local agent sign-ins before Mimir opens its port. Each check can take up to 30 seconds. The companion reports a failed sign-in with its next step. Choose **View logs** for core service errors. If Skidbladnir is loaded and its dashboard does not answer, **View worker logs** opens its separate startup log.
 
 Project state lives in `data`, installed code in `releases`, recovery copies in `backups` and logs in `logs`. Developer checkouts are never modified by installation. `uninstall --confirm` removes managed release files but preserves data, backups and configuration. External repositories and accounts are never removed.
 

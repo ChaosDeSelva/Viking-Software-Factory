@@ -159,3 +159,8 @@ export function redactSecrets(input: string): { text: string; count: number } {
   }
   return { text: count === 0 ? input : out.join("\n"), count };
 }
+
+/** Internal tooling names are excluded from text published to other repositories. */
+export const PRIVATE_TOOLING =
+  /feedback[\s-]?graph|\bfg__|check_before_done|report_feedback|localhost:8787|127\.0\.0\.1:8787/i;
+export const LESSON_REFERENCE = /\blesson:[A-Za-z0-9_.-]{2,}/i;

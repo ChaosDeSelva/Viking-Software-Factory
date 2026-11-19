@@ -35,6 +35,42 @@ const get = (app: FastifyInstance, url: string) =>
   app.inject({ url, headers: { authorization: `Bearer ${TOKEN}` } });
 
 describe("startup resume retries until Mimir is reachable (S7b parked item)", () => {
+  it("resumes a pending verification pin after a transient HTTP failure without a client", async () => {
+    let attempts = 0;
+    const flow = (f = await startMimirFlow(
+      {},
+      {
+        resumeRetryMs: 20,
+        mimirFetch: (input, init) => {
+          if (String(input).endsWith("/decision-log") && ++attempts === 1) {
+            return Promise.resolve(
+              Response.json(
+                { error: { code: "runtime_unavailable", message: "temporarily offline" } },
+                { status: 503 },
+              ),
+            );
+          }
+          return fetch(input, init);
+        },
+      },
+    ));
+    const plan = await approvedPlan(flow, await approvedSpec(flow));
+    const launched = await flow.h.call({
+      method: "POST",
+      url: "/v1/executions",
+      payload: { planId: plan.id },
+    });
+    expect(launched.statusCode).toBe(201);
+    await until(
+      () => Promise.resolve(flow.fake.events()),
+      (events) => events.some((e) => e.type === "mission.completed"),
+    );
+    expect(attempts).toBe(2);
+    expect(flow.fake.events().filter((e) => e.type === "mission.decision_log_pinned")).toHaveLength(
+      1,
+    );
+  });
+
   it("resumes the run once Mimir comes back, without a client", { timeout: 30_000 }, async () => {
     const flow = (f = await startMimirFlow(
       { "implement-frontend": [{ kind: "approval", action: "fs.write" }] },

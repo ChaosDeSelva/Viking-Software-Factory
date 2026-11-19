@@ -149,6 +149,7 @@ const DECIDED: readonly DecisionStatus[] = [
 export class StewardStore {
   readonly #db: SqliteDatabase;
   readonly #now: () => Date;
+  #outcomeBefore: number | null = null;
 
   constructor(db: SqliteDatabase, now: () => Date = () => new Date()) {
     this.#db = db;
@@ -272,17 +273,22 @@ export class StewardStore {
     return rows.map((r) => this.#toDecision(r));
   }
 
-  /** Applied decisions whose later result may still change (newest first, bounded). */
+  /** Scan a bounded page per tick. Walk toward older rows even as new decisions arrive. */
   awaitingOutcome(limit = 200): StoredDecision[] {
+    if (limit === 0) return [];
+    const before = this.#outcomeBefore;
     const rows = this.#db
       .prepare(
-        `SELECT * FROM steward_decisions
+        `SELECT rowid AS cursor, * FROM steward_decisions
          WHERE status IN ('accepted', 'changed', 'applied') AND final_value IS NOT NULL
            AND (outcome_json IS NULL OR json_extract(outcome_json, '$.result') IN ('passed', 'unknown'))
-         ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+           ${before === null ? "" : "AND rowid < ?"}
+         ORDER BY rowid DESC LIMIT ?`,
       )
-      .all(limit) as DecisionRow[];
-    return rows.map((r) => this.#toDecision(r));
+      .all(...(before === null ? [] : [before]), limit + 1) as (DecisionRow & { cursor: number })[];
+    const page = rows.slice(0, limit);
+    this.#outcomeBefore = rows.length > limit ? page[page.length - 1]!.cursor : null;
+    return page.map((row) => this.#toDecision(row));
   }
 
   /** Decisions of a subject with this status and applied value. */

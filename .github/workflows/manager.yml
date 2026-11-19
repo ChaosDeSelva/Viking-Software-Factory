@@ -1,7 +1,7 @@
 name: Factory manager checks
 on:
   pull_request:
-    paths: ['manager/**', '.github/workflows/manager.yml']
+    paths: ['manager/**', 'outputs/local-factory/**', 'outputs/hulder-integration/**', 'work/ecosystem/brokkr/**', 'build.sh', '.github/workflows/manager.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,6 +13,22 @@ jobs:
         working-directory: manager
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: work/ecosystem/brokkr/.nvmrc
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python3 -m unittest discover -s scripts
+      - run: python3 ../outputs/hulder-integration/test-factory.py
+      - run: node --test ../outputs/local-factory/tests/*.test.mjs
+      - name: Build Brokkr for the managed bundle smoke test
+        working-directory: work/ecosystem/brokkr
+        run: pnpm install --frozen-lockfile && pnpm build
+      - run: python3 tests/brokkr_bundle.py
       - run: cargo test --locked
       - run: cargo fmt --check
       - run: bash scripts/build-app.sh

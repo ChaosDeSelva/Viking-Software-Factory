@@ -15,6 +15,13 @@ import {
   CreateCrewResponseSchema,
   CreateMissionResponseSchema,
   CreateProjectResponseSchema,
+  DecisionLogBlockResponseSchema,
+  type DecisionLogBlockRequest,
+  type DecisionLogBlockResponse,
+  PinDecisionLogResponseSchema,
+  type PinDecisionLogRequest,
+  type PinDecisionLogResponse,
+  type ProjectId,
   CreateTaskResponseSchema,
   GetArtifactResponseSchema,
   MimirError,
@@ -100,10 +107,20 @@ export interface MimirClient {
   snapshot(options?: RequestOptions): Promise<SnapshotResponse>;
   projects: {
     list(options?: RequestOptions): Promise<ListProjectsResponse>;
+    putDecisionLogBlock(
+      id: ProjectId,
+      body: DecisionLogBlockRequest,
+      options?: MutationOptions,
+    ): Promise<DecisionLogBlockResponse>;
     create(body: CreateProjectRequest, options?: MutationOptions): Promise<CreateProjectResponse>;
   };
   missions: {
     list(query?: ListMissionsQuery, options?: RequestOptions): Promise<ListMissionsResponse>;
+    pinDecisionLog(
+      id: MissionId,
+      body: PinDecisionLogRequest,
+      options?: MutationOptions,
+    ): Promise<PinDecisionLogResponse>;
     get(id: MissionId, options?: RequestOptions): Promise<GetMissionResponse>;
     create(body: CreateMissionRequest, options?: MutationOptions): Promise<CreateMissionResponse>;
     start(
@@ -265,9 +282,18 @@ export function createMimirClient(options: MimirClientOptions): MimirClient {
     projects: {
       list: (o) => http.get(ListProjectsResponseSchema, "/v1/projects", undefined, o),
       create: (body, o) => http.post(CreateProjectResponseSchema, "/v1/projects", body, o),
+      putDecisionLogBlock: (id, body, o) =>
+        http.post(
+          DecisionLogBlockResponseSchema,
+          `/v1/projects/${seg(id)}/decision-log-blocks`,
+          body,
+          o,
+        ),
     },
     missions: {
       list: (q, o) => http.get(ListMissionsResponseSchema, "/v1/missions", { ...q }, o),
+      pinDecisionLog: (id, body, o) =>
+        http.post(PinDecisionLogResponseSchema, `/v1/missions/${seg(id)}/decision-log`, body, o),
       get: (id, o) => http.get(GetMissionResponseSchema, `/v1/missions/${seg(id)}`, undefined, o),
       create: (body, o) => http.post(CreateMissionResponseSchema, "/v1/missions", body, o),
       start: (id, body, o) => accepted(`/v1/missions/${seg(id)}/start`, body ?? {}, o),

@@ -6,7 +6,7 @@ import {
   type FeedbackGraphStatus,
   type StewardType,
 } from "../api/steward-types.js";
-import { Callout, Cluster, InfoHint, Page, Stack, Toolbar } from "@factory/ui";
+import { Callout, Cluster, EmptyState, InfoHint, Page, Stack, Toolbar } from "@factory/ui";
 import { ApprovalUnlock } from "../components/ApprovalUnlock.js";
 import {
   Badge,
@@ -21,6 +21,7 @@ import {
   Card,
 } from "../components/ui.js";
 import { useApi, useLoad, useReportError, useStore, type Loadable } from "../store/context.js";
+import { ProjectDecisionJournal } from "./ProjectDecisionJournal.js";
 import type { Action } from "../store/reducer.js";
 
 /** How often the decision log refreshes while the page is visible. */
@@ -130,7 +131,7 @@ export function AutonomyScreen() {
         screen="autonomy"
         title="Autonomy"
         term="Steward"
-        description="What the steward recommended or decided in this project, and the notes it reads before it decides."
+        description="Review the choices that guide this project and the actions the steward has recommended or taken."
         actions={
           <Button
             variant="secondary"
@@ -140,10 +141,24 @@ export function AutonomyScreen() {
           </Button>
         }
       />
-      <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
-        <DecisionLog projectId={projectId} />
-        <NotesFeed projectId={projectId} />
-      </div>
+      {projectId ? (
+        <div key={projectId} className="grid gap-group">
+          <ProjectDecisionJournal projectId={projectId} />
+          <div className="grid gap-group lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+            <DecisionLog projectId={projectId} />
+            <NotesFeed projectId={projectId} />
+          </div>
+        </div>
+      ) : (
+        <EmptyState
+          title="Create or select a project first."
+          action={
+            <Button onClick={() => dispatch({ type: "navigate", view: "projects" })}>
+              Open Projects
+            </Button>
+          }
+        />
+      )}
     </Page>
   );
 }
@@ -363,6 +378,8 @@ function DecisionLog({
   const report = useReportError();
   const [type, setType] = useState("");
   const [status, setStatus] = useState("");
+  const [cursors, setCursors] = useState<string[]>([]);
+  const before = cursors.at(-1);
   const [log, setLog] = useState<Loadable<Decision[]>>({ status: "loading" });
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -387,7 +404,8 @@ function DecisionLog({
           ...(projectId ? { projectId } : {}),
           ...(type ? { type } : {}),
           ...(status ? { status } : {}),
-          limit: 50,
+          ...(before ? { before } : {}),
+          limit: 51,
         })
         .then(
           (data) => {
@@ -423,7 +441,7 @@ function DecisionLog({
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [api, projectId, type, status, tick]);
+  }, [api, projectId, type, status, tick, before]);
 
   const replace = (d: Decision) =>
     setLog((l) =>
@@ -434,7 +452,7 @@ function DecisionLog({
 
   return (
     <Card
-      title="Decision log"
+      title="Steward decision log"
       description={allProjects ? "Every project, newest first." : "This project, newest first."}
     >
       <Stack gap={4}>
@@ -444,7 +462,10 @@ function DecisionLog({
               id="decision-type-filter"
               className={inputClass}
               value={type}
-              onChange={(e) => setType(e.target.value)}
+              onChange={(e) => {
+                setType(e.target.value);
+                setCursors([]);
+              }}
             >
               <option value="">All types</option>
               {Object.entries(TYPE_LABELS).map(([v, l]) => (
@@ -459,7 +480,10 @@ function DecisionLog({
               id="decision-status-filter"
               className={inputClass}
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setCursors([]);
+              }}
             >
               <option value="">All statuses</option>
               {Object.entries(STATUS_LABELS).map(([v, l]) => (
@@ -487,7 +511,7 @@ function DecisionLog({
               </Empty>
             ) : (
               <ol className="flex flex-col gap-3" aria-label="Decisions">
-                {decisions.map((d) => (
+                {decisions.slice(0, 50).map((d) => (
                   <DecisionEntry
                     key={d.id}
                     d={d}
@@ -504,6 +528,28 @@ function DecisionLog({
             )
           }
         </LoadState>
+        {log.status === "ready" && (before || log.data.length > 50) && (
+          <nav aria-label="Steward decision pages" className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              disabled={!before}
+              onClick={() => setCursors((c) => c.slice(0, -1))}
+            >
+              Newer decisions
+            </Button>
+            <span className="text-sm">Page {cursors.length + 1}</span>
+            <Button
+              variant="secondary"
+              disabled={log.data.length <= 50}
+              onClick={() => {
+                const last = log.data[49];
+                if (last) setCursors((c) => [...c, last.id]);
+              }}
+            >
+              Older decisions
+            </Button>
+          </nav>
+        )}
       </Stack>
     </Card>
   );
@@ -570,6 +616,13 @@ function DecisionEntry({
           <p className="text-sm [overflow-wrap:anywhere]">
             <span className="text-muted">Recommendation:</span> {recommended}
           </p>
+          {d.appliedValue && (d.appliedValue !== recommended || d.status === "changed") && (
+            <p className="text-sm [overflow-wrap:anywhere]">
+              {d.status === "rolled_back" ? "Previously applied" : "Applied choice"} ·{" "}
+              {d.appliedValue}
+            </p>
+          )}
+          {d.error && <p className="text-sm text-danger-fg">{d.error}</p>}
           <p className="text-xs text-muted">
             Confidence {pct(d.confidence)} · Mode {label(MODE_LABELS, d.mode)}
             {d.outcome ? ` · Outcome ${label(OUTCOME_LABELS, d.outcome.result)}` : ""}
@@ -780,6 +833,8 @@ function NotesFeed({ projectId }: { projectId: string | null }) {
   const [text, setText] = useState("");
   const [target, setTarget] = useState<"project" | "global">(projectId ? "project" : "global");
   const [busy, setBusy] = useState(false);
+  const selectedProject = projectId ?? state.projectId;
+  const nameOf = (id: string) => state.projects.find((p) => p.id === id)?.name ?? id;
   const noteProject = target === "project" ? (projectId ?? state.projectId) : null;
 
   return (
@@ -827,7 +882,7 @@ function NotesFeed({ projectId }: { projectId: string | null }) {
               onChange={(e) => setTarget(e.target.value === "global" ? "global" : "project")}
             >
               <option value="project" disabled={!(projectId ?? state.projectId)}>
-                This project
+                {selectedProject ? `This project (${nameOf(selectedProject)})` : "This project"}
               </option>
               <option value="global">All projects (global)</option>
             </select>
@@ -854,7 +909,9 @@ function NotesFeed({ projectId }: { projectId: string | null }) {
                     className="flex flex-col gap-1.5 rounded-md border border-line p-3 text-sm"
                   >
                     <Cluster gap={2}>
-                      <Badge>{n.projectId === null ? "Global" : "Project"}</Badge>
+                      <Badge>
+                        {n.projectId === null ? "Global" : `Project · ${nameOf(n.projectId)}`}
+                      </Badge>
                       {n.decisionId ? <Badge>On a decision</Badge> : null}
                     </Cluster>
                     <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{n.text}</p>

@@ -107,7 +107,7 @@ export function entryActions(d: R, session: Session): EntryActions {
   const rollback =
     d.reversible !== true
       ? "This decision cannot be reversed."
-      : d.status !== "applied"
+      : !["accepted", "changed", "applied"].includes(d.status)
         ? `Only an applied decision can be rolled back (status is ${d.status ?? "not reported"}).`
         : "";
   return {

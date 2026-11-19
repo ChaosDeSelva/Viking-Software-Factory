@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Mimir API",
-    "version": "0.4.1",
+    "version": "0.5.1",
     "description": "Local-first mission control for crews of coding agents. Mutations require the `idempotency-key` header; asynchronous mutations return 202 with an OperationAccepted body."
   },
   "servers": [
@@ -205,6 +205,19 @@
               "cancelled",
               "failed"
             ]
+          },
+          "decisionLogAtVerification": {
+            "type": "boolean"
+          },
+          "decisionLogRequested": {
+            "type": "boolean"
+          },
+          "decisionLogPinned": {
+            "type": "boolean"
+          },
+          "decisionLogRef": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
           },
           "baseCommits": {
             "type": "array",
@@ -945,6 +958,8 @@
             "type": "string",
             "enum": [
               "mission.created",
+              "mission.decision_log_requested",
+              "mission.decision_log_pinned",
               "mission.started",
               "mission.paused",
               "mission.resumed",
@@ -1645,6 +1660,109 @@
         }
       }
     },
+    "/v1/projects/{id}/decision-log-blocks": {
+      "post": {
+        "summary": "Store an immutable block of project decision entries and return its digest",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "previous": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "markdown": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "markdown"
+                      ]
+                    },
+                    "minItems": 1
+                  }
+                },
+                "required": [
+                  "previous",
+                  "entries"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "digest": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    }
+                  },
+                  "required": [
+                    "digest"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/missions": {
       "post": {
         "summary": "Create a mission",
@@ -1717,6 +1835,18 @@
                     },
                     "minItems": 1,
                     "maxItems": 16
+                  },
+                  "decisionLogAtVerification": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ],
+                    "description": "Wait for the coordinator to pin this project's accepted choices before the first verification."
+                  },
+                  "decisionLogRef": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$",
+                    "description": "Digest of this project’s immutable decision log at submission."
                   },
                   "tasks": {
                     "type": "array",
@@ -1975,6 +2105,86 @@
                     "mission",
                     "crews",
                     "tasks"
+                  ]
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/missions/{id}/decision-log": {
+      "post": {
+        "summary": "Pin accepted project choices for the waiting verification",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^msn_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Unique key per logical mutation; replays return the original result."
+            },
+            "required": true,
+            "description": "Unique key per logical mutation; replays return the original result.",
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decisionLogRef": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "decisionLogRef"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    }
+                  },
+                  "required": [
+                    "mission"
                   ]
                 }
               }

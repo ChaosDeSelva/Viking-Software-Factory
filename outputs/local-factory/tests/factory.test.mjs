@@ -74,6 +74,7 @@ async function fixture(t, { claude = '{"loggedIn":true}', env = {}, unset = [], 
       FACTORY_ECOSYSTEM_ROOT: eco,
       FACTORY_DATA_DIR: data,
       FACTORY_ACCESS_FILE: join(dir, 'access.json'),
+      FACTORY_STARTUP_ERROR_FILE: join(dir, 'startup-error'),
       FACTORY_NO_OPEN: '1',
       MIMIR_CODEX_BIN: join(bin, 'codex'),
       MIMIR_CLAUDE_BIN: join(bin, 'claude'),
@@ -105,7 +106,8 @@ async function fixture(t, { claude = '{"loggedIn":true}', env = {}, unset = [], 
 }
 
 test('the factory starts Mimir, Sindri and Heimdall, writes the access file, and stops all three on a signal', async t => {
-  const f = await fixture(t);
+  const workerPort = await closedPort();
+  const f = await fixture(t, { env: { SKIDBLADNIR_PORT: String(workerPort) } });
   await f.ready;
   const { stdout } = f.out();
   assert.match(stdout, /Runtime: fleet/);
@@ -119,6 +121,9 @@ test('the factory starts Mimir, Sindri and Heimdall, writes the access file, and
   // Heimdall answers with the token the access file carries.
   const login = await fetch(heimdallUrl + '/api/login', { method: 'POST', headers: { 'x-heimdall-request': '1', 'content-type': 'application/json' }, body: JSON.stringify({ token: access.heimdallToken }) });
   assert.equal(login.status, 200);
+  const snapshot = await fetch(heimdallUrl + '/api/snapshot', { headers: { cookie: login.headers.get('set-cookie').split(';')[0] } });
+  assert.equal(snapshot.status, 200);
+  assert.equal((await snapshot.json()).appOrigins.skidbladnir, `http://127.0.0.1:${workerPort}`);
   const [mimirStart, sindriStart, secrets, put] = f.log();
   const mimir = JSON.parse(mimirStart.slice('mimir.start '.length));
   assert.deepEqual({ ...mimir, fleet: undefined }, { port: String(f.mimirPort), host: '127.0.0.1', runtime: 'fleet', fleet: undefined, codex: join(f.dir, 'bin/codex'), claude: join(f.dir, 'bin/claude') });
@@ -178,6 +183,7 @@ test('a signed-out Claude Code stops the start before any service runs', async t
   const f = await fixture(t, { claude: '{"loggedIn":false}' });
   assert.deepEqual(await f.exited, { code: 1, signal: null });
   assert.match(f.out().stderr, /Claude Code is unavailable or signed out/);
+  assert.equal(readFileSync(join(f.dir, 'startup-error'), 'utf8'), f.out().stderr.trim());
   assert.deepEqual(f.log(), []);
   assert.equal(existsSync(f.accessFile), false);
 });

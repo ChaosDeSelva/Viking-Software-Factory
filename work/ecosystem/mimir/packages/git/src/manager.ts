@@ -21,6 +21,7 @@ import {
   WorktreeSchema,
   newId,
   type ApprovalId,
+  type DecisionLogEntry,
   type ProjectId,
   type TaskId,
   type Worktree,
@@ -37,6 +38,7 @@ import {
 } from "./paths.js";
 import { protectedBranchGuard, type ProtectedBranchGuard } from "./protected.js";
 import { runTests, type RunTestsOptions, type RunTestsResult } from "./run-tests.js";
+import { updateDecisionLog } from "./decision-log.js";
 import { ScratchRepo } from "./scratch.js";
 
 /**
@@ -355,7 +357,10 @@ export class GitManager {
     await mkdir(projectDir, { recursive: true, mode: 0o700 });
     await assertNoSymlinkBelow(root, path);
 
-    await git(repoPath, ["worktree", "add", "--no-track", "-b", branch, path, baseSha]);
+    // `worktree add -b` can leave a branch behind when Git fails to register the directory.
+    await git(repoPath, ["worktree", "add", "--detach", path, baseSha]);
+    const branchRef = `refs/heads/${branch}`;
+    let createdBranch = false;
     try {
       if ((await realpath(path)) !== path) {
         throw new MimirError("validation_failed", "worktree path resolved through a symlink", {
@@ -375,10 +380,16 @@ export class GitManager {
           { path: OWNER_FILE },
         );
       });
+      await git(repoPath, ["update-ref", "--no-deref", branchRef, baseSha, ""]);
+      createdBranch = true;
+      await git(path, ["symbolic-ref", "HEAD", branchRef]);
     } catch (err) {
       // Nothing records this worktree yet: left behind, its branch would block every retry.
       await git(repoPath, ["worktree", "remove", "--force", path]).catch(() => undefined);
-      await git(repoPath, ["branch", "-D", "--", branch]).catch(() => undefined);
+      if (createdBranch)
+        await git(repoPath, ["update-ref", "--no-deref", "-d", branchRef, baseSha]).catch(
+          () => undefined,
+        );
       throw err;
     }
 
@@ -607,6 +618,18 @@ export class GitManager {
       dirty,
       files: parseNameStatus(names.stdout),
     };
+  }
+
+  async applyDecisionLog(id: string, entries: readonly DecisionLogEntry[]): Promise<void> {
+    const rec = this.active(id);
+    const dir = rec.worktree.path;
+    await assertNoSymlinkBelow(await this.resolveRootForCheck(), join(dir, "SPEC.md"));
+    const ignored = await git(dir, ["check-ignore", "--quiet", "--", "SPEC.md"], {
+      okExitCodes: [1],
+    });
+    if (ignored.exitCode === 0)
+      throw new Error("SPEC.md is ignored. Allow it in Git before retrying this delivery.");
+    await updateDecisionLog(dir, entries);
   }
 
   /** Freeze a successful task's code independently of later edits to its worktree. */

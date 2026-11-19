@@ -77,6 +77,8 @@ export interface Decision {
   subject: { kind: SubjectKind; id: string; label: string };
   inputs: { kind: InputKind; ref: string; summary: string }[];
   recommendation: { value: string; detail?: string };
+  appliedValue?: string | null;
+  error?: string | null;
   reasoning: string;
   /** 0..1 */
   confidence: number;
@@ -127,3 +129,28 @@ export const PLAIN_DECISION_TYPES: readonly string[] = [
  * automatic), and sending the factor to an accept route that does not need it is harmless.
  */
 export const acceptNeedsApproval = (type: string) => !PLAIN_DECISION_TYPES.includes(type);
+
+export interface JournalProposal {
+  title: string;
+  decision: string;
+  rationale: string;
+  source: string;
+  supersedesId?: string;
+}
+
+export interface JournalEntry extends Omit<JournalProposal, "supersedesId"> {
+  id: string;
+  supersedesId: string | null;
+  status: "proposed" | "accepted" | "rejected" | "superseded" | "deprecated";
+  actor: string;
+  createdAt: string;
+  exportBlockedReason?: string | null;
+  history: { status: JournalEntry["status"]; actor: string; at: string }[];
+  decidedBy?: string | null;
+  decidedAt?: string | null;
+}
+
+export interface ProjectJournal {
+  entries: JournalEntry[];
+  markdown: string;
+}

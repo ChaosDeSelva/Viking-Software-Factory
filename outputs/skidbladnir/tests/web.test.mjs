@@ -44,3 +44,20 @@ test('links to other apps carry no project ID (IDs are per app); Sindri opens on
   });
   assert.equal(SINDRI_OVERVIEW, links.sindri);
 });
+
+test('custom service ports reach the matching apps from a scoped worker dashboard', async () => {
+  const { createApp } = await import('../apps/api/server.mjs');
+  const app = createApp({ env: { SINDRI_PORT: '14310', MIMIR_PORT: '17700', HEIMDALL_PORT: '14320' } });
+  try {
+    const links = Object.fromEntries(
+      switcherApps('http://127.0.0.1:14380/', 'demo', app.snapshot().appOrigins).map(({ id, href }) => [id, href]),
+    );
+    assert.equal(links.sindri, 'http://127.0.0.1:14310/#/overview');
+    assert.equal(links.mimir, 'http://127.0.0.1:17700/');
+    assert.equal(links.heimdall, 'http://127.0.0.1:14320/');
+    assert.match(links.skidbladnir, /project=demo/);
+  } finally {
+    await app.close();
+  }
+  assert.throws(() => createApp({ env: { SINDRI_PORT: '0' } }), /local TCP port/);
+});

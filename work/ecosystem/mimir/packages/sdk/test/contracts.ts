@@ -22,6 +22,10 @@ import {
   CreateMissionRequestSchema,
   CreateMissionResponseSchema,
   CreateProjectRequestSchema,
+  DecisionLogBlockRequestSchema,
+  PinDecisionLogRequestSchema,
+  PinDecisionLogResponseSchema,
+  DecisionLogBlockResponseSchema,
   CreateProjectResponseSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
@@ -115,12 +119,20 @@ export const CONTRACT_SCHEMAS: Record<string, { request?: Schema; response?: Sch
     response: CreateProjectResponseSchema,
   },
   "GET /v1/projects": { response: ListProjectsResponseSchema },
+  "POST /v1/projects/{id}/decision-log-blocks": {
+    request: DecisionLogBlockRequestSchema,
+    response: DecisionLogBlockResponseSchema,
+  },
   "POST /v1/missions": {
     request: CreateMissionRequestSchema,
     response: CreateMissionResponseSchema,
   },
   "GET /v1/missions": { response: ListMissionsResponseSchema },
   "GET /v1/missions/{id}": { response: GetMissionResponseSchema },
+  "POST /v1/missions/{id}/decision-log": {
+    request: PinDecisionLogRequestSchema,
+    response: PinDecisionLogResponseSchema,
+  },
   "POST /v1/missions/{id}/start": {
     request: StartMissionRequestSchema,
     response: OperationAcceptedSchema,
@@ -268,6 +280,7 @@ export async function generateContracts(): Promise<Map<string, unknown>> {
     const { mission: open } = await client.missions.create({
       projectId: project.id,
       objective: "stays open",
+      decisionLogAtVerification: true,
     });
 
     const { crew: controlledCrew } = await client.crews.create({
@@ -294,6 +307,11 @@ export async function generateContracts(): Promise<Map<string, unknown>> {
       "GET /v1/snapshot": () => client.snapshot(),
       "POST /v1/projects": () => client.projects.create({ name: "other", repoPath: "/other" }),
       "GET /v1/projects": () => client.projects.list(),
+      "POST /v1/projects/{id}/decision-log-blocks": () =>
+        client.projects.putDecisionLogBlock(project.id, {
+          previous: null,
+          entries: [{ id: "greeting-1", markdown: "- Default to hello." }],
+        }),
       "POST /v1/missions": () =>
         client.missions.create({
           projectId: project.id,
@@ -302,6 +320,13 @@ export async function generateContracts(): Promise<Map<string, unknown>> {
         }),
       "GET /v1/missions": () => client.missions.list({ projectId: project.id }),
       "GET /v1/missions/{id}": () => client.missions.get(mission.id),
+      "POST /v1/missions/{id}/decision-log": () => {
+        server.state.missions.set(open.id, {
+          ...server.state.missions.get(open.id)!,
+          decisionLogRequested: true,
+        });
+        return client.missions.pinDecisionLog(open.id, { decisionLogRef: null });
+      },
       "POST /v1/missions/{id}/start": () => client.missions.start(open.id),
       "POST /v1/missions/{id}/cancel": () => client.missions.cancel(mission.id, { reason: "done" }),
       "POST /v1/missions/{id}/reopen": () =>

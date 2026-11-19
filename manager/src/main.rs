@@ -132,7 +132,15 @@ fn execute() -> Result<serde_json::Value> {
             if !["core", "skidbladnir"].contains(&service) {
                 return Err("Unknown service".into());
             }
-            let log = fs::read_to_string(manager.root.join("logs").join(format!("{service}.log")))?;
+            let log = match fs::read_to_string(
+                manager.root.join("logs").join(format!("{service}.log")),
+            ) {
+                Ok(log) => log,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(format!("No {service} log has been written yet.").into())
+                }
+                Err(error) => return Err(error.into()),
+            };
             Ok(
                 json!({"local_log":log.lines().rev().take(150).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"),"warning":"Local logs may contain project data. Do not publish raw logs."}),
             )

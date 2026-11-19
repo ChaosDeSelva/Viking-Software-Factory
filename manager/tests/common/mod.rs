@@ -20,17 +20,25 @@ case "$1" in
   [ -f "$s/fail-bootstrap" ] && { echo "bootstrap refused" >&2; exit 5; }
   label=$(sed -n 's/.*<key>Label<\/key><string>\([^<]*\)<.*/\1/p' "$3"); service=$(basename "$3" .plist)
   cp "$3" "$s/$service.plist.seen"; touch "$s/$label.loaded"
+  if [ -f "$s/login-error" ]; then
+   error_file=$(sed -n 's/.*<key>FACTORY_STARTUP_ERROR_FILE<\/key><string>\([^<]*\)<.*/\1/p' "$3")
+   cat "$s/login-error" > "$error_file"
+  fi
   if [ -f "$s/listen-$service" ]; then
    node "$STUB_BIN/listen.mjs" $(cat "$s/listen-$service") >/dev/null 2>&1 &
    echo $! > "$s/$label.pid"
-   until [ -f "$s/listening-$!" ]; do sleep 0.05; done
+   if [ ! -f "$s/delay-listener-ms" ]; then
+    until [ -f "$s/listening-$!" ]; do sleep 0.05; done
+   fi
   fi ;;
  bootout)
   label="${2##*/}"; [ -f "$s/$label.pid" ] && kill "$(cat "$s/$label.pid")"
   rm -f "$s/$label.loaded" "$s/$label.pid" ;;
 esac
 "#;
-const LISTEN: &str = r#"import net from 'node:net';import {writeFileSync} from 'node:fs';
+const LISTEN: &str = r#"import net from 'node:net';import {existsSync,readFileSync,writeFileSync} from 'node:fs';
+const delayFile=process.env.STUB_STATE+'/delay-listener-ms';
+if(existsSync(delayFile))await new Promise(resolve=>setTimeout(resolve,Number(readFileSync(delayFile,'utf8'))));
 const ports=process.argv.slice(2).map(Number);let open=0;
 for(const port of ports)net.createServer(s=>s.destroy()).listen(port,'127.0.0.1',()=>{if(++open===ports.length)writeFileSync(process.env.STUB_STATE+'/listening-'+process.pid,'');});
 "#;

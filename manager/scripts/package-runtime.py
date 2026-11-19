@@ -30,6 +30,55 @@ def require_standalone_node(node,linked=None):
 def copy(src,dst):
  if src.is_dir():shutil.copytree(src,dst,symlinks=True,ignore=shutil.ignore_patterns('.git','.data','.heimdall','test-results','coverage','.DS_Store'))
  else:dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
+
+def clean_deployment(source_app, target):
+    # pnpm rewrites local dependencies to absolute file: URLs and records its build store.
+    for relative in ('package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+                     'node_modules/.modules.yaml', 'node_modules/.pnpm-workspace-state-v1.json',
+                     'node_modules/.pnpm/lock.yaml'):
+        (target / relative).unlink(missing_ok=True)
+    copy(source_app / 'package.json', target / 'package.json')
+    for parent, dirs, files in os.walk(target, followlinks=False):
+        package = Path(parent)
+        skip = {'.turbo'}
+        if 'package.json' in files and 'dist' in dirs:
+            meta = json.loads((package / 'package.json').read_text())
+            internal = meta.get('name', '').startswith(('@sindri/', '@mimir/', '@brokkr/'))
+            if internal and (package == target or meta.get('main', '').startswith('./dist/')):
+                skip.update(('src', 'test', 'tests', 'bench', 'coverage', 'test-results'))
+        for name in skip.intersection(dirs):
+            dirs.remove(name)
+            child = package / name
+            if child.is_symlink():
+                child.unlink()
+            else:
+                shutil.rmtree(child)
+
+def deploy_app(source, app, target):
+    source_app = source / 'apps' / app
+    name = json.loads((source_app / 'package.json').read_text())['name']
+    # The isolated linker encodes the source checkout's absolute path in directory and link names.
+    run(['pnpm', '--config.node-linker=hoisted', '--filter', name, 'deploy', '--prod', str(target)], source)
+    clean_deployment(source_app, target)
+
+def deploy_brokkr(source, target):
+    deploy_app(source, 'cli', target / 'apps/cli')
+    copy(source / 'harnesses', target / 'harnesses')
+
+def archive_component(component, archive):
+    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6, strict_timestamps=False) as bundle:
+        for parent, dirs, files in os.walk(component, followlinks=False):
+            for name in dirs + files:
+                path = Path(parent) / name
+                relative = str(path.relative_to(component))
+                if path.is_symlink():
+                    link = zipfile.ZipInfo(relative)
+                    link.create_system = 3
+                    link.external_attr = (stat.S_IFLNK | 0o777) << 16
+                    bundle.writestr(link, os.readlink(path))
+                elif path.is_file():
+                    bundle.write(path, relative)
+
 def main():
  args=arguments()
  root=args.source.resolve();out=args.output.resolve();out.mkdir(parents=True,exist_ok=True)
@@ -42,10 +91,11 @@ def package(args,root,out,stage):
  copy(node,core/'node')
  for name in ['mimir','sindri','brokkr']:
   source=root/'work/ecosystem'/name;target=core/'work/ecosystem'/name
-  apps=['server','cli'] if name!='brokkr' else ['cli']
-  for app in apps:
-   run(['pnpm','--filter',f'@{name}/{app}','deploy','--prod',str(target/'apps'/app)],source)
-  if name!='brokkr':copy(source/'apps/web/dist',target/'apps/web/dist')
+  if name=='brokkr':deploy_brokkr(source,target)
+  else:
+   for app in ['server','cli']:
+    deploy_app(source, app, target/'apps'/app)
+   copy(source/'apps/web/dist',target/'apps/web/dist')
   if (source/'third_party').exists():copy(source/'third_party',target/'third_party')
   for f in ['LICENSE','NOTICE','README.md']:
    if (source/f).exists():copy(source/f,target/f)
@@ -59,6 +109,8 @@ def package(args,root,out,stage):
  # Node runtime license travels with the runtime; packaging fails rather than inventing a notice.
  node_prefix=Path(shutil.which('node')).resolve().parent.parent
  copy(node_prefix/'lib/node_modules/npm',core/'npm-runtime')
+ # Registry credentials and site overrides belong to the installation that set them.
+ (core/'npm-runtime/.npmrc').unlink(missing_ok=True)
  (core/'npm').symlink_to('npm-runtime/bin/npm-cli.js')
  (core/'npx').symlink_to('npm-runtime/bin/npx-cli.js')
  node_license=next((f for f in [node_prefix/'LICENSE',node_prefix/'share/doc/node/LICENSE'] if f.exists()),None)
@@ -77,14 +129,7 @@ def package(args,root,out,stage):
  manifest={'schema':1,'version':args.version,'channel':'preview','platform':'macos-arm64','data_schema':1,'packages':[]}
  for component in sorted(stage.iterdir()):
   archive=out/f'{component.name}-{args.version}-macos-arm64.zip'
-  with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6,strict_timestamps=False) as z:
-   for parent,dirs,files in os.walk(component,followlinks=False):
-    for name in dirs+files:
-     f=Path(parent)/name;rel=str(f.relative_to(component))
-     if f.is_symlink():
-      info=zipfile.ZipInfo(rel);info.create_system=3;info.external_attr=(stat.S_IFLNK|0o777)<<16
-      z.writestr(info,os.readlink(f))
-     elif f.is_file():z.write(f,rel)
+  archive_component(component,archive)
   manifest['packages'].append({'id':component.name,'version':args.version,'archive':archive.name,'sha256':hashlib.file_digest(archive.open('rb'),'sha256').hexdigest(),'required':component.name in ['core','companion']})
  (out/'factory-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
  print(json.dumps(manifest,indent=2))

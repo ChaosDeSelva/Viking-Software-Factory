@@ -5,7 +5,7 @@ import {
   type LlmProvider,
 } from "@sindri/director";
 import { openKnowledge } from "@sindri/knowledge";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ActionContext, ApplyResult, EscalationSubject } from "./ports.js";
 import {
   delivery,
@@ -615,6 +615,37 @@ describe("heuristics with learning", () => {
 });
 
 describe("outcomes", () => {
+  it("rechecks older decisions behind a full page of passing outcomes", async () => {
+    const { steward, world } = setup(() => rec("retry"));
+    const ids: string[] = [];
+    for (let n = 0; n < 201; n++) {
+      const task = `T${n}`;
+      const d = steward.store.create({
+        projectId: PROJECT,
+        type: "escalation.resolve",
+        dedupeKey: task,
+        subject: { kind: "task", id: task, label: task },
+        context: escalation({ planTaskId: task }),
+        mode: "recommend",
+      })!;
+      steward.store.update(
+        d.id,
+        { status: "accepted", finalValue: "retry", outcome: { result: "passed" } },
+        { action: "accepted", actor: "op" },
+      );
+      ids.push(d.id);
+    }
+    world.outcomes.set("T0", { result: "failed" });
+    await steward.tick();
+    expect(steward.get(ids[0]!).outcome?.result).toBe("passed");
+    const read = vi.spyOn(world, "outcome");
+    await steward.tick();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(steward.get(ids[0]!).outcome?.result).toBe("failed");
+    await steward.tick();
+    expect(read).toHaveBeenCalledTimes(201);
+  });
+
   it("a world that cannot read an outcome is logged and the others are still recorded", async () => {
     const { world, steward, warnings } = setup(() => rec("retry"));
     world.e = [escalation({ planTaskId: "T1" }), escalation({ planTaskId: "T2" })];

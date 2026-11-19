@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ensureDeliverySchema } from "./schema.js";
-import { SindriError, type SqliteDatabase } from "@sindri/knowledge";
+import { projectDecisionLogSnapshot, SindriError, type SqliteDatabase } from "@sindri/knowledge";
 import {
   isMimirError,
   type ApprovalDecision,
@@ -309,6 +309,31 @@ export class DeliveryLoop {
     return () => this.listeners.delete(listener);
   }
 
+  private snapshotDecisions(
+    plan: Plan,
+    run: number,
+    through: string,
+  ): ReturnType<typeof projectDecisionLogSnapshot> {
+    // A crash or lost pin response must retry the exact snapshot requested by this verifier.
+    const key = [plan.projectId, plan.id, plan.version, run];
+    return this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare(
+            "SELECT entries_json FROM execution_decision_snapshots WHERE project_id = ? AND plan_id = ? AND plan_version = ? AND run_number = ?",
+          )
+          .get(...key) as { entries_json: string } | undefined;
+        if (row)
+          return JSON.parse(row.entries_json) as ReturnType<typeof projectDecisionLogSnapshot>;
+        const entries = projectDecisionLogSnapshot(this.db, plan.projectId, through);
+        this.db
+          .prepare("INSERT INTO execution_decision_snapshots VALUES (?, ?, ?, ?, ?)")
+          .run(...key, JSON.stringify(entries));
+        return entries;
+      })
+      .immediate();
+  }
+
   /**
    * Submits the plan to Mimir and records the execution. For a plan version that already has a
    * non-final execution, returns it (the Mimir submission is idempotent too). After a finished
@@ -350,6 +375,7 @@ export class DeliveryLoop {
           .get(plan.id, plan.version) as { n: number }
       ).n + 1;
     const submission = await this.mimir.createMissionFromPlan(plan, {
+      ...(!plan.work || plan.work.kind === "change" ? { decisionLogAtVerification: true } : {}),
       projectId,
       run,
       ...(baseCommits?.length ? { baseCommits } : {}),
@@ -380,6 +406,11 @@ export class DeliveryLoop {
           run,
           plan.projectId,
         );
+      this.db
+        .prepare(
+          "DELETE FROM execution_decision_snapshots WHERE project_id = ? AND plan_id = ? AND plan_version = ? AND run_number = ?",
+        )
+        .run(plan.projectId, plan.id, plan.version, run);
       const insert = this.db.prepare(
         `INSERT INTO execution_tasks (id, execution_id, plan_task_id, mimir_task_id, status)
          VALUES (?, ?, ?, ?, 'pending')`,
@@ -457,6 +488,11 @@ export class DeliveryLoop {
     // waited on a person) is history: recorded, never acted on. Otherwise an old failure read
     // after the restart would count against the fresh attempts and escalate the task again.
     const backlog = await this.mimir.catchUp(row.mimir_mission_id);
+    for (const e of backlog.events) {
+      if (e.type === "mission.decision_log_requested") {
+        await this.handle(executionId, JSON.parse(row.plan_json) as Plan, e, undefined);
+      }
+    }
     this.db.transaction(() => {
       const seen = this.db.prepare(
         "SELECT 1 FROM execution_events WHERE execution_id = ? AND mimir_event_id = ?",
@@ -868,7 +904,8 @@ export class DeliveryLoop {
     event: MimirEvent,
     cursor: string | undefined,
   ): Promise<void> {
-    const missionId = this.row(executionId).mimir_mission_id;
+    const row = this.row(executionId);
+    const missionId = row.mimir_mission_id;
     const seen = this.db
       .prepare("SELECT 1 FROM execution_events WHERE execution_id = ? AND mimir_event_id = ?")
       .get(executionId, event.id);
@@ -881,17 +918,21 @@ export class DeliveryLoop {
 
     // 1. Side effects on Mimir first. Each is idempotent (deterministic keys), so a crash before
     //    the commit below replays them harmlessly.
+    if (event.type === "mission.decision_log_requested") {
+      const entries = this.snapshotDecisions(plan, row.run_number, event.occurredAt);
+      await this.mimir.pinDecisionLog(missionId, entries);
+    }
     const decision = await this.decide(event, task, planTask);
 
     // 2. Commit the event, the derived state and the cursor together.
     const notices: DeliveryNotice[] = [
       { type: "event", executionId, eventType: event.type, mimirEventId: event.id },
     ];
-    this.db.transaction(() => {
-      this.db
+    const saved = this.db.transaction(() => {
+      const inserted = this.db
         .prepare(
           `INSERT INTO execution_events (id, execution_id, mimir_event_id, type, payload_json, occurred_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(execution_id, mimir_event_id) DO NOTHING`,
         )
         .run(
           `exv_${randomUUID()}`,
@@ -901,6 +942,14 @@ export class DeliveryLoop {
           JSON.stringify(event.payload),
           event.occurredAt,
         );
+      if (event.type === "mission.decision_log_requested") {
+        this.db
+          .prepare(
+            "DELETE FROM execution_decision_snapshots WHERE project_id = ? AND plan_id = ? AND plan_version = ? AND run_number = ?",
+          )
+          .run(plan.projectId, plan.id, plan.version, row.run_number);
+      }
+      if (!inserted.changes) return false;
       this.apply(executionId, event, task, planTask, decision, notices);
       if (task && cursor) {
         this.db
@@ -908,7 +957,9 @@ export class DeliveryLoop {
           .run(cursor, task.id);
       }
       if (cursor) this.mimir.saveCursor(missionId, cursor);
+      return true;
     })();
+    if (!saved) return;
     for (const n of notices) this.notify(n);
   }
 

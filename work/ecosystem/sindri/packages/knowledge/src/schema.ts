@@ -142,4 +142,22 @@ export const KNOWLEDGE_MIGRATIONS: readonly string[] = [
     updated_at TEXT NOT NULL
   );
   `,
+  `
+  CREATE TABLE decision_details (
+    decision_id TEXT PRIMARY KEY REFERENCES decisions(id) ON DELETE CASCADE,
+    statement TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    source TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    supersedes_id TEXT REFERENCES decisions(id) ON DELETE SET NULL
+  );
+  CREATE TABLE decision_transitions (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    decision_id TEXT NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    at TEXT NOT NULL
+  );
+  CREATE INDEX decision_transitions_by_decision ON decision_transitions(decision_id, seq);
+  `,
 ];

@@ -139,10 +139,20 @@ export const ProjectSchema = entity(ProjectIdSchema, {
 }).meta({ id: "Project" });
 export type Project = z.infer<typeof ProjectSchema>;
 
+export const DecisionLogRefSchema = z.string().regex(/^[a-f0-9]{64}$/);
+export const DecisionLogSchema = z.array(
+  z.object({ id: z.string().min(1), markdown: z.string().min(1) }),
+);
+export type DecisionLogEntry = z.infer<typeof DecisionLogSchema>[number];
+
 export const MissionSchema = entity(MissionIdSchema, {
   projectId: ProjectIdSchema,
   objective: z.string().min(1),
   status: MissionStatusSchema,
+  decisionLogAtVerification: z.boolean().optional(),
+  decisionLogRequested: z.boolean().optional(),
+  decisionLogPinned: z.boolean().optional(),
+  decisionLogRef: DecisionLogRefSchema.optional(),
   /** See `CreateMissionRequest.baseCommits`. Absent when work starts from the default branch. */
   baseCommits: z.array(GitShaSchema).optional(),
 }).meta({ id: "Mission" });

@@ -10,8 +10,10 @@ import {
   SindriError,
   type SindriErrorCode,
   applyMigrations,
+  acceptedDecisionContext,
   containsSecret,
   redactSecrets,
+  proposeProjectDecision,
   KNOWLEDGE_MIGRATIONS,
   openDatabase,
   openKnowledge,
@@ -87,6 +89,18 @@ export const DraftOutputSchema = z.strictObject({
       citations: z.array(z.string()),
     }),
   ),
+  designDecisions: z
+    .array(
+      z.strictObject({
+        title: z.string().trim().min(1).max(300),
+        decision: z.string().trim().min(1).max(4000),
+        rationale: z.string().trim().min(1).max(4000),
+        citations: z.array(z.string()).min(1).max(8),
+        supersedes: z.string().max(200).prefault(""),
+      }),
+    )
+    .max(8)
+    .prefault([]),
   openQuestions: z.array(
     z.strictObject({
       id: z.string(),
@@ -98,7 +112,7 @@ export const DraftOutputSchema = z.strictObject({
     }),
   ),
 });
-export type DraftOutput = z.infer<typeof DraftOutputSchema>;
+export type DraftOutput = z.input<typeof DraftOutputSchema>;
 
 // -------------------------------------------------------------------------------- types
 
@@ -246,7 +260,6 @@ const dedupeRefs = (refs: ProvenanceRef[]) => {
   return refs.filter((r) => (seen.has(refKey(r)) ? false : (seen.add(refKey(r)), true)));
 };
 
-const MAX_DECISIONS = 10;
 const MAX_KNOWLEDGE = 50;
 const MAX_ADR_CHUNKS = 4;
 
@@ -489,19 +502,12 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       }
       // Audit M3: only human-accepted decisions are context. Proposed drafts (for example
       // reviewer-written ADRs) are unvalidated and must not steer or be cited by the Director.
-      const decisions = knowledge.decisions
-        .list(projectId)
-        .filter((d) => d.status === "accepted")
-        .filter((d) => !containsSecret(`${d.title}\n${d.adrMarkdown}`))
-        .map((d) => ({ d, score: overlap(`${d.title} ${d.adrMarkdown}`) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, MAX_DECISIONS);
-      for (const { d } of decisions) {
+      for (const d of acceptedDecisionContext(db, projectId, kws)) {
         items.push({
           id: `decision:${d.id}`,
           kind: "decision",
           title: d.title,
-          text: `${d.title} [${d.status}]\n${d.adrMarkdown}`,
+          text: d.text,
           ref: null,
         });
       }
@@ -857,6 +863,44 @@ export function openDirector(pathOrDb: string | SqliteDatabase, options: OpenDir
       try {
         spec = db.transaction(() => {
           const s = specs.createDraft({ projectId, intakeId: rec.id, title, body, provenance });
+          const titles = new Set<string>();
+          for (const choice of draft.designDecisions ?? []) {
+            if (!resolve(choice.citations).ok) continue;
+            const prior = choice.supersedes?.trim();
+            const supersedesId = prior?.startsWith("decision:")
+              ? prior.slice("decision:".length)
+              : undefined;
+            if (
+              prior &&
+              (!supersedesId ||
+                byId.get(prior)?.kind !== "decision" ||
+                knowledge.decisions.get(supersedesId)?.status !== "accepted")
+            )
+              continue;
+            const title = clean(choice.title);
+            const decision = clean(choice.decision);
+            const rationale = clean(choice.rationale);
+            if (!title || !decision || !rationale || titles.has(title)) continue;
+            titles.add(title);
+            const source = `spec:${s.id} (${[...new Set(choice.citations)].join(", ")})`;
+            proposeProjectDecision(
+              db,
+              projectId,
+              {
+                title,
+                decision,
+                rationale,
+                source:
+                  source.length <= 1000
+                    ? source
+                    : `spec:${s.id} (${choice.citations[0]} and ${choice.citations.length - 1} more citations)`,
+                ...(supersedesId ? { supersedesId } : {}),
+              },
+              "Director",
+              iso(),
+            );
+          }
+          meta.secretsRedacted = secretsRedacted;
           saveMeta(s.id, meta);
           return s;
         })();

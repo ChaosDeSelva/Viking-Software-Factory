@@ -1,5 +1,23 @@
 import Foundation
 
+func factoryUpdateSummary(_ value: [String: Any], feeds: [[String: Any]]) -> String {
+    guard let feed = feeds.first(where: { $0["repo"] as? String == "Viking-Software-Factory" }),
+          feed["error"] == nil else {
+        return "Couldn’t check the factory release. Try Check for updates again."
+    }
+    guard let release = feed["release"] as? [String: Any] else {
+        return "No factory release was found on this channel."
+    }
+    guard value["available"] as? Bool == true else {
+        return "No newer factory release was found on this channel."
+    }
+    let version = release["tag_name"] as? String ?? "the newer release"
+    if value["installable"] as? Bool == true {
+        return "Choose Install update to install \(version)."
+    }
+    return "The factory release \(version) has no compatible installation bundle."
+}
+
 /// The factory's web pages, in the order the window's tab switcher shows them.
 enum FactoryTab: Int, CaseIterable {
     case heimdall, sindri, mimir, skidbladnir, docs
@@ -11,7 +29,7 @@ enum FactoryTab: Int, CaseIterable {
         [
             "Heimdall, the command center: projects, runs and approvals.",
             "Sindri, which plans and builds: specs, plans and reviews.",
-            "Mimir, the factory's memory of projects and decisions.",
+            "Mimir runs the agents and shows their tasks and events.",
             "Skidbladnir, which manages worker machines.",
             "The factory's documentation, served by Heimdall.",
         ][rawValue]

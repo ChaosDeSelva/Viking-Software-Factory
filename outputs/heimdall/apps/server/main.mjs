@@ -104,6 +104,7 @@ export async function startHeimdall(options = {}) {
   const savedConnections = existsSync(connectionFile)
     ? JSON.parse(readFileSync(connectionFile, "utf8"))
     : {};
+  const workerOrigin = env.SKIDBLADNIR_URL ? localUrl(env.SKIDBLADNIR_URL) : undefined;
   const connections = {};
   for (const name of ["mimir", "sindri"]) {
     const upper = name.toUpperCase();
@@ -187,7 +188,7 @@ export async function startHeimdall(options = {}) {
       }
     }, 100);
   };
-  let hub = new Hub(connections, store, broadcast);
+  let hub = new Hub(connections, store, broadcast, workerOrigin);
   const web = resolve(
     options.webDir ??
       process.env.HEIMDALL_WEB_DIR ??
@@ -477,7 +478,7 @@ export async function startHeimdall(options = {}) {
           store.clearSource(b.source);
           for (const sess of sessions.values()) sess.approvalSecret = null;
           saveSessions();
-          hub = new Hub(connections, store, broadcast);
+          hub = new Hub(connections, store, broadcast, workerOrigin);
           void hub.start();
         }
         store.audit({

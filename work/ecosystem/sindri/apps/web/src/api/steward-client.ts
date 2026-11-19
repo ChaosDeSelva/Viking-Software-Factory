@@ -2,6 +2,8 @@ import {
   acceptNeedsApproval,
   type Decision,
   type DecisionQuery,
+  type JournalProposal,
+  type ProjectJournal,
   type FeedbackGraphStatus,
   type ProjectFeedbackGraph,
   type StewardMode,
@@ -30,6 +32,17 @@ function decisionQuery(q: DecisionQuery): string {
 /** Client methods for the steward (Autonomy page) and the Feedback Graph link. */
 export function stewardMethods(call: Call) {
   return {
+    getProjectJournal: (projectId: string) =>
+      call<ProjectJournal>("GET", `/v1/projects/${enc(projectId)}/decision-log`),
+    proposeProjectDecision: (projectId: string, proposal: JournalProposal) =>
+      call("POST", `/v1/projects/${enc(projectId)}/decision-log`, proposal),
+    reviewProjectDecision: (projectId: string, id: string, decision: "accepted" | "rejected") =>
+      call(
+        "POST",
+        `/v1/projects/${enc(projectId)}/decision-log/${enc(id)}/decision`,
+        { decision },
+        { approval: true },
+      ),
     stewardStatus: () => call<StewardStatus>("GET", "/v1/steward/status"),
     /** Approval-gated (the path is in APPROVAL_ROUTE). */
     setStewardMode: async (type: string, mode: StewardMode) =>
@@ -99,6 +112,9 @@ export function stewardMethods(call: Call) {
 
 /** Method names, for test mocks. */
 export const STEWARD_METHOD_NAMES = [
+  "getProjectJournal",
+  "proposeProjectDecision",
+  "reviewProjectDecision",
   "stewardStatus",
   "setStewardMode",
   "pauseSteward",

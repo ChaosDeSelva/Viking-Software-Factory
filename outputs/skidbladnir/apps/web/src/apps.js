@@ -6,9 +6,24 @@ import { withProject } from '@factory/ui';
 export const SINDRI_OVERVIEW = 'http://127.0.0.1:4310/#/overview';
 
 /** Switcher entries; only Skidbladnir's own link (`here`) keeps the selected project. */
-export const switcherApps = (here, project) => [
-  { id: 'sindri', label: 'Sindri', href: SINDRI_OVERVIEW, description: 'Plan: intake, specs, plans, runs' },
-  { id: 'mimir', label: 'Mimir', href: 'http://127.0.0.1:7700/', description: 'Execute: missions, crews, agents' },
-  { id: 'heimdall', label: 'Heimdall', href: 'http://127.0.0.1:4320/', description: 'Watch: the whole factory' },
+export const switcherApps = (here, project, origins = {}) => [
+  {
+    id: 'sindri',
+    label: 'Sindri',
+    href: new URL('/#/overview', origins.sindri ?? SINDRI_OVERVIEW).href,
+    description: 'Plan: intake, specs, plans, runs',
+  },
+  {
+    id: 'mimir',
+    label: 'Mimir',
+    href: new URL('/', origins.mimir ?? 'http://127.0.0.1:7700').href,
+    description: 'Execute: missions, crews, agents',
+  },
+  {
+    id: 'heimdall',
+    label: 'Heimdall',
+    href: new URL('/', origins.heimdall ?? 'http://127.0.0.1:4320').href,
+    description: 'Watch: the whole factory',
+  },
   { id: 'skidbladnir', label: 'Skidbladnir', href: withProject(here, project), description: 'Workers: the fleet' },
 ];

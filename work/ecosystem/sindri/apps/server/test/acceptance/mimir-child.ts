@@ -34,28 +34,28 @@ export interface MimirChild {
  * Starts Mimir as a child process on an ephemeral loopback port with the fake agent runtime
  * (`MIMIR_RUNTIME=fake`, see mimir T12/T15 reports), a temp data dir and a known token.
  */
-export async function startMimirChild(main: string, dataDir: string): Promise<MimirChild> {
+export async function startMimirChild(
+  main: string,
+  dataDir: string,
+  fixture = new URL("./fixture-agent.mjs", import.meta.url),
+): Promise<MimirChild> {
   const token = randomBytes(32).toString("hex");
   let out = "";
-  const proc = spawn(
-    process.execPath,
-    ["--import", fileURLToPath(new URL("./fixture-agent.mjs", import.meta.url)), main],
-    {
-      env: {
-        PATH: process.env["PATH"] ?? "",
-        HOME: dataDir,
-        MIMIR_DATA_DIR: dataDir,
-        MIMIR_WORKTREE_ROOT: `${dataDir}-worktrees`,
-        SINDRI_ACCEPTANCE_MIMIR_MAIN: main,
-        MIMIR_RUNTIME: "fake",
-        MIMIR_PORT: "0",
-        MIMIR_AUTH_TOKEN: token,
-        MIMIR_TICK_MS: "100",
-        MIMIR_LOG_LEVEL: "warn",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
+  const proc = spawn(process.execPath, ["--import", fileURLToPath(fixture), main], {
+    env: {
+      PATH: process.env["PATH"] ?? "",
+      HOME: dataDir,
+      MIMIR_DATA_DIR: dataDir,
+      MIMIR_WORKTREE_ROOT: `${dataDir}-worktrees`,
+      SINDRI_ACCEPTANCE_MIMIR_MAIN: main,
+      MIMIR_RUNTIME: "fake",
+      MIMIR_PORT: "0",
+      MIMIR_AUTH_TOKEN: token,
+      MIMIR_TICK_MS: "100",
+      MIMIR_LOG_LEVEL: "warn",
     },
-  );
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   const url = await new Promise<string>((ok, fail) => {
     const timer = setTimeout(() => fail(new Error(`Mimir did not start:\n${out}`)), 30_000);
     const onData = (b: Buffer) => {

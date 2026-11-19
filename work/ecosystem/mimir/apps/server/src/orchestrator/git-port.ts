@@ -9,7 +9,7 @@ import {
   type RestoreRecord,
   type WorktreeDiff,
 } from "@mimir/git";
-import type { ProjectId, Worktree } from "@mimir/protocol";
+import type { DecisionLogEntry, ProjectId, Worktree } from "@mimir/protocol";
 
 /** A worktree as persisted by Mimir (`git.worktree_created` + the task's project). */
 export interface PersistedWorktree {
@@ -35,6 +35,7 @@ export interface WorktreePort {
   plan(input: Omit<CreateWorktreeInput, "repoPath" | "baseRef">): { path: string; branch: string };
   /** The base ref a worktree was created from (persisted for `restore`). */
   baseRefOf(id: string): string | undefined;
+  applyDecisionLog(id: string, entries: readonly DecisionLogEntry[]): Promise<void>;
   checkpoint(id: string): Promise<string>;
   exportResult(
     projectId: string,
@@ -63,6 +64,10 @@ export class GitWorktreePort implements WorktreePort {
 
   create(input: CreateWorktreeInput): Promise<Worktree> {
     return this.manager.createWorktree(input);
+  }
+
+  applyDecisionLog(id: string, entries: readonly DecisionLogEntry[]): Promise<void> {
+    return this.manager.applyDecisionLog(id, entries);
   }
 
   checkpoint(id: string): Promise<string> {

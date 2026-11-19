@@ -22,21 +22,37 @@ export const FACTORY_APPS = [
   },
 ] as const;
 
-/** Switcher entries; only Heimdall's own link keeps the current project (`overview`). */
-export const switcherApps = (overview: string) =>
-  FACTORY_APPS.map((a) => ({
-    ...a,
-    href: a.id === "heimdall" ? overview : a.href,
-  }));
+type AppOrigins = { mimir?: string; sindri?: string };
+
+export const switcherApps = (overview: string, origins: AppOrigins = {}) =>
+  FACTORY_APPS.map((app) => {
+    if (app.id === "heimdall") return { ...app, href: overview };
+    const page = new URL(app.href);
+    return {
+      ...app,
+      href: new URL(page.pathname + page.hash, origins[app.id] ?? page).href,
+    };
+  });
 
 /** Sindri's delivery view (its hash route); Sindri project and execution IDs. */
 export const sindriDeliveryHref = (
   projectId: string | null | undefined,
   executionId: string,
+  origins: AppOrigins = {},
 ) => {
   const q = new URLSearchParams({
     ...(projectId ? { project: projectId } : {}),
     delivery: executionId,
   });
-  return `${FACTORY_APPS[0].href.split("#")[0]}#/deliveries?${q}`;
+  return new URL(`/#/deliveries?${q}`, origins.sindri ?? FACTORY_APPS[0].href)
+    .href;
 };
+
+export function sindriDecisionLogHref(
+  projectId: string,
+  origins: AppOrigins = {},
+) {
+  const q = new URLSearchParams({ project: projectId });
+  return new URL(`/#/autonomy?${q}`, origins.sindri ?? FACTORY_APPS[0].href)
+    .href;
+}

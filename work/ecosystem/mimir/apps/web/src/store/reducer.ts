@@ -242,6 +242,22 @@ function foldEvent(state: State, e: EventEnvelope): State {
     return tasks === state.tasks ? state : { ...state, tasks };
   }
 
+  if (type === "mission.decision_log_requested" || type === "mission.decision_log_pinned") {
+    const missions = updateById(state.missions, e.missionId, (m) => ({
+      ...m,
+      updatedAt: e.occurredAt,
+      decisionLogRequested: true,
+      ...(type === "mission.decision_log_pinned"
+        ? {
+            decisionLogPinned: true,
+            ...(typeof p["decisionLogRef"] === "string"
+              ? { decisionLogRef: p["decisionLogRef"] }
+              : {}),
+          }
+        : {}),
+    }));
+    return missions === state.missions ? state : { ...state, missions };
+  }
   if (type.startsWith("mission.") && type !== "mission.created") {
     const to = p["to"] as Mission["status"] | undefined;
     if (to === undefined) return state;

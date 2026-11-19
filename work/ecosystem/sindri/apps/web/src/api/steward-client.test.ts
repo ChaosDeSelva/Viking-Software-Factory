@@ -40,6 +40,42 @@ const ROUTES: {
   gated?: boolean;
 }[] = [
   {
+    name: "project journal",
+    call: (api) => api.getProjectJournal("p/1"),
+    response: { entries: [], markdown: "## Decision log" },
+    sends: { method: "GET", url: "/v1/projects/p%2F1/decision-log" },
+    returns: { entries: [], markdown: "## Decision log" },
+  },
+  {
+    name: "propose project decision",
+    call: (api) =>
+      api.proposeProjectDecision("p1", {
+        title: "Quota",
+        decision: "Use 4",
+        rationale: "Capacity",
+        source: "Spec 8",
+      }),
+    response: { id: "d2" },
+    sends: {
+      method: "POST",
+      url: "/v1/projects/p1/decision-log",
+      body: { title: "Quota", decision: "Use 4", rationale: "Capacity", source: "Spec 8" },
+    },
+    returns: { id: "d2" },
+  },
+  {
+    name: "review project decision",
+    call: (api) => api.reviewProjectDecision("p/1", "d/2", "accepted"),
+    response: { id: "d/2" },
+    sends: {
+      method: "POST",
+      url: "/v1/projects/p%2F1/decision-log/d%2F2/decision",
+      body: { decision: "accepted" },
+    },
+    returns: { id: "d/2" },
+    gated: true,
+  },
+  {
     name: "stewardStatus",
     call: (api) => api.stewardStatus(),
     response: { running: true, types: [], feedbackGraph: {} },

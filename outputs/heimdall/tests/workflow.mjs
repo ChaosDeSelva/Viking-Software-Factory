@@ -891,7 +891,7 @@ try {
   await inspector.getByText("Posting is blocked").waitFor();
   await inspector.getByText("private_tooling").waitFor();
   const edit = inspector.getByRole("link", { name: /Edit and post in Sindri/ });
-  assert.equal(await edit.getAttribute("href"), "http://127.0.0.1:4310/#/deliveries?project=prj_demo&delivery=exe_review");
+  assert.equal(await edit.getAttribute("href"), source.url + "/#/deliveries?project=prj_demo&delivery=exe_review");
   assert.equal(await inspector.getByRole("button", { name: /post/i }).count(), 0, "Heimdall never posts a review");
   const axeReview = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   assert.deepEqual(axeReview.violations.map((v) => [v.id, v.nodes.map((n) => n.target)]), [], "PR review");

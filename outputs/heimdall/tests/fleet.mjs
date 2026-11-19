@@ -31,6 +31,7 @@ const app = await startHeimdall({
     HEIMDALL_DATA_DIR: join(root, "heimdall"),
     HEIMDALL_TOKEN: "test-fleet-ui",
     MIMIR_URL: mimir.url,
+    SKIDBLADNIR_URL: "http://127.0.0.1:14380",
     MIMIR_TOKEN: "test-fleet-source-012345678901234567890",
   },
   operatorCode: "test-operator",
@@ -64,10 +65,31 @@ try {
   await page.getByLabel("Access token", { exact: true }).fill("test-fleet-ui");
   await page.getByRole("button", { name: "Connect to factory" }).click();
   await page.getByRole("heading", { level: 1, name: "Overview" }).waitFor();
+  const fleetPath = "**/api/fleet";
+  const unavailable = (route) =>
+    route.fulfill({ status: 503, json: { message: "Worker inventory temporarily unavailable" } });
+  const unreadable = (route) => route.fulfill({ json: {} });
+  await page.route(fleetPath, unavailable);
   await nav("Fleet");
+  await page.getByText("Worker inventory unavailable.", { exact: true }).waitFor();
+  await page.getByText("Worker inventory temporarily unavailable", { exact: true }).waitFor();
+  assert.equal(await page.getByText("No workers reported.", { exact: true }).count(), 0);
+  await page.unroute(fleetPath, unavailable);
+  await page.getByRole("button", { name: "Refresh observations" }).first().click();
+  const dashboard = page.getByRole("link", { name: /Open Skidbladnir worker dashboard/ });
+  await dashboard.waitFor();
+  assert.equal(await dashboard.evaluate((link) => link.href), "http://127.0.0.1:14380/");
   // Workers are table rows; read-only, their controls stay focusable and say why they are off.
   const worker = page.getByRole("row").filter({ hasText: "local-mac" });
   await worker.waitFor();
+  await page.route(fleetPath, unreadable);
+  await page.getByRole("button", { name: "Refresh observations" }).click();
+  await page.getByText("Showing the last reported workers", { exact: true }).waitFor();
+  assert.equal(await worker.isVisible(), true);
+  await page.getByText("Mimir returned an unreadable worker inventory.", { exact: true }).waitFor();
+  await page.unroute(fleetPath, unreadable);
+  await page.getByRole("button", { name: "Refresh observations" }).click();
+  await page.getByText("Showing the last reported workers", { exact: true }).waitFor({ state: "detached" });
   const drain = worker.getByRole("button", { name: /^Drain worker/ });
   assert.equal(await drain.getAttribute("aria-disabled"), "true");
   assert.match(await drain.evaluate((b) => document.getElementById(b.getAttribute("aria-describedby")).textContent), /Unlock operator controls/);

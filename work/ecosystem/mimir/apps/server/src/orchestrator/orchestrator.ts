@@ -61,6 +61,7 @@ import {
   type PlannedInput,
 } from "./inputs.js";
 import type { ArtifactStore } from "./artifacts.js";
+import { DecisionLogStore } from "../decision-log-store.js";
 import type { PersistedWorktree, WorktreePort } from "./git-port.js";
 import type { PrRunner } from "./pr.js";
 import { missionTransition, taskTransition, type TaskEventContext } from "./transitions.js";
@@ -154,6 +155,7 @@ const NOOP_LOG: OrchestratorLogger = {
 
 export interface OrchestratorOptions {
   store: EventStore;
+  decisionLogs?: DecisionLogStore;
   readModel: ReadModel;
   runtime: RuntimeAdapter | null;
   git: WorktreePort;
@@ -282,6 +284,7 @@ export class Orchestrator {
   /** Sessions whose model is not reported yet: a Codex thread whose log may name it later. */
   private readonly modelPending = new Map<string, { codexThread?: string; tries: number }>();
   private readonly store: EventStore;
+  private readonly decisionLogs: DecisionLogStore;
   private readonly rm: ReadModel;
   private readonly runtime: RuntimeAdapter | null;
   private readonly git: WorktreePort;
@@ -322,6 +325,7 @@ export class Orchestrator {
 
   constructor(options: OrchestratorOptions) {
     this.store = options.store;
+    this.decisionLogs = options.decisionLogs ?? new DecisionLogStore(options.store);
     this.rm = options.readModel;
     this.runtime = options.runtime;
     this.git = options.git;
@@ -1358,9 +1362,60 @@ export class Orchestrator {
   // ---------------------------------------------------------------------------------------------
   // Verification
 
+  pinDecisionLog(missionId: string, decisionLogRef: string | null): Promise<Mission> {
+    return this.enqueue(() => {
+      const mission = this.mission(missionId);
+      if (!mission.decisionLogAtVerification || !mission.decisionLogRequested) {
+        throw new MimirError(
+          "invalid_transition",
+          "This mission has not requested its decision log.",
+        );
+      }
+      if (mission.decisionLogPinned) {
+        if ((mission.decisionLogRef ?? null) !== decisionLogRef) {
+          throw new MimirError("conflict", "This mission already pinned a different decision log.");
+        }
+        return mission;
+      }
+      if (decisionLogRef !== null)
+        this.decisionLogs.requireBlock(mission.projectId, decisionLogRef);
+      this.emit(this.now(), {
+        type: "mission.decision_log_pinned",
+        streamId: `mission:${mission.id}`,
+        missionId: mission.id,
+        payload: { decisionLogRef },
+      });
+      for (const task of this.rm.tasks.values()) {
+        if (
+          task.missionId === mission.id &&
+          task.status === "verifying" &&
+          task.mode?.deliverable !== "document"
+        ) {
+          this.startVerification(task.id);
+        }
+      }
+      return this.mission(missionId);
+    });
+  }
+
   private startVerification(taskId: string): void {
-    if (this.rm.tasks.get(taskId)?.mode?.deliverable === "document") {
+    const task = this.rm.tasks.get(taskId);
+    if (task?.status !== "verifying") return;
+    if (task.mode?.deliverable === "document") {
       this.track(this.enqueue(() => this.completeDocument(taskId)));
+      return;
+    }
+    const mission = this.mission(task.missionId);
+    if (mission.decisionLogAtVerification && !mission.decisionLogPinned) {
+      if (!this.activeWorktree(taskId)) return;
+      if (!mission.decisionLogRequested) {
+        this.emit(this.now(), {
+          type: "mission.decision_log_requested",
+          streamId: `mission:${mission.id}`,
+          missionId: mission.id,
+          payload: {},
+        });
+      }
       return;
     }
     const ac = new AbortController();
@@ -1406,6 +1461,22 @@ export class Orchestrator {
     if (task?.status !== "verifying" || !worktree) return null;
     const project = this.projectOf(task);
     const now = this.now();
+    const mission = this.rm.missions.get(task.missionId);
+    if (mission?.decisionLogRef) {
+      try {
+        const entries = this.decisionLogs.entries(mission.projectId, mission.decisionLogRef);
+        await this.git.applyDecisionLog(worktree.id, entries);
+      } catch (err) {
+        await this.finishVerification(
+          taskId,
+          new MimirError(
+            "validation_failed",
+            `Cannot include the project decision log in SPEC.md: ${message(err)}`,
+          ),
+        );
+        return null;
+      }
+    }
     const headSha = await this.recordWorktreeDiff(now, task, worktree);
     // The test command runs in the agent's worktree: classify and gate it like any command (C2).
     const testCommand = testCommandOf(project);

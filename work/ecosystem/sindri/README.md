@@ -116,6 +116,8 @@ Drafting a spec needs a provider: set one in Settings, then use the Director scr
 
 Intake text is never trusted. The director reads it inside random per request delimiters together with cited project context, and its output is validated and advisory. A spec asks only blocking questions and is approved by a person. The planner expands an approved spec into a DAG and selects harnesses by id and exact version through the `HarnessService` interface.
 
+Open the project's **Autonomy** screen for design choices proposed during planning, the reasons for them, and who accepted or replaced them. Future plans can use accepted choices. The first writable task to enter verification sets the cutoff for entries in the delivered patch. Review them under **Decision log** in the project's `SPEC.md`. [Project decision API](docs/api.md#project-design-decisions)
+
 On execution, `packages/mimir-client` submits missions through `@mimir/sdk` and reconciles Mimir's durable events into Sindri's own state. When Mimir reports a task as verifying, Sindri evaluates gates from recorded evidence only: test runs, artifacts, Brokkr's report bound to the task and commit, and a review from a reviewer separate from the implementer. Claims in agent output do not satisfy a gate. A failure triggers a bounded repair attempt, then escalation. Each delivery has a trace from intake to spec version, plan version, mission, task events and artifacts.
 
 ## Reference

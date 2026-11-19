@@ -46,7 +46,7 @@ export interface DeliveryService {
   assess(executionId: string): Promise<void>;
   gateResults(executionId: string): GateResult[];
   reviews(executionId: string): ReviewRecord[];
-  report(executionId: string): Promise<DeliveryReport>;
+  report(executionId: string, options?: { preferDelivered?: boolean }): Promise<DeliveryReport>;
   renderPrDescription(report: DeliveryReport): string;
   requestPr(executionId: string): Promise<PrDelivery>;
   /** Ends a document (research) delivery with a human decision. */
@@ -158,9 +158,12 @@ export class S6DeliveryService implements DeliveryService {
     return this.#offline.reviews.list(executionId);
   }
 
-  async report(executionId: string): Promise<DeliveryReport> {
+  async report(
+    executionId: string,
+    options: { preferDelivered?: boolean } = {},
+  ): Promise<DeliveryReport> {
     return (
-      this.#offline.reports.latestFor(executionId) ??
+      this.#offline.reports.latestFor(executionId, options) ??
       (await (await this.#connected()).reports.build(executionId))
     );
   }

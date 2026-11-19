@@ -6,6 +6,8 @@ import type { EventType } from "@mimir/protocol";
  */
 const ALL: Record<EventType, true> = {
   "mission.created": true,
+  "mission.decision_log_requested": true,
+  "mission.decision_log_pinned": true,
   "mission.started": true,
   "mission.paused": true,
   "mission.resumed": true,

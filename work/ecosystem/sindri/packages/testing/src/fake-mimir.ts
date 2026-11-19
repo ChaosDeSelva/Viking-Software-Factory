@@ -30,6 +30,8 @@ import {
   CreateProjectResponseSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
+  DecisionLogBlockRequestSchema,
+  DecisionLogBlockResponseSchema,
   GetArtifactResponseSchema,
   GetMissionResponseSchema,
   HealthResponseSchema,
@@ -49,6 +51,9 @@ import {
   MimirError,
   MissionIdParamsSchema,
   OperationAcceptedSchema,
+  ProjectIdParamsSchema,
+  PinDecisionLogRequestSchema,
+  PinDecisionLogResponseSchema,
   RetryTaskRequestSchema,
   SendInstructionRequestSchema,
   SessionIdParamsSchema,
@@ -150,6 +155,7 @@ export interface FakeMimir {
   tamper(artifactId: string, content: string): void;
   waitForSseClients(n: number): Promise<void>;
   /** Ends every open SSE response (clients should reconnect). */
+  dropDecisionLogBlocks(projectId: string): void;
   dropSseClients(): void;
   /** Closes the listener and every socket; state is kept. */
   stop(): Promise<void>;
@@ -193,9 +199,11 @@ const ROUTES = [
   "GET /v1/snapshot",
   "GET /v1/projects",
   "POST /v1/projects",
+  "POST /v1/projects/{id}/decision-log-blocks",
   "GET /v1/missions",
   "POST /v1/missions",
   "GET /v1/missions/{id}",
+  "POST /v1/missions/{id}/decision-log",
   "POST /v1/missions/{id}/start",
   "POST /v1/missions/{id}/cancel",
   "POST /v1/missions/{id}/reopen",
@@ -238,6 +246,8 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
   const scripts = new Map<string, TaskStep[]>(Object.entries(options.scripts ?? {}));
 
   const projects = new Map<string, Project>();
+  const decisionLogBlocks = new Map<string, Set<string>>();
+  const waitingForDecisionLog = new Map<MissionId, Set<TaskState>>();
   const missions = new Map<string, Mission>();
   const crews = new Map<string, { crew: Crew; members: CrewMember[] }>();
   const tasks = new Map<string, TaskState>();
@@ -453,7 +463,23 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       transition(st, "task.blocked", "blocked", { reason: "approval_required" });
       return;
     }
-    transition(st, "task.verifying", "verifying");
+    if (st.task.status !== "verifying") transition(st, "task.verifying", "verifying");
+    const mission = need(missions, st.task.missionId, "mission");
+    if (
+      mission.decisionLogAtVerification &&
+      !mission.decisionLogPinned &&
+      st.task.mode?.deliverable !== "document"
+    ) {
+      const waiting = waitingForDecisionLog.get(mission.id) ?? new Set<TaskState>();
+      waiting.add(st);
+      waitingForDecisionLog.set(mission.id, waiting);
+      st.steps.unshift(step);
+      if (!mission.decisionLogRequested) {
+        mission.decisionLogRequested = true;
+        emit("mission.decision_log_requested", {}, { missionId: mission.id });
+      }
+      return;
+    }
     later(() => {
       emit("test.run_completed", { command: "pnpm test", passed: true, total: 1, failed: 0 }, refs);
       for (const entry of step.artifacts ?? ["diff", "changed-files", "test.output"]) {
@@ -619,6 +645,19 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
       creates.projects += 1;
       return { status: 201, body: CreateProjectResponseSchema.parse({ project }) };
     },
+    "POST /v1/projects/{id}/decision-log-blocks": ({ params, body }) => {
+      const { id } = parseWith(ProjectIdParamsSchema, params, "path");
+      need(projects, id, "project");
+      const block = parseWith(DecisionLogBlockRequestSchema, body, "body");
+      const known = decisionLogBlocks.get(id) ?? new Set<string>();
+      if (block.previous && !known.has(block.previous)) {
+        throw new MimirError("not_found", "previous decision log block not found");
+      }
+      const digest = createHash("sha256").update(JSON.stringify(block)).digest("hex");
+      known.add(digest);
+      decisionLogBlocks.set(id, known);
+      return { status: 200, body: DecisionLogBlockResponseSchema.parse({ digest }) };
+    },
     "GET /v1/missions": ({ query }) => {
       const q = parseWith(ListMissionsQuerySchema, query, "query");
       const list = [...missions.values()].filter(
@@ -630,10 +669,15 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
     "POST /v1/missions": ({ body }) => {
       const req = parseWith(CreateMissionRequestSchema, body ?? {}, "body");
       need(projects, req.projectId, "project");
+      if (req.decisionLogRef && !decisionLogBlocks.get(req.projectId)?.has(req.decisionLogRef)) {
+        throw new MimirError("not_found", "decision log block not found for this project");
+      }
       const mission: Mission = {
         ...base(newId("msn")),
         projectId: req.projectId,
         objective: req.objective,
+        ...(req.decisionLogRef ? { decisionLogRef: req.decisionLogRef } : {}),
+        ...(req.decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
         status: "draft",
         ...(req.baseCommits?.length ? { baseCommits: [...req.baseCommits] } : {}),
       };
@@ -660,6 +704,28 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
           ...(req.tasks ? { tasks: created } : {}),
         }),
       };
+    },
+    "POST /v1/missions/{id}/decision-log": ({ params, body }) => {
+      const { id } = parseWith(MissionIdParamsSchema, params, "path");
+      const { decisionLogRef } = parseWith(PinDecisionLogRequestSchema, body, "body");
+      const mission = need(missions, id, "mission");
+      if (
+        !mission.decisionLogRequested ||
+        (mission.decisionLogPinned && (mission.decisionLogRef ?? null) !== decisionLogRef)
+      ) {
+        throw new MimirError("conflict", "mission decision log cannot be pinned");
+      }
+      if (decisionLogRef && !decisionLogBlocks.get(mission.projectId)?.has(decisionLogRef)) {
+        throw new MimirError("not_found", "decision log block not found for this project");
+      }
+      if (!mission.decisionLogPinned) {
+        if (decisionLogRef) mission.decisionLogRef = decisionLogRef;
+        mission.decisionLogPinned = true;
+        emit("mission.decision_log_pinned", { decisionLogRef }, { missionId: id });
+        for (const st of waitingForDecisionLog.get(id) ?? []) later(() => runStep(st));
+        waitingForDecisionLog.delete(id);
+      }
+      return { status: 200, body: PinDecisionLogResponseSchema.parse({ mission }) };
     },
     "GET /v1/missions/{id}": ({ params }) => {
       const { id } = parseWith(MissionIdParamsSchema, params, "path");
@@ -1197,6 +1263,9 @@ export async function createFakeMimir(options: FakeMimirOptions = {}): Promise<F
         if (Date.now() > deadline) throw new Error(`timed out waiting for ${n} SSE clients`);
         await new Promise((r) => setTimeout(r, 5));
       }
+    },
+    dropDecisionLogBlocks: (projectId) => {
+      decisionLogBlocks.delete(projectId);
     },
     dropSseClients,
     stop,

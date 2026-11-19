@@ -458,6 +458,14 @@ function MissionDetailView({ id }: { id: string }) {
         {mission && (
           <>
             <ActionResult outcome={action.outcome} />
+            {mission.decisionLogRequested &&
+              !mission.decisionLogPinned &&
+              mission.status === "active" && (
+                <Callout tone="info" title="Waiting for project decisions">
+                  Verification will continue when the coordinator confirms the project's accepted
+                  decisions. If this persists, check the coordinator's connection to this mission.
+                </Callout>
+              )}
             <Disclosure
               title={
                 <span className="flex min-w-0 flex-wrap items-center gap-2">

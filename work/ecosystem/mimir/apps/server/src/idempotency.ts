@@ -101,13 +101,14 @@ export function idempotent(
     request: FastifyRequest,
     command: CommandRecord,
   ) => Promise<CommandResult> | CommandResult,
+  summarizeBody?: (body: unknown) => unknown,
 ) {
   return async (request: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> => {
     const key = keyOf(request);
     if (key === undefined) throw new MimirError("validation_failed", "Idempotency-Key required");
     const begun = ctx.ledger.begin(key, action, {
       params: request.params ?? {},
-      body: request.body ?? null,
+      body: summarizeBody ? summarizeBody(request.body) : (request.body ?? null),
     });
     if ("replay" in begun) {
       const rec = begun.replay;

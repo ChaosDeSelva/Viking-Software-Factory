@@ -26,6 +26,8 @@ const sha = "b".repeat(40);
 
 const SAMPLE_PAYLOADS: { [K in EventType]: EventPayloadMap[K] } = {
   "mission.created": { projectId: newId("prj"), objective: "Ship it" },
+  "mission.decision_log_requested": {},
+  "mission.decision_log_pinned": { decisionLogRef: null },
   "mission.started": { from: "draft", to: "active" },
   "mission.paused": { from: "active", to: "paused", reason: "operator" },
   "mission.resumed": { from: "paused", to: "active" },
@@ -200,6 +202,8 @@ describe("event types", () => {
   it("is exactly the specified list", () => {
     expect(EVENT_TYPES).toEqual([
       "mission.created",
+      "mission.decision_log_requested",
+      "mission.decision_log_pinned",
       "mission.started",
       "mission.paused",
       "mission.resumed",

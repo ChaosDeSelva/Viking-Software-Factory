@@ -9,13 +9,20 @@ import { AwsProvider } from '../../packages/providers/aws.mjs';
 import { Simulator } from '../../packages/providers/simulator.mjs';
 import { workerInput, actions, activeCount, isActive, projectInput, projectSnapshot } from '../../packages/contracts/worker.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-export function createApp({ database = ':memory:', provider = new Simulator(), siteDir = resolve(root, 'site') } = {}) {
+export function createApp({ database = ':memory:', provider = new Simulator(), siteDir = resolve(root, 'site'), env = {} } = {}) {
+  const appOrigins = {};
+  for (const name of ['mimir', 'sindri', 'heimdall']) {
+    const key = name.toUpperCase() + '_PORT', port = env[key];
+    if (port === undefined || port === '') continue;
+    if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw Error(key + ' must be a local TCP port');
+    appOrigins[name] = 'http://127.0.0.1:' + Number(port);
+  }
   const store = new Store(database), streams = new Set();
   store.bind(provider.mode==='aws'?{mode:'aws',accountId:provider.config.accountId,region:provider.config.region,fleetId:provider.config.fleetId}:{mode:'simulation'});
   let providerError=null;
   const maxWorkers=provider.maxWorkers??5;
   const token = randomBytes(32).toString('hex');
-  const snapshot = () => ({ mode: provider.mode, workers: store.list(), events: store.events(), maxWorkers, commands:store.commands(), terminals:store.terminals(), artifacts:store.artifacts().map(({data,...record})=>record), providerError, templates:provider.mode==='aws'?Object.keys(provider.config.templates):['node','python','general'], ...(provider.mode==='aws'?{accountId:provider.config.accountId,region:provider.config.region}: {}) });
+  const snapshot = () => ({ mode: provider.mode, appOrigins, workers: store.list(), events: store.events(), maxWorkers, commands:store.commands(), terminals:store.terminals(), artifacts:store.artifacts().map(({data,...record})=>record), providerError, templates:provider.mode==='aws'?Object.keys(provider.config.templates):['node','python','general'], ...(provider.mode==='aws'?{accountId:provider.config.accountId,region:provider.config.region}: {}) });
   const broadcast = () => { for (const res of streams) res.write(`event: snapshot\ndata: ${JSON.stringify(snapshot())}\n\n`); };
   let queue = Promise.resolve();
   const serial = task => { const pending = queue.then(task); queue = pending.catch(()=>{}); return pending; };
@@ -145,7 +152,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const dir = resolve(process.env.SKIDBLADNIR_DATA_DIR || resolve(root,'.data')); mkdirSync(dir,{recursive:true,mode:0o700}); chmodSync(dir,0o700);
   const configPath=process.env.SKIDBLADNIR_AWS_CONFIG;
   const provider=configPath?new AwsProvider(JSON.parse(readFileSync(resolve(configPath),'utf8'))):new Simulator();
-  const app = createApp({database:resolve(dir,provider.mode==='aws'?'aws-'+provider.config.fleetId+'.sqlite':'skidbladnir.sqlite'),provider});
+  const app = createApp({database:resolve(dir,provider.mode==='aws'?'aws-'+provider.config.fleetId+'.sqlite':'skidbladnir.sqlite'),provider,env:process.env});
   app.server.listen(Number(process.env.PORT || 4380),'127.0.0.1',()=>console.log(`Skidbladnir ${provider.mode}: http://127.0.0.1:${app.server.address().port}`));
   for (const signal of ['SIGTERM','SIGINT']) process.once(signal,()=>app.close().then(()=>process.exit(0)));
 }

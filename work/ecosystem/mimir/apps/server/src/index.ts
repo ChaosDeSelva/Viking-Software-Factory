@@ -45,6 +45,7 @@ import { missionRoutes } from "./routes/missions.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { usageRoutes } from "./routes/usage.js";
+import { DecisionLogStore } from "./decision-log-store.js";
 import { ArtifactStore, DEFAULT_ARTIFACT_RETENTION_DAYS } from "./orchestrator/artifacts.js";
 import { GitWorktreePort, type WorktreePort } from "./orchestrator/git-port.js";
 import {
@@ -166,7 +167,9 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
     warn: (o, m) => app.log.warn(o, m),
     error: (o, m) => app.log.error(o, m),
   };
+  const decisionLogs = new DecisionLogStore(opts.store);
   const orchestrator = new Orchestrator({
+    decisionLogs,
     store: opts.store,
     readModel,
     runtime: opts.runtime,
@@ -194,6 +197,7 @@ export function buildServer(opts: BuildServerOptions): FastifyInstance {
   let pruneTimer: ReturnType<typeof setInterval> | null = null;
 
   const ctx: ServerContext = {
+    decisionLogs,
     store: opts.store,
     ledger: opts.ledger,
     audit: opts.audit,

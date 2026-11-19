@@ -199,9 +199,14 @@ export const fixtureClient: MimirClient = {
       usage,
       cursor: "c0",
     }) as never,
-  projects: { list: async () => ({ projects: [] }), create: async () => ({}) as never },
+  projects: {
+    list: async () => ({ projects: [] }),
+    create: async () => ({}) as never,
+    putDecisionLogBlock: async () => ({ digest: "0".repeat(64) }),
+  },
   missions: {
     list: async () => ({ missions: [] }),
+    pinDecisionLog: async () => ({}) as never,
     get: async () => ({}) as never,
     create: async () => ({}) as never,
     start: async () => ok as never,

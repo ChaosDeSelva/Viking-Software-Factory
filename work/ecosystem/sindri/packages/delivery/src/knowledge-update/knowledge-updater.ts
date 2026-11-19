@@ -302,6 +302,16 @@ export class KnowledgeUpdater {
     ).map(toProposal);
   }
 
+  listForExecution(executionId: string): KnowledgeProposal[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT p.* FROM knowledge_proposals p
+      JOIN deliveries d ON d.id=p.delivery_id WHERE d.execution_id=? ORDER BY p.rowid`,
+      )
+      .all(executionId) as ProposalRow[];
+    return rows.map(toProposal);
+  }
+
   /** Task evidence id recorded for a Mimir ref of this delivery, if any. */
   evidenceFor(deliveryId: string, refId: string): string | undefined {
     return (

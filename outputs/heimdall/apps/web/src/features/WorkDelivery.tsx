@@ -859,6 +859,7 @@ export function PrReviewView({
   projectId: string | undefined;
   report: R;
 }) {
+  const { state } = useHeimdall();
   const review: R = report.review ?? {};
   // Read again when the report the inspector re-reads shows a different draft or post.
   const detail = useDetail<R>(
@@ -953,7 +954,7 @@ export function PrReviewView({
         ) : null}
         <div>
           <a
-            href={sindriDeliveryHref(projectId, executionId)}
+            href={sindriDeliveryHref(projectId, executionId, state?.appOrigins)}
             target="_blank"
             rel="noreferrer noopener"
             className={cn(

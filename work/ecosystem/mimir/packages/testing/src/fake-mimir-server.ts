@@ -27,6 +27,11 @@ import {
   CreateMissionRequestSchema,
   CreateMissionResponseSchema,
   CreateProjectRequestSchema,
+  DecisionLogBlockRequestSchema,
+  PinDecisionLogRequestSchema,
+  PinDecisionLogResponseSchema,
+  DecisionLogBlockResponseSchema,
+  ProjectIdParamsSchema,
   CreateProjectResponseSchema,
   CreateTaskRequestSchema,
   CreateTaskResponseSchema,
@@ -484,6 +489,19 @@ export async function fakeMimirServer(
     ok(ListProjectsResponseSchema, { projects: [...state.projects.values()] }),
   );
 
+  const decisionBlocks = new Map<string, Set<string>>();
+  route("POST", "/v1/projects/:id/decision-log-blocks", ({ params, body }) => {
+    const { id } = parse(ProjectIdParamsSchema, params);
+    need(state.projects, id, "project");
+    const { previous, entries } = parse(DecisionLogBlockRequestSchema, body);
+    const blocks = decisionBlocks.get(id) ?? new Set<string>();
+    if (previous && !blocks.has(previous))
+      throw new MimirError("not_found", "previous decision log block not found");
+    const digest = createHash("sha256").update(JSON.stringify({ previous, entries })).digest("hex");
+    blocks.add(digest);
+    decisionBlocks.set(id, blocks);
+    return ok(DecisionLogBlockResponseSchema, { digest });
+  });
   route("POST", "/v1/missions", ({ body }) => {
     const req = parse(CreateMissionRequestSchema, body);
     if (!state.projects.has(req.projectId))
@@ -491,12 +509,16 @@ export async function fakeMimirServer(
         reason: "unknown_project",
         projectId: req.projectId,
       });
+    if (req.decisionLogRef && !decisionBlocks.get(req.projectId)?.has(req.decisionLogRef))
+      throw new MimirError("not_found", "decision log block not found");
     if (req.budget) checkBudget(req.budget);
     const mission = MissionSchema.parse({
       id: newId("msn"),
       ...base(),
       projectId: req.projectId,
       objective: req.objective,
+      ...(req.decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
+      ...(req.decisionLogRef ? { decisionLogRef: req.decisionLogRef } : {}),
       status: "draft",
     });
     state.missions.set(mission.id, mission);
@@ -504,7 +526,12 @@ export async function fakeMimirServer(
     appendEvent({
       type: "mission.created",
       missionId: mission.id,
-      payload: { projectId: mission.projectId, objective: mission.objective },
+      payload: {
+        projectId: mission.projectId,
+        objective: mission.objective,
+        ...(req.decisionLogAtVerification ? { decisionLogAtVerification: true } : {}),
+        ...(mission.decisionLogRef ? { decisionLogRef: mission.decisionLogRef } : {}),
+      },
     });
     return ok(CreateMissionResponseSchema, { mission }, 201);
   });
@@ -561,6 +588,31 @@ export async function fakeMimirServer(
     return accepted();
   }
 
+  route("POST", "/v1/missions/:id/decision-log", ({ params, body }) => {
+    const { id } = parse(MissionIdParamsSchema, params);
+    const { decisionLogRef } = parse(PinDecisionLogRequestSchema, body);
+    const mission = need(state.missions, id, "mission");
+    if (!mission.decisionLogAtVerification || !mission.decisionLogRequested)
+      throw new MimirError("invalid_transition", "The mission has not requested a decision log.");
+    if (mission.decisionLogPinned) {
+      if ((mission.decisionLogRef ?? null) !== decisionLogRef)
+        throw new MimirError("conflict", "This mission already has a different decision log.");
+      return ok(PinDecisionLogResponseSchema, { mission });
+    }
+    if (decisionLogRef && !decisionBlocks.get(mission.projectId)?.has(decisionLogRef))
+      throw new MimirError("not_found", "Decision log is missing for this project.");
+    const pinned = bump(mission, {
+      decisionLogPinned: true,
+      ...(decisionLogRef ? { decisionLogRef } : {}),
+    });
+    state.missions.set(id, pinned);
+    appendEvent({
+      type: "mission.decision_log_pinned",
+      missionId: id,
+      payload: { decisionLogRef },
+    });
+    return ok(PinDecisionLogResponseSchema, { mission: pinned });
+  });
   route("POST", "/v1/missions/:id/start", ({ params, body }) => {
     const { id } = parse(MissionIdParamsSchema, params);
     const req = parse(StartMissionRequestSchema, body ?? {});

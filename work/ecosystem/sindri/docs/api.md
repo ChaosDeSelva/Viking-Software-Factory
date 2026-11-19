@@ -179,8 +179,8 @@ An execution is final in `verified_pending_review`, `cancelled` or `failed`.
 
 ## Delivery knowledge proposals
 
-* `GET /v1/deliveries/:id/proposals`: list evidence backed proposals.
-* `POST /v1/deliveries/:id/proposals`: generate proposals after completed delivery; approval factor required.
+* `GET /v1/deliveries/:id/proposals`: list evidence-backed proposals from every report of this execution.
+* `POST /v1/deliveries/:id/proposals`: generate proposals from the latest completed delivery. Requires the approval factor.
 * `POST /v1/deliveries/:id/proposals/:proposalId/decision`: accept/reject with the approval factor.
 
 ## Steward
@@ -215,3 +215,23 @@ The read-only Guide answers an operator's question from the factory docs (`Build
 
 Web app routes `GET /` and `GET /*` are public when started with `sindri start`; static responses
 set nosniff, and unmatched `/v1/*` requests remain API errors.
+
+### Project design decisions
+
+`GET /v1/projects/:id/decision-log` returns the project's chronological design decisions
+and Markdown (`entries`, `markdown`). Entries carry a stable ID, choice, rationale, source,
+proposer, status and history. A non-null `exportBlockedReason` identifies private references in the title, statement or rationale that keep it out of project patches. A private source alone is allowed. Existing architecture decisions appear on first read.
+`GET /v1/projects/:id/decision-log.md` downloads the same private journal.
+
+`POST /v1/projects/:id/decision-log` proposes a choice with `title`, `decision`, `rationale`
+and `source`. Set `supersedesId` to propose a replacement for an accepted choice. The
+Director also proposes material choices while drafting a spec, citing the context it used.
+`POST /v1/projects/:id/decision-log/:entryId/decision` takes `decision` (`accepted` or
+`rejected`) and requires the operator's approval factor. Acceptance makes the choice available
+to future specifications and task plans. Accepting a replacement also supersedes its predecessor. Requests use the
+normal bearer token and mutation idempotency key. Deleting a project erases its journal.
+
+A code-change mission waits at its first writable task's verification boundary. Sindri pins the
+public decision entries approved through the request timestamp, including choices accepted after
+dispatch. Later approvals appear in the next eligible mission. Retries reuse the same snapshot.
+Read-only research and review missions do not request a pin.

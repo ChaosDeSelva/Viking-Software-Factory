@@ -41,7 +41,8 @@
           "version": 1,
           "projectId": "prj_00000000000000000000000001",
           "objective": "stays open",
-          "status": "draft"
+          "status": "draft",
+          "decisionLogAtVerification": true
         }
       ],
       "crews": [
@@ -360,6 +361,19 @@
                 "cancelled",
                 "failed"
               ]
+            },
+            "decisionLogAtVerification": {
+              "type": "boolean"
+            },
+            "decisionLogRequested": {
+              "type": "boolean"
+            },
+            "decisionLogPinned": {
+              "type": "boolean"
+            },
+            "decisionLogRef": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
             },
             "baseCommits": {
               "type": "array",

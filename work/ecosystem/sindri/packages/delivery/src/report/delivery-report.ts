@@ -614,9 +614,15 @@ export class DeliveryReports {
     return row && this.#withDecision(fromRow(row));
   }
 
-  latestFor(executionId: string): DeliveryReport | undefined {
+  latestFor(
+    executionId: string,
+    options: { preferDelivered?: boolean } = {},
+  ): DeliveryReport | undefined {
+    const priority = options.preferDelivered ? "(status = 'delivered_pending_merge') DESC, " : "";
     const row = this.#db
-      .prepare("SELECT * FROM deliveries WHERE execution_id = ? ORDER BY rowid DESC LIMIT 1")
+      .prepare(
+        `SELECT * FROM deliveries WHERE execution_id = ? ORDER BY ${priority}rowid DESC LIMIT 1`,
+      )
       .get(executionId) as DeliveryRow | undefined;
     return row && this.#withDecision(fromRow(row));
   }
