@@ -28,7 +28,7 @@ def require_standalone_node(node,linked=None):
  foreign=[l.strip().split(' (')[0] for l in out.splitlines()[1:] if l.strip() and not SYSTEM_LIBRARY.match(l)]
  if foreign:raise SystemExit(f'{node} is not a standalone Node build (it links {", ".join(foreign[:3])}). Put an official build from nodejs.org first on PATH.')
 def copy(src,dst):
- if src.is_dir():shutil.copytree(src,dst,symlinks=True,ignore=shutil.ignore_patterns('.git','.data','.heimdall','test-results','coverage','.DS_Store'))
+ if src.is_dir():shutil.copytree(src,dst,symlinks=True,ignore=shutil.ignore_patterns('.git','.data','.heimdall','test-results','coverage','.DS_Store','__pycache__','*.pyc','*.pyo'))
  else:dst.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(src,dst)
 
 def clean_deployment(source_app, target):
@@ -99,6 +99,7 @@ def package(args,root,out,stage):
   if (source/'third_party').exists():copy(source/'third_party',target/'third_party')
   for f in ['LICENSE','NOTICE','README.md']:
    if (source/f).exists():copy(source/f,target/f)
+  for notes in sorted(source.glob('RELEASE-*.md')):copy(notes,target/notes.name)
  for item in ['apps/server','dist','LICENSE','NOTICE']:
   src=root/'outputs/heimdall'/item
   if src.exists():copy(src,core/'outputs/heimdall'/item)

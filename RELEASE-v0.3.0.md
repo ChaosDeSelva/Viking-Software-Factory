@@ -22,6 +22,6 @@ The companion and Hulder are Developer ID signed and Apple notarized. The manife
 
 ## Validation and scope
 
-The manager passed 39 Rust tests, 10 packaging tests, 17 launcher checks and four factory adapter checks. Component results are recorded in each repository's 0.2.0 release notes. This release is also checked with signed application verification, installation of the packaged runtime, and public download verification. The release assets include checksums and a source record.
+The manager passed 39 Rust tests, 10 packaging tests, 17 launcher checks and four factory adapter checks. Service results are recorded in the five source components' 0.2.0 release notes; Hulder and Bifrost have their own release records. This release is also checked with signed application verification, installation of the packaged runtime, and public download verification. The release assets include checksums and a source record.
 
 This remains a preview. Manual VoiceOver, login registration and installation on a separate clean Mac are not claimed. Prior real-agent and cloud acceptance remains historical evidence; this release does not claim a new authenticated test of every agent provider or cloud configuration.
