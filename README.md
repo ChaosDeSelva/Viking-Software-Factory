@@ -12,7 +12,7 @@ A collection of independent local tools for turning an idea into a plan, agent e
 | Bifrost | Local MCP bridge and Hulder native integration | GPL 3.0 or later |
 | Hulder | Independent native editor with optional factory inspection | GPL 3.0 or later, with component licenses retained |
 
-This is a source preview with working changes listed in SOURCE-MANIFEST.json. No GitHub account is required to run locally. Agent providers require their own installed and authenticated tools. Model requests can use the network.
+This is the integrated source for the coordinated preview. SOURCE-MANIFEST.json records the component repositories and release snapshots. No GitHub account is required to run locally. Agent providers require their own installed and authenticated tools. Model requests can use the network.
 
 To follow a request across tools, see [operator handoffs](OPERATOR-HANDOFFS.md). Maintainers and coordination agents record lasting changes in the [factory decision log](SPEC.md#decision-log).
 
@@ -54,8 +54,8 @@ The root Apache license covers this collection's original integration files. Eac
 
 ## Experimental release status
 
-The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+The current coordinated preview is `v0.3.0`. See [release scope and setup](RELEASE-v0.3.0.md) for installation, tested behavior and acceptance limits. The original source preview remains documented in [v0.1.0 notes](RELEASE-v0.1.0.md). Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
 
 ## Mac companion and managed installation
 
-The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. Its Viking Factory window shows Heimdall, Sindri, Mimir, Skidbladnir and the docs as tabs in one app window. [Download the signed Mac setup](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.2.0/Viking-Factory-Setup-0.2.0-macos-arm64.zip) and follow [installation and release notes](RELEASE-v0.2.0.md). The v0.2.0 preview includes notarized apps and signed update manifests. Manual accessibility and a separate clean Mac acceptance remain pending.
+The new [factory manager](manager/README.md) provides a Rust CLI and native Mac menu bar app for versioned installation, health checks, service controls, daily release checks and recovery. Its Viking Factory window shows Heimdall, Sindri, Mimir, Skidbladnir and the docs as tabs in one app window. [Download the signed Mac setup](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.3.0/Viking-Factory-Setup-0.3.0-macos-arm64.zip) and follow [installation and release notes](RELEASE-v0.3.0.md). The v0.3.0 preview includes notarized apps and signed update manifests; its bundled runtime requires macOS 13.5 or later. Manual accessibility and a separate clean Mac acceptance remain pending.

@@ -32,10 +32,31 @@ describe("acquireLock edge cases", () => {
     // Gives up only after the full bounded retry loop, which exceeds 5 s on slow CI runners.
   }, 30_000);
 
+  it("does not reclaim an aged mutex whose owner is still alive", () => {
+    const db = join(tmp.dir, "live-reclaimer.db");
+    plant(`${db}.lock`, "garbage", 60_000);
+    const mutex = JSON.stringify({ pid: process.pid, token: "live-owner" });
+    plant(`${db}.lock.reclaim`, mutex, 60_000);
+    expect(() => acquireLock(db)).toThrow(expect.objectContaining({ code: "conflict" }));
+    expect(readFileSync(`${db}.lock`, "utf8")).toBe("garbage");
+    expect(readFileSync(`${db}.lock.reclaim`, "utf8")).toBe(mutex);
+  }, 30_000);
+
   it("removes a reclaim mutex abandoned by a crashed reclaimer, then reclaims", () => {
     const db = join(tmp.dir, "b.db");
     plant(`${db}.lock`, lockJson({ pid: DEAD_PID }), 60_000);
     plant(`${db}.lock.reclaim`, JSON.stringify({ pid: DEAD_PID, token: "x" }), 60_000);
+    const lock = acquireLock(db);
+    expect(JSON.parse(readFileSync(lock.path, "utf8"))).toMatchObject({ pid: process.pid });
+    expect(existsSync(`${db}.lock.reclaim`)).toBe(false);
+    lock.release();
+    expect(existsSync(lock.path)).toBe(false);
+  });
+
+  it("reclaims an aged mutex with a PID outside the operating system range", () => {
+    const db = join(tmp.dir, "invalid-reclaimer.db");
+    plant(`${db}.lock`, "garbage", 60_000);
+    plant(`${db}.lock.reclaim`, JSON.stringify({ pid: 2 ** 31, token: "invalid" }), 60_000);
     const lock = acquireLock(db);
     expect(JSON.parse(readFileSync(lock.path, "utf8"))).toMatchObject({ pid: process.pid });
     expect(existsSync(`${db}.lock.reclaim`)).toBe(false);

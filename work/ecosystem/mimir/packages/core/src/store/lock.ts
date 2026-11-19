@@ -159,8 +159,17 @@ function withReclaimMutex(path: string, fn: () => void): boolean {
   const token = randomUUID();
   if (!tryCreate(mutex, JSON.stringify({ pid: process.pid, token }), token)) {
     const snap = snapshot(mutex);
-    // A reclaimer that crashed mid-reclaim; reclaims take milliseconds.
-    if (snap && Date.now() - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS) {
+    // Age alone does not prove abandonment: a live reclaimer may be delayed by slow I/O.
+    // Keep its mutex even after the grace period, otherwise two reclaimers can unlink
+    // different owners' database locks concurrently.
+    const pid = snap?.owner?.pid;
+    const abandoned =
+      typeof pid !== "number" ||
+      !Number.isInteger(pid) ||
+      pid <= 0 ||
+      pid > 0x7fff_ffff ||
+      provablyDead(pid);
+    if (snap && abandoned && Date.now() - snap.mtimeMs > RECLAIM_MUTEX_STALE_MS) {
       const again = snapshot(mutex);
       if (again?.raw === snap.raw && again.mtimeMs === snap.mtimeMs) unlinkQuiet(mutex);
     }

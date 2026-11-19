@@ -12,7 +12,7 @@ if [ -n "${VIKING_DEBUG:-}" ] && [ -n "${VIKING_SIGN_IDENTITY:-}" ]; then
 fi
 mkdir -p "$out"
 out=$(cd "$out" && pwd -P)
-swift=(xcrun swiftc -module-cache-path "$out/swift-cache" -parse-as-library -target arm64-apple-macosx13.0)
+swift=(xcrun swiftc -module-cache-path "$out/swift-cache" -parse-as-library -target arm64-apple-macosx13.5)
 # VIKING_DEBUG=1 builds without optimisation and lets Safari's Web Inspector attach to the factory window.
 if [ -n "${VIKING_DEBUG:-}" ]; then swift+=(-Onone -g -D DEBUG); else swift+=(-O); fi
 # Compiler output, tests and debug symbols stay outside the app bundle.
@@ -79,7 +79,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>$version</string>
 <key>CFBundleVersion</key><string>$build_number</string>
-<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>LSMinimumSystemVersion</key><string>13.5</string>
 <key>LSUIElement</key><true/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSDownloadsFolderUsageDescription</key><string>Files you download from the factory window are saved to Downloads.</string>

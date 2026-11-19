@@ -91,4 +91,8 @@ The demo uses explicitly synthetic data on port 4322. The runtime uses Node HTTP
 
 ## Experimental release status
 
-The experimental public source prerelease is `v0.1.0`. See [release scope and setup](RELEASE-v0.1.0.md) for tested behavior and acceptance limits. Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental.
+The current experimental source preview is `v0.2.0`. See [release scope and setup](RELEASE-v0.2.0.md) for changes and verification details.
+
+For a prebuilt installation, [download Viking Factory 0.3.0 for Apple silicon](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/download/v0.3.0/Viking-Factory-Setup-0.3.0-macos-arm64.zip) (macOS 13.5 or later). The coordinated installer includes this component and the native companion.
+
+Manual accessibility testing is pending. Vendor integrations without authenticated live acceptance remain experimental. Historical acceptance results remain labeled separately.

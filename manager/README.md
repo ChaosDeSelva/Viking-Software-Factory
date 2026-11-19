@@ -1,8 +1,8 @@
 # Viking Factory Manager
 
-A Rust management CLI and native macOS menu bar companion for installing and operating compatible factory bundles. The companion calls the same CLI used in automation. It is intended for Apple silicon Macs running macOS 13 or newer.
+A Rust management CLI and native macOS menu bar companion for installing and operating compatible factory bundles. The companion calls the same CLI used in automation. It is intended for Apple silicon Macs running macOS 13.5 or newer.
 
-The v0.2.0 preview has passed lifecycle tests, a disposable real Codex mission and a live GitHub download and update acceptance. See [acceptance evidence](docs/acceptance.md) for the exact scope. The companion is Developer ID signed and notarized with a pinned update public key. Download the setup archive from the [v0.2.0 release](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/tag/v0.2.0). Existing v0.1.0 source releases do not contain installable runtime assets.
+The v0.2.0 preview has passed lifecycle tests, a disposable real Codex mission and a live GitHub download and update acceptance. See [acceptance evidence](docs/acceptance.md) for the exact scope. The companion is Developer ID signed and notarized with a pinned update public key. Download the current setup archive from the [v0.3.0 release](https://github.com/ChaosDeSelva/Viking-Software-Factory/releases/tag/v0.3.0). The bundled Node runtime requires macOS 13.5 or newer. Existing v0.1.0 source releases do not contain installable runtime assets.
 
 ## Local development
 

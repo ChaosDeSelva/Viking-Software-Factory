@@ -1,31 +1,50 @@
 [
   {
     "project": "mimir",
-    "files": 642,
-    "baseCommit": "3ec5e48f8a031d2c241dcf68fbaf878dc43fb2d4",
-    "includesWorkingChanges": true
+    "repository": "https://github.com/ChaosDeSelva/Mimir",
+    "commit": "7e0ac0f590db03e82b926c8fc457df7046b02e1f",
+    "releaseTag": "v0.2.0",
+    "integratedSource": "work/ecosystem/mimir"
   },
   {
     "project": "sindri",
-    "files": 460,
-    "baseCommit": "55bec27e7640035fe553f180d591e2a04721d0dd",
-    "includesWorkingChanges": true
+    "repository": "https://github.com/ChaosDeSelva/Sindri",
+    "commit": "ff6309a553f21dd0afc6601e09cc589ed2cf8162",
+    "releaseTag": "v0.2.0",
+    "integratedSource": "work/ecosystem/sindri"
   },
   {
     "project": "brokkr",
-    "files": 472,
-    "baseCommit": "99e00ad4ac3a212eb1e0c85f766a3514b9653cf1",
-    "includesWorkingChanges": true
+    "repository": "https://github.com/ChaosDeSelva/Brokkr",
+    "commit": "0abe009d8d57311cbb030bb5f5712e2ecb398386",
+    "releaseTag": "v0.2.0",
+    "integratedSource": "work/ecosystem/brokkr"
   },
   {
     "project": "heimdall",
-    "files": 77,
-    "baseCommit": "ff154efdd0fc94b2eadc1cf6c727869a4b334633",
-    "includesWorkingChanges": true
+    "repository": "https://github.com/ChaosDeSelva/Heimdall",
+    "commit": "b71b8637a171356a1d8c7fe5d00c230dc60b8bcb",
+    "releaseTag": "v0.2.0",
+    "integratedSource": "outputs/heimdall",
+    "integrationAdaptation": "Embedded tests use the umbrella repository sibling-source paths; standalone tests use independent repository paths."
   },
   {
     "project": "skidbladnir",
-    "files": 66,
-    "includesWorkingChanges": true
+    "repository": "https://github.com/ChaosDeSelva/Skidbladnir",
+    "commit": "8874e26a8618a6f4cb95e440c27d733e64051bf4",
+    "releaseTag": "v0.2.0",
+    "integratedSource": "outputs/skidbladnir"
+  },
+  {
+    "project": "bifrost",
+    "repository": "https://github.com/ChaosDeSelva/Bifrost",
+    "commit": "7563b50cb635768017fbe2ecb396d035a06e70b4",
+    "releaseTag": "v0.2.0"
+  },
+  {
+    "project": "hulder",
+    "repository": "https://github.com/ChaosDeSelva/Hulder",
+    "commit": "4456d818b56e071d4dc2e90d31ee31fb2bf28c8a",
+    "releaseTag": "v0.1.7"
   }
 ]

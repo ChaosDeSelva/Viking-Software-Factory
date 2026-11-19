@@ -639,7 +639,7 @@ packages:
     engines: {node: '>=25'}
 
   '@brokkr/registry@file:vendor/brokkr/brokkr-registry-0.1.0.tgz':
-    resolution: {integrity: sha512-XJg47xogx0oMdXCKkLDLo6+bcJCty5/Lzt9F/pX8+U0QUWsSQzIEg9t1dfAqQzUDx2KbPljmkp/QO1cTcL5CkQ==, tarball: file:vendor/brokkr/brokkr-registry-0.1.0.tgz}
+    resolution: {integrity: sha512-qbO+YtR4tVttdqQztlzRbHBNq2s9udQBjBK1IOMj1bHZucHLq6X0uYrlASbakv0Vj1JA2CkNaIyI552bA4YPjA==, tarball: file:vendor/brokkr/brokkr-registry-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
@@ -654,7 +654,7 @@ packages:
     engines: {node: '>=25'}
 
   '@brokkr/runner@file:vendor/brokkr/brokkr-runner-0.1.0.tgz':
-    resolution: {integrity: sha512-MUYAg9CWRVjxyOTkexmrB22Gle1H9sQABa7vjtqLB77p091df0+l7pTLozA+uf074S14uDSXM5CCJlEUAo1UqQ==, tarball: file:vendor/brokkr/brokkr-runner-0.1.0.tgz}
+    resolution: {integrity: sha512-ErtmuTRL3pTE8zvpUxSvXyF35Q4+rAXYCuQCqW+/80RsdAh3pEcs7VHZtjsI9WTzTZ/aDHVDYtOmgsm39y755g==, tarball: file:vendor/brokkr/brokkr-runner-0.1.0.tgz}
     version: 0.1.0
     engines: {node: '>=25'}
 
